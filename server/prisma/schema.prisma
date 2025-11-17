@@ -6,14 +6,16 @@ generator client {
 // Make sure to set the correct DATABASE_URL in your .env file
 // After swapping run `yarn prisma:setup` from the root directory to migrate the database
 //
-// datasource db {
-//   provider = "postgresql"
-//   url      = env("DATABASE_URL")
-// }
 datasource db {
-  provider = "sqlite"
-  url      = "file:../storage/anythingllm.db"
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
+
+// datasource db {
+//  provider = "sqlite"
+//  url      = "file:../storage/chikoroai.db"
+// }
 
 model api_keys {
   id            Int      @id @default(autoincrement())
@@ -21,6 +23,21 @@ model api_keys {
   createdBy     Int?
   createdAt     DateTime @default(now())
   lastUpdatedAt DateTime @default(now())
+}
+
+model payment_logs {
+  id                         Int      @id @default(autoincrement())
+  student_id                 Int
+  amount                     Float
+  payment_method             String
+  subscription_plan          String? // 🆕 add this
+  subscription_duration_days Int? // 🆕 add this
+  recorded_by                Int
+  notes                      String?
+  created_at                 DateTime @default(now())
+
+  student  students @relation(fields: [student_id], references: [id])
+  recorder users    @relation(fields: [recorded_by], references: [id])
 }
 
 model workspace_documents {
@@ -36,6 +53,48 @@ model workspace_documents {
   lastUpdatedAt        DateTime              @default(now())
   workspace            workspaces            @relation(fields: [workspaceId], references: [id])
   document_sync_queues document_sync_queues?
+}
+
+model quiz_results {
+  id                Int      @id @default(autoincrement())
+  user_id           Int
+  subject           String
+  score             Int
+  total_questions   Int
+  correct_answers   Int
+  quiz_code         String?
+  shared_quiz_id    Int?
+  submitted_at      DateTime @default(now())
+  detailed_feedback Json?
+
+  user            users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  shared_quiz     shared_quizzes?   @relation(fields: [shared_quiz_id], references: [id])
+  feedbacks       quiz_feedback[]
+  teacher_reviews teacher_reviews[]
+}
+
+model teacher_reviews {
+  id              Int     @id @default(autoincrement())
+  quiz_result_id  Int
+  question_index  Int
+  answer_text     String
+  reviewed        Boolean @default(false)
+  teacher_comment String?
+  marks_awarded   Int?
+
+  quiz_result quiz_results @relation(fields: [quiz_result_id], references: [id], onDelete: Cascade)
+}
+
+model quiz_feedback {
+  id             Int          @id @default(autoincrement())
+  quiz_result_id Int
+  question       String
+  user_answer    String
+  correct_answer String?
+  feedback       String?
+  is_correct     Boolean
+  createdAt      DateTime     @default(now())
+  quiz_results   quiz_results @relation(fields: [quiz_result_id], references: [id], onDelete: Cascade)
 }
 
 model invites {
@@ -84,6 +143,14 @@ model users {
   prompt_history              prompt_history[]
   desktop_mobile_devices      desktop_mobile_devices[]
   workspace_parsed_files      workspace_parsed_files[]
+
+  students      students[]
+  teachers      teachers[]
+  parents       parents[]
+  notifications notifications[]
+
+  quiz_results quiz_results[]
+  payment_logs payment_logs[]
 }
 
 model recovery_codes {
@@ -113,6 +180,14 @@ model document_vectors {
   vectorId      String
   createdAt     DateTime @default(now())
   lastUpdatedAt DateTime @default(now())
+}
+
+model vector_table {
+  id        Int                         @id @default(autoincrement())
+  name      String
+  embedding Unsupported("vector(4096)")
+  metadata  Json?
+  createdAt DateTime                    @default(now())
 }
 
 model welcome_messages {
@@ -390,4 +465,154 @@ model workspace_parsed_files {
 
   @@index([workspaceId])
   @@index([userId])
+}
+
+enum SubscriptionStatus {
+  pending
+  paid
+  none
+}
+
+model students {
+  id            Int      @id @default(autoincrement())
+  name          String
+  age           Int
+  academicLevel String
+  curriculum    String
+  grade         String
+  user_id       Int
+  createdAt     DateTime @default(now())
+  user          users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  teacher_students teacher_students[]
+  parent_students  parent_students[]
+  linkCodes        student_link_codes[]
+
+  subscription_status           SubscriptionStatus         @default(none)
+  subscription_plan             String? // "premium" | "school basic"
+  subscription_expiration_date  DateTime?
+  subscription_payment_poll_url String?                    @db.Text
+  subscription_updated_at       DateTime                   @updatedAt
+  student_quiz_assignments      student_quiz_assignments[]
+  payment_logs                  payment_logs[]
+
+  @@index([user_id])
+  @@map("students")
+}
+
+model teachers {
+  id        Int      @id @default(autoincrement())
+  name      String
+  school    String
+  user_id   Int
+  createdAt DateTime @default(now())
+  user      users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  teacher_students teacher_students[]
+  class_links      class_links[]
+  shared_quizzes   shared_quizzes[]
+
+  @@index([user_id])
+}
+
+model parents {
+  id          Int      @id @default(autoincrement())
+  name        String
+  studentName String?
+  user_id     Int
+  createdAt   DateTime @default(now())
+  user        users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  parent_students parent_students[]
+
+  @@index([user_id])
+}
+
+model teacher_students {
+  id        Int      @id @default(autoincrement())
+  teacherId Int
+  studentId Int
+  subject   String?
+  createdAt DateTime @default(now())
+
+  teacher teachers @relation(fields: [teacherId], references: [id])
+  student students @relation(fields: [studentId], references: [id])
+
+  @@unique([teacherId, studentId, subject])
+}
+
+model shared_quizzes {
+  id                Int      @id @default(autoincrement())
+  teacher_id        Int
+  quiz_code         String   @unique
+  subject           String
+  topic             String
+  difficulty        String?
+  quiz_content      String
+  is_class_specific Boolean  @default(false)
+  created_at        DateTime @default(now())
+
+  teacher             teachers                   @relation(fields: [teacher_id], references: [id])
+  student_assignments student_quiz_assignments[]
+  quiz_results        quiz_results[]
+}
+
+model student_quiz_assignments {
+  id          Int      @id @default(autoincrement())
+  quiz_id     Int
+  student_id  Int
+  assigned_at DateTime @default(now())
+  completed   Boolean  @default(false)
+
+  quiz    shared_quizzes @relation(fields: [quiz_id], references: [id])
+  student students       @relation(fields: [student_id], references: [id])
+}
+
+model student_link_codes {
+  id        Int       @id @default(autoincrement())
+  studentId Int       @map("student_id")
+  code      String    @unique @db.VarChar(8)
+  expiresAt DateTime  @map("expires_at")
+  used      Boolean   @default(false)
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  student students @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@map("student_link_codes")
+}
+
+model notifications {
+  id        Int      @id @default(autoincrement())
+  user      users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  type      String?  @default("general")
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model parent_students {
+  id        Int      @id @default(autoincrement())
+  parentId  Int
+  studentId Int
+  createdAt DateTime @default(now())
+  linkedAt  DateTime @default(now()) @map("linked_at")
+
+  parent  parents  @relation(fields: [parentId], references: [id])
+  student students @relation(fields: [studentId], references: [id])
+
+  @@unique([parentId, studentId])
+}
+
+model class_links {
+  id        Int      @id @default(autoincrement())
+  teacherId Int
+  subject   String
+  classCode String   @unique
+  createdAt DateTime @default(now())
+
+  teacher teachers @relation(fields: [teacherId], references: [id], onDelete: Cascade)
 }

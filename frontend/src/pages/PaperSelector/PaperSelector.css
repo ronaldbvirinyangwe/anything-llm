@@ -1,0 +1,144 @@
+.paper-selector {
+  display: flex;
+  background-color: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.main-content {
+  flex: 1;
+  padding: 1.5rem;
+  transition: margin-left 0.3s ease;
+}
+
+.main-content.collapsed {
+  margin-left: 80px;
+}
+
+.paper-selector-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Filters */
+.filters-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.filter-btn {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 1rem;
+  margin: 0.3rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.filter-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+/* Grid Layout */
+.paper-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1.2rem;
+}
+
+.paper-card {
+  background: var(--card-bg);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease;
+}
+
+.paper-card:hover {
+  transform: scale(1.03);
+}
+
+.paper-thumbnail img {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+}
+
+.paper-badge {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  border-radius: 6px;
+}
+
+.paper-info {
+  padding: 0.8rem;
+}
+
+/* Modal */
+.preview-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.preview-content {
+  background: white;
+  color: black;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 800px;
+  padding: 1.5rem;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.close-button {
+  background: transparent;
+  border: none;
+  font-size: 1.8rem;
+  cursor: pointer;
+}
+
+.pdf-preview-container {
+  margin-top: 1rem;
+}
+
+.proceed-button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 0.7rem 1.2rem;
+  border-radius: 8px;
+  margin-top: 1rem;
+  cursor: pointer;
+  transition: 0.3s ease;
+}
+
+.proceed-button:hover {
+  background: var(--accent-dark);
+}
+
+.empty-state {
+  text-align: center;
+  margin-top: 3rem;
+  color: var(--text-muted);
+}

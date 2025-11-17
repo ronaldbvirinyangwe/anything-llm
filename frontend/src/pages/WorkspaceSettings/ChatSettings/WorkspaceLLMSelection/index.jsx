@@ -40,7 +40,7 @@ export default function WorkspaceLLMSelection({
 }) {
   const [filteredLLMs, setFilteredLLMs] = useState([]);
   const [selectedLLM, setSelectedLLM] = useState(
-    workspace?.chatProvider ?? "default"
+    workspace?.chatProvider ?? "ollama"
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
@@ -69,6 +69,26 @@ export default function WorkspaceLLMSelection({
     setFilteredLLMs(filtered);
   }, [LLMS, searchQuery, selectedLLM]);
   const selectedLLMObject = LLMS.find((llm) => llm.value === selectedLLM);
+
+ useEffect(() => {
+  async function ensureOllamaSet() {
+    // Only auto-save if workspace has no provider
+    if (!workspace?.chatProvider) {
+      try {
+        await fetch(`/api/workspaces/${workspace.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chatProvider: "ollama" }),
+        });
+        console.log("✅ Defaulted workspace provider to Ollama");
+      } catch (err) {
+        console.error("Failed to auto-set Ollama:", err);
+      }
+    }
+  }
+
+  ensureOllamaSet();
+}, [workspace]);
 
   return (
     <div className="border-b border-white/40 pb-8">

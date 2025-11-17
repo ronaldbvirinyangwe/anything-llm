@@ -35,7 +35,7 @@ class OllamaAILLM {
       fetch: this.#applyFetch(),
     });
     this.embedder = embedder ?? new NativeEmbedder();
-    this.defaultTemp = 0.7;
+    this.defaultTemp = 0.3;
 
     OllamaAILLM.cacheContextWindows(true).then(() => {
       this.limits = {

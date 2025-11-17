@@ -209,7 +209,7 @@ export default function GeneralEmbeddingPreference() {
     async function fetchKeys() {
       const _settings = await System.keys();
       setSettings(_settings);
-      setSelectedEmbedder(_settings?.EmbeddingEngine || "native");
+      setSelectedEmbedder(_settings?.EmbeddingEngine || "ollama");
       setHasEmbeddings(_settings?.HasExistingEmbeddings || false);
       setHasCachedEmbeddings(_settings?.HasCachedEmbeddings || false);
       setLoading(false);

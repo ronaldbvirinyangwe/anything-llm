@@ -124,6 +124,19 @@ const ROLE_HINT = {
     "Highest user level privilege.",
     "Can see and do everything across the system.",
   ],
+  student : [
+    "Can send chats and access learning materials assigned to them.",
+    "Cannot modify any settings or access admin/manager features.",
+  ],
+  teacher : [
+    "Can create and manage learning materials for students.",
+    "Can view student progress and performance reports.",
+    "Cannot modify system-wide settings or access admin features.",
+  ],
+  parent : [
+    "Can view their child's progress and performance reports.",
+    "Cannot send chats or modify any settings.",
+  ],
 };
 
 export function RoleHintDisplay({ role }) {

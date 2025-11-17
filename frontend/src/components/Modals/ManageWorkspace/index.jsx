@@ -103,9 +103,9 @@ const ManageWorkspace = ({ hideModal = noop, providedSlug = null }) => {
 
           {selectedTab === "documents" ? (
             <DocumentSettings workspace={workspace} systemSettings={settings} />
-          ) : (
-            <DataConnectors workspace={workspace} systemSettings={settings} />
-          )}
+          ) 
+          : (<DataConnectors workspace={workspace} systemSettings={settings} />)
+            }
         </div>
       </div>
     </div>

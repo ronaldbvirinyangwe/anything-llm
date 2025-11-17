@@ -109,10 +109,10 @@ export default function RenderMetrics({ metrics = {} }) {
       }
       className={`border-none flex justify-end items-center gap-x-[8px] ${showMetricsAutomatically ? "opacity-100" : "opacity-0"} md:group-hover:opacity-100 transition-all duration-300`}
     >
-      <p className="cursor-pointer text-xs font-mono text-theme-text-secondary opacity-50">
+      {/* <p className="cursor-pointer text-xs font-mono text-theme-text-secondary opacity-50">
         {formatDuration(metrics.duration)} ({formatTps(metrics.outputTps)}{" "}
         tok/s)
-      </p>
+      </p> */}
     </button>
   );
 }

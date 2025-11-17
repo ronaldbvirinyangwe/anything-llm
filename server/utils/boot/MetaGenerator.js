@@ -45,21 +45,21 @@ class MetaGenerator {
       {
         tag: "title",
         props: null,
-        content: "AnythingLLM | Your personal LLM trained on anything",
+        content: "ChikoroAI",
       },
 
       {
         tag: "meta",
         props: {
           name: "title",
-          content: "AnythingLLM | Your personal LLM trained on anything",
+          content: "ChikoroAI",
         },
       },
       {
         tag: "meta",
         props: {
           description: "title",
-          content: "AnythingLLM | Your personal LLM trained on anything",
+          content: "ChikoroAI",
         },
       },
 
@@ -67,20 +67,20 @@ class MetaGenerator {
       { tag: "meta", props: { property: "og:type", content: "website" } },
       {
         tag: "meta",
-        props: { property: "og:url", content: "https://anythingllm.com" },
+        props: { property: "og:url", content: "https://chikoroai.com" },
       },
       {
         tag: "meta",
         props: {
           property: "og:title",
-          content: "AnythingLLM | Your personal LLM trained on anything",
+          content: "ChikoroAI",
         },
       },
       {
         tag: "meta",
         props: {
           property: "og:description",
-          content: "AnythingLLM | Your personal LLM trained on anything",
+          content: "ChikoroAI",
         },
       },
       {
@@ -99,20 +99,20 @@ class MetaGenerator {
       },
       {
         tag: "meta",
-        props: { property: "twitter:url", content: "https://anythingllm.com" },
+        props: { property: "twitter:url", content: "https://chikoroai.com" },
       },
       {
         tag: "meta",
         props: {
           property: "twitter:title",
-          content: "AnythingLLM | Your personal LLM trained on anything",
+          content: "ChikoroAI",
         },
       },
       {
         tag: "meta",
         props: {
           property: "twitter:description",
-          content: "AnythingLLM | Your personal LLM trained on anything",
+          content: "ChikoroAI",
         },
       },
       {
@@ -191,7 +191,7 @@ class MetaGenerator {
           props: null,
           content:
             customTitle ??
-            "AnythingLLM | Your personal LLM trained on anything",
+            "ChikoroAI",
         },
       ];
     }

@@ -1,10 +1,10 @@
 {
-  "name": "anything-llm",
-  "version": "1.9.0",
-  "description": "The best solution for turning private documents into a chat bot using off-the-shelf tools and commercially viable AI technologies.",
+  "name": "chikoro-ai",
+  "version": "1.0.0",
+  "description": "AI tutoring platform focused on enhancing student learning experiences through personalized AI interactions.",
   "main": "index.js",
   "type": "module",
-  "author": "Timothy Carambat (Mintplex Labs)",
+  "author": "Ronald Bvirinyangwe",
   "license": "MIT",
   "engines": {
     "node": ">=18"
@@ -34,5 +34,8 @@
   "devDependencies": {
     "concurrently": "^9.1.2",
     "jest": "^29.7.0"
+  },
+  "dependencies": {
+    "zustand": "^5.0.8"
   }
 }

@@ -18,10 +18,10 @@ const PGVector = {
   connectionTimeout: 30_000,
   /**
    * Get the table name for the PGVector database.
-   * - Defaults to "anythingllm_vectors" if no table name is provided.
+   * - Defaults to "vector_table" if no table name is provided.
    * @returns {string}
    */
-  tableName: () => process.env.PGVECTOR_TABLE_NAME || "anythingllm_vectors",
+  tableName: () => process.env.PGVECTOR_TABLE_NAME || "vector_table",
 
   /**
    * Get the connection string for the PGVector database.
@@ -418,6 +418,38 @@ const PGVector = {
    * @param {number} params.dimensions
    * @returns {Promise<boolean>}
    */
+
+  // Map columns for the current embedding table
+getTableColumnMap: async function (connection) {
+  const res = await connection.query(
+    `SELECT column_name, is_nullable, column_default
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = $1`,
+    [PGVector.tableName()]
+  );
+  const map = {};
+  for (const r of res.rows) map[r.column_name] = r;
+  return map;
+},
+
+// Derive a sensible name for the row
+deriveName: function (meta, fallback) {
+  const safe = (s) => String(s).slice(0, 255); // keep it short
+  if (!meta) return safe(fallback || "untitled");
+  if (meta.title) return safe(meta.title);
+  if (meta.fileName) return safe(meta.fileName);
+  if (meta.sourceDocument) return safe(meta.sourceDocument);
+  if (meta.url) {
+    try {
+      const u = new URL(meta.url);
+      const base = u.pathname.split("/").pop();
+      if (base) return safe(base);
+    } catch {}
+  }
+  if (meta.id) return safe(meta.id);
+  return safe(fallback || "untitled");
+},
+
   updateOrCreateCollection: async function ({
     connection,
     submissions,
@@ -429,17 +461,48 @@ const PGVector = {
 
     try {
       // Create a transaction of all inserts
-      await connection.query(`BEGIN`);
-      for (const submission of submissions) {
-        const embedding = `[${submission.vector.map(Number).join(",")}]`; // stringify the vector for pgvector
-        const sanitizedMetadata = this.sanitizeForJsonb(submission.metadata);
-        await connection.query(
-          `INSERT INTO "${PGVector.tableName()}" (id, namespace, embedding, metadata) VALUES ($1, $2, $3, $4)`,
-          [submission.id, namespace, embedding, sanitizedMetadata]
-        );
-      }
-      this.log(`Committing ${submissions.length} vectors to ${namespace}`);
-      await connection.query(`COMMIT`);
+     await connection.query(`BEGIN`);
+
+const colMap = await this.getTableColumnMap(connection);
+const hasName = !!colMap["name"];
+
+// Build the SQL depending on whether `name` exists
+const cols = hasName
+  ? ['id', 'name', 'namespace', 'embedding', 'metadata']
+  : ['id', 'namespace', 'embedding', 'metadata'];
+const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+const upserts = [
+  ...(hasName ? ['name = EXCLUDED.name'] : []),
+  'namespace = EXCLUDED.namespace',
+  'embedding = EXCLUDED.embedding',
+  'metadata = EXCLUDED.metadata',
+].join(', ');
+
+const insertSql = `
+  INSERT INTO "${PGVector.tableName()}" (${cols.join(', ')})
+  VALUES (${placeholders})
+  ON CONFLICT (id) DO UPDATE SET ${upserts}
+`;
+
+for (const submission of submissions) {
+  const embedding = `[${submission.vector.map(Number).join(",")}]`;
+  const sanitizedMetadata = this.sanitizeForJsonb(submission.metadata);
+
+  const values = hasName
+    ? [
+        submission.id,
+        this.deriveName(sanitizedMetadata, submission.id),
+        namespace,
+        embedding,
+        sanitizedMetadata,
+      ]
+    : [submission.id, namespace, embedding, sanitizedMetadata];
+
+  await connection.query(insertSql, values);
+}
+
+this.log(`Committing ${submissions.length} vectors to ${namespace}`);
+await connection.query(`COMMIT`);
     } catch (err) {
       this.log(
         `Rolling back ${submissions.length} vectors to ${namespace}`,

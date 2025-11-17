@@ -19,12 +19,22 @@ function useIsAuthenticated() {
 
   useEffect(() => {
     const validateSession = async () => {
-      const {
-        MultiUserMode,
-        RequiresAuth,
-        LLMProvider = null,
-        VectorDB = null,
-      } = await System.keys();
+       const {
+    MultiUserMode,
+    RequiresAuth,
+    LLMProvider = null,
+    VectorDB = null,
+  } = await System.keys();
+
+  // ✅ Auto-select Ollama if none is set
+  if (!LLMProvider || LLMProvider.trim() === "") {
+    try {
+      await System.updateSystem({ LLMProvider: "ollama" });
+      console.log("✅ Ollama automatically set as default LLM provider");
+    } catch (err) {
+      console.error("Error setting default provider:", err);
+    }
+  }
 
       setMultiUserMode(MultiUserMode);
 

@@ -272,32 +272,23 @@ async function streamChatWithWorkspace(
     metrics = stream.metrics;
   }
 
-  if (completeText?.length > 0) {
-    const { chat } = await WorkspaceChats.new({
-      workspaceId: workspace.id,
-      prompt: message,
-      response: {
-        text: completeText,
-        sources,
-        type: chatMode,
-        attachments,
-        metrics,
-      },
-      threadId: thread?.id || null,
-      user,
-    });
-
-    writeResponseChunk(response, {
-      uuid,
-      type: "finalizeResponseStream",
-      close: true,
-      error: false,
-      chatId: chat.id,
+if (completeText?.length > 0) {
+  // 🧠 Save chat
+  const { chat } = await WorkspaceChats.new({
+    workspaceId: workspace.id,
+    prompt: message,
+    response: {
+      text: completeText,
+      sources,
+      type: chatMode,
+      attachments,
       metrics,
-    });
-    return;
-  }
+    },
+    threadId: thread?.id || null,
+    user,
+  });
 
+  // ✅ Stream a normal completion
   writeResponseChunk(response, {
     uuid,
     type: "finalizeResponseStream",
@@ -305,7 +296,32 @@ async function streamChatWithWorkspace(
     error: false,
     metrics,
   });
-  return;
+
+  // ✅ Try to detect tool_call JSON (e.g. { "tool_call": "quiz_create", ... })
+  let parsedResponse = {};
+  try {
+    parsedResponse = JSON.parse(completeText);
+  } catch {
+    parsedResponse = { text: completeText };
+  }
+
+  // If it contains a tool_call, return it so chatEndpoints can trigger that flow
+  if (parsedResponse?.tool_call) {
+    console.log(`🧩 Detected tool call: ${parsedResponse.tool_call}`);
+  }
+
+  return parsedResponse;
+}
+
+// fallback finalize
+writeResponseChunk(response, {
+  uuid,
+  type: "finalizeResponseStream",
+  close: true,
+  error: false,
+  metrics,
+});
+return;
 }
 
 module.exports = {

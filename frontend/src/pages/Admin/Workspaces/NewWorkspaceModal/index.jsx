@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { X } from "@phosphor-icons/react";
-import Admin from "@/models/admin";
+import System from "@/models/system";
 import { useTranslation } from "react-i18next";
 
 export default function NewWorkspaceModal({ closeModal }) {
@@ -10,7 +10,7 @@ export default function NewWorkspaceModal({ closeModal }) {
     setError(null);
     e.preventDefault();
     const form = new FormData(e.target);
-    const { workspace, error } = await Admin.newWorkspace(form.get("name"));
+    const { workspace, error } = await System.newWorkflow(form.get("name"));
     if (!!workspace) window.location.reload();
     setError(error);
   };

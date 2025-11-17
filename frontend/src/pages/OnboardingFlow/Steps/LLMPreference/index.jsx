@@ -302,13 +302,20 @@ export default function LLMPreference({
   const DESCRIPTION = t("onboarding.llm.description");
 
   useEffect(() => {
-    async function fetchKeys() {
-      const _settings = await System.keys();
-      setSettings(_settings);
-      setSelectedLLM(_settings?.LLMProvider || "openai");
+  async function fetchKeys() {
+    const _settings = await System.keys();
+    setSettings(_settings);
+
+    // Force Ollama as default if nothing or different is set
+    const currentProvider = _settings?.LLMProvider;
+    if (!currentProvider || currentProvider !== "ollama") {
+      await System.updateSystem({ LLMProvider: "ollama" });
     }
-    fetchKeys();
-  }, []);
+    setSelectedLLM("ollama");
+    setLoading(false);
+  }
+  fetchKeys();
+}, []);
 
   function handleForward() {
     if (hiddenSubmitButtonRef.current) {
@@ -327,8 +334,8 @@ export default function LLMPreference({
     const formData = new FormData(form);
     data.LLMProvider = selectedLLM;
     // Default to AnythingLLM embedder and LanceDB
-    data.EmbeddingEngine = "native";
-    data.VectorDB = "lancedb";
+    data.EmbeddingEngine = "ollama";
+    data.VectorDB = "pgvector";
     for (var [key, value] of formData.entries()) data[key] = value;
 
     const { error } = await System.updateSystem(data);

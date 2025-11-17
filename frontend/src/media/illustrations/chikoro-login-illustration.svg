@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <defs>
+    <!-- Themeable colors -->
+    <style>
+      :root {
+        --chikoro-green: #22C55E; /* Tailwind green-500-ish */
+        --chikoro-green-dark: #16A34A;
+        --ink: #0B0B0F;
+        --white: #FFFFFF;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ink: #F8FAFC;
+        }
+      }
+    </style>
+    <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="var(--chikoro-green)" />
+      <stop offset="100%" stop-color="var(--chikoro-green-dark)" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="var(--chikoro-green)" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="var(--chikoro-green)" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+
+  <!-- Subtle background glow (transparent overall) -->
+  <circle cx="400" cy="300" r="220" fill="url(#glow)"/>
+
+  <!-- Floating decorative shapes -->
+  <g opacity="0.25">
+    <circle cx="170" cy="170" r="6" fill="var(--chikoro-green)" />
+    <circle cx="650" cy="160" r="4" fill="var(--chikoro-green)" />
+    <circle cx="640" cy="420" r="5" fill="var(--chikoro-green)" />
+    <circle cx="200" cy="450" r="4" fill="var(--chikoro-green)" />
+    <path d="M680 300 l12 0 m-6 -6 l0 12" stroke="var(--chikoro-green)" stroke-width="3" stroke-linecap="round"/>
+    <path d="M140 320 l10 0 m-5 -5 l0 10" stroke="var(--chikoro-green)" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <!-- Main ring -->
+  <g filter="url(#softShadow)">
+    <circle cx="400" cy="300" r="150" fill="none" stroke="url(#ringGrad)" stroke-width="18"/>
+    <circle cx="400" cy="300" r="150" fill="none" stroke="var(--white)" stroke-opacity="0.09" stroke-width="2"/>
+  </g>
+
+  <!-- Mascot: grad-bot -->
+  <g id="grad-bot" transform="translate(400,300)">
+    <!-- Body base -->
+    <path d="M -90 80 Q 0 115 90 80 Q 84 44 60 28 Q 40 15 0 15 Q -40 15 -60 28 Q -84 44 -90 80 Z"
+          fill="var(--white)"/>
+    <!-- Head -->
+    <rect x="-45" y="-40" rx="10" ry="10" width="90" height="85" fill="var(--white)"/>
+    <!-- Eyes -->
+    <circle cx="-16" cy="-4" r="9" fill="var(--ink)"/>
+    <circle cx="16" cy="-4" r="9" fill="var(--ink)"/>
+    <!-- Mortarboard cap -->
+    <g transform="translate(0,-58)">
+      <!-- Top board -->
+      <path d="M -85 0 L 0 -32 L 85 0 L 0 32 Z" fill="url(#ringGrad)"/>
+      <!-- Band -->
+      <rect x="-52" y="10" width="104" height="22" rx="6" ry="6" fill="var(--chikoro-green-dark)"/>
+      <!-- Simple tassel -->
+      <path d="M 72 0 C 72 20 80 38 92 48" stroke="var(--chikoro-green-dark)" stroke-width="6" stroke-linecap="round" fill="none"/>
+      <circle cx="92" cy="48" r="6" fill="var(--chikoro-green-dark)" />
+    </g>
+  </g>
+
+  <!-- Optional caption (can be removed) -->
+  <g aria-label="Chikoro AI • Refreshing Education" transform="translate(400,520)" text-anchor="middle">
+    <text font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell" font-size="28" fill="var(--ink)">
+      Chikoro <tspan fill="var(--chikoro-green)" font-weight="700">Ai</tspan>
+    </text>
+    <text y="28" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell" font-size="14" fill="var(--ink)" opacity="0.65">
+      Refreshing Education
+    </text>
+  </g>
+</svg>

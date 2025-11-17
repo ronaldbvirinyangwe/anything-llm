@@ -6,6 +6,7 @@ import { useRef, useEffect, useState } from "react";
 import useUser from "@/hooks/useUser";
 import { useModal } from "@/hooks/useModal";
 import SetupProvider from "./SetupProvider";
+import System from "@/models/system";
 
 export const TOGGLE_LLM_SELECTOR_EVENT = "toggle_llm_selector";
 export const SAVE_LLM_SELECTOR_EVENT = "save_llm_selector";
@@ -23,7 +24,7 @@ export default function LLMSelectorAction() {
   } = useModal();
   const [config, setConfig] = useState({
     settings: {},
-    provider: null,
+    provider: "ollama",
   });
 
   function toggleLLMSelectorTooltip() {
@@ -84,6 +85,25 @@ export default function LLMSelectorAction() {
       );
   }, []);
 
+ useEffect(() => {
+  async function ensureOllamaIsDefault() {
+    try {
+      const current = await System.keys();
+      // if no provider or blank string, set Ollama as default
+      if (!current?.LLMProvider || current.LLMProvider.trim() === "") {
+        await System.updateSystem({ LLMProvider: "ollama" });
+        console.log("✅ Ollama automatically set as default LLM provider");
+      } else {
+        console.log("ℹ️ LLM provider already set:", current.LLMProvider);
+      }
+    } catch (error) {
+      console.error("Error auto-setting Ollama provider:", error);
+    }
+  }
+
+  ensureOllamaIsDefault();
+}, []);
+
   // This feature is disabled for multi-user instances where the user is not an admin
   // This is because of the limitations of model selection currently and other nuances in controls.
   if (!!user && user.role !== "admin") return null;
@@ -117,7 +137,7 @@ export default function LLMSelectorAction() {
         }
         className="z-99 !w-[500px] !bg-theme-bg-primary !px-[5px] !rounded-lg !pointer-events-auto light:border-2 light:border-theme-modal-border"
       >
-        <LLMSelectorModal tooltipRef={tooltipRef} />
+        <LLMSelectorModal tooltipRef={tooltipRef} defaultProvider="ollama" />
       </Tooltip>
       <SetupProvider
         isOpen={isSetupProviderOpen}

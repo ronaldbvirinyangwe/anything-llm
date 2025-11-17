@@ -33,6 +33,7 @@ const { httpLogger } = require("./middleware/httpLogger");
 const app = express();
 const apiRouter = express.Router();
 const FILE_LIMIT = "3GB";
+const { connectedClients } = require("./utils/websocket");
 
 // Only log HTTP requests in development mode and if the ENABLE_HTTP_LOGGER environment variable is set to true
 if (
@@ -60,6 +61,33 @@ if (!!process.env.ENABLE_HTTPS) {
 } else {
   require("@mintplex-labs/express-ws").default(app); // load WebSockets in non-SSL mode.
 }
+
+// WebSocket endpoint
+app.ws("/ws/notifications", (ws, req) => {
+  console.log("Client connected");
+
+  // Listen for messages from client
+  ws.on("message", (msg) => {
+    try {
+      const data = JSON.parse(msg);
+      if (data.type === "register") {
+        // Store client connection by userId
+        connectedClients.set(data.userId, ws);
+        console.log("User registered for notifications:", data.userId);
+      }
+    } catch (err) {
+      console.error("Invalid message:", msg);
+    }
+  });
+
+  ws.on("close", () => {
+    // Remove closed connections
+    for (let [userId, clientWs] of connectedClients.entries()) {
+      if (clientWs === ws) connectedClients.delete(userId);
+    }
+    console.log("Client disconnected");
+  });
+});
 
 app.use("/api", apiRouter);
 systemEndpoints(apiRouter);

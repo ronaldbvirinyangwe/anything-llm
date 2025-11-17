@@ -7,11 +7,11 @@ import SystemPromptVariable from "./systemPromptVariable";
 
 const System = {
   cacheKeys: {
-    footerIcons: "anythingllm_footer_links",
-    supportEmail: "anythingllm_support_email",
-    customAppName: "anythingllm_custom_app_name",
-    canViewChatHistory: "anythingllm_can_view_chat_history",
-    deploymentVersion: "anythingllm_deployment_version",
+    footerIcons: "chikoroai_footer_links",
+    supportEmail: "chikoroai_support_email",
+    customAppName: "chikoroai_custom_app_name",
+    canViewChatHistory: "chikoroai_can_view_chat_history",
+    deploymentVersion: "chikoroai_deployment_version",
   },
   ping: async function () {
     return await fetch(`${API_BASE}/ping`)
@@ -159,6 +159,35 @@ const System = {
         return { success: false, error: e.message };
       });
   },
+  registerAccount: async function (username, password) {
+  try {
+    const res = await fetch(`${API_BASE}/system/register`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ username, password }),
+    });
+
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (e) {
+      data = {};
+    }
+
+    if (!res.ok) {
+      const errMsg =
+        data?.error ||
+        data?.message ||
+        `Server returned ${res.status}: ${res.statusText}`;
+      throw new Error(errMsg);
+    }
+
+    return data; // { success, user, token }
+  } catch (e) {
+    console.error("Registration failed:", e);
+    return { success: false, error: e.message };
+  }
+},
   setupMultiUser: async (data) => {
     return await fetch(`${API_BASE}/system/enable-multi-user`, {
       method: "POST",
@@ -346,31 +375,40 @@ const System = {
     );
     return { appName: customAppName, error: null };
   },
-  fetchLogo: async function () {
-    const url = new URL(`${fullApiUrl()}/system/logo`);
-    url.searchParams.append(
-      "theme",
-      localStorage.getItem("theme") || "default"
-    );
+ fetchLogo: async function () {
+  const url = new URL(`${fullApiUrl()}/system/logo`);
+  url.searchParams.append(
+    "theme",
+    localStorage.getItem("theme") || "default"
+  );
 
-    return await fetch(url, {
-      method: "GET",
-      cache: "no-cache",
-    })
-      .then(async (res) => {
-        if (res.ok && res.status !== 204) {
-          const isCustomLogo = res.headers.get("X-Is-Custom-Logo") === "true";
-          const blob = await res.blob();
-          const logoURL = URL.createObjectURL(blob);
-          return { isCustomLogo, logoURL };
-        }
-        throw new Error("Failed to fetch logo!");
-      })
-      .catch((e) => {
-        console.log(e);
+  return await fetch(url, {
+    method: "GET",
+    cache: "no-cache",
+  })
+    .then(async (res) => {
+      // ✅ 204 means "no custom logo" - this is normal, not an error
+      if (res.status === 204) {
         return { isCustomLogo: false, logoURL: null };
-      });
-  },
+      }
+      
+      // ✅ Handle successful logo fetch
+      if (res.ok) {
+        const isCustomLogo = res.headers.get("X-Is-Custom-Logo") === "true";
+        const blob = await res.blob();
+        const logoURL = URL.createObjectURL(blob);
+        return { isCustomLogo, logoURL };
+      }
+      
+      // ⚠️ Other errors (404, 500, etc.) - log but don't throw
+      console.warn(`Logo fetch returned ${res.status}: ${res.statusText}`);
+      return { isCustomLogo: false, logoURL: null };
+    })
+    .catch((e) => {
+      console.warn("Logo fetch failed:", e.message);
+      return { isCustomLogo: false, logoURL: null };
+    });
+},
   fetchPfp: async function (id) {
     return await fetch(`${API_BASE}/system/pfp/${id}`, {
       method: "GET",
@@ -797,6 +835,57 @@ const System = {
     agentPlugins: AgentPlugins,
   },
   promptVariables: SystemPromptVariable,
+};
+
+const API_BASE_URL = "http://localhost:3001";
+System.authenticatedFetch = async function (endpoint, options = {}) {
+  const token =
+    localStorage.getItem("authToken") || localStorage.getItem("AUTH_TOKEN");
+
+  const defaultHeaders = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers: { ...defaultHeaders, ...(options.headers || {}) },
+    });
+
+    // Defensive parsing — if not JSON, show raw output
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (err) {
+      console.error("⚠️ Non-JSON response from server:", text.slice(0, 200));
+      return { success: false, error: "Non-JSON response" };
+    }
+
+    return {
+      success: response.ok,
+      status: response.status,
+      ...data,
+    };
+  } catch (error) {
+    console.error("❌ authenticatedFetch error:", error);
+    return { success: false, error: "Network or server error" };
+  }
+};
+
+System.newWorkflow = async function (name) {
+  try {
+    const res = await this.authenticatedFetch("/system/create-workflow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    return res;
+  } catch (err) {
+    console.error("❌ newWorkflow error:", err);
+    return { success: false, error: "Failed to create workflow" };
+  }
 };
 
 export default System;

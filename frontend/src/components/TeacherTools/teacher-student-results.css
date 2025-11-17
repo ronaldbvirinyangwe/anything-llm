@@ -1,0 +1,239 @@
+/* ===============================
+   🌍 Base Container
+=============================== */
+.report-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem;
+  color: var(--text-primary);
+}
+
+.reports-nav {
+  margin-bottom: 1rem;
+}
+
+.back-btn {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.back-btn:hover {
+  color: var(--primary-hover);
+}
+
+/* ===============================
+   🏷 Header
+=============================== */
+.reports-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.reports-header h1 {
+  font-size: 1.8rem;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.reports-header p {
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+
+/* ===============================
+   🧠 Filter Section
+=============================== */
+.filter-section {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.filter-section label {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.filter-select {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+/* ===============================
+   🎓 Student Listing Grid
+=============================== */
+.students-section {
+  margin: 2rem 0;
+}
+
+.students-section h2 {
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+.students-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.student-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.student-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--primary-color);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.student-info h3 {
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  margin-bottom: 0.3rem;
+}
+
+.student-grade {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.student-subject {
+  color: var(--primary-color);
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-top: 0.25rem;
+}
+
+.student-arrow {
+  font-size: 1.4rem;
+  color: var(--primary-color);
+}
+
+/* ===============================
+   📊 Stats Cards (Report Page)
+=============================== */
+.stats-cards {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.stat-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  width: 180px;
+  text-align: center;
+  padding: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-3px);
+}
+
+.stat-card h3 {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.stat-card p {
+  color: var(--primary-color);
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+/* ===============================
+   📈 Chart + Summary
+=============================== */
+.chart-section,
+.ai-summary-section {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  border: 1px solid var(--border-color);
+}
+
+.chart-section h2,
+.ai-summary-section h2 {
+  font-size: 1.2rem;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+}
+.chart-section h2{
+    font-weight: 900;
+}
+.ai-summary-section h2 {
+  font-weight: 700;
+}
+.ai-summary-section p {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ===============================
+   🧾 Empty + Loading + Error
+=============================== */
+.loading-screen,
+.error-message,
+.empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-secondary);
+}
+
+.empty-state .link-btn {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--primary-color);
+  color: #fff;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.empty-state .link-btn:hover {
+  opacity: 0.9;
+}
+
+/* ===============================
+   🌙 Theme Variable Defaults
+=============================== */
+:root {
+  --primary-color: #2563eb;
+  --primary-hover: #1d4ed8;
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --card-bg: #ffffff;
+  --border-color: #e5e7eb;
+}
+.dark {
+  --card-bg: #1e293b;
+  --border-color: #334155;
+  --text-primary: #f9fafb;
+  --text-secondary: #9ca3af;
+}

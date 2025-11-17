@@ -81,29 +81,31 @@ const WorkspaceChats = {
     }
   },
 
-  forWorkspace: async function (
-    workspaceId = null,
-    limit = null,
-    orderBy = null
-  ) {
-    if (!workspaceId) return [];
-    try {
-      const chats = await prisma.workspace_chats.findMany({
-        where: {
-          workspaceId,
-          thread_id: null, // this function is now only used for the default thread on workspaces
-          api_session_id: null, // do not include api-session chats in the frontend for anyone.
-          include: true,
-        },
-        ...(limit !== null ? { take: limit } : {}),
-        ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
-      });
-      return chats;
-    } catch (error) {
-      console.error(error.message);
-      return [];
-    }
-  },
+ forWorkspace: async function (workspaceId = null, userId = null, limit = null, orderBy = null) {
+  if (!workspaceId) return [];
+  try {
+    const whereClause = {
+      workspaceId,
+      thread_id: null,      // default thread
+      api_session_id: null, // exclude API sessions
+      include: true,
+    };
+
+    // 🔒 Only show messages for this user (unless userId is null)
+    if (userId) whereClause.user_id = userId;
+
+    const chats = await prisma.workspace_chats.findMany({
+      where: whereClause,
+      ...(limit !== null ? { take: limit } : {}),
+      ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
+    });
+
+    return chats;
+  } catch (error) {
+    console.error(error.message);
+    return [];
+  }
+},
 
   /**
    * @deprecated Use markThreadHistoryInvalidV2 instead.

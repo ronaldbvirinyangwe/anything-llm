@@ -196,7 +196,7 @@ const SystemSettings = {
     const { hasVectorCachedFiles } = require("../utils/files");
     const llmProvider = process.env.LLM_PROVIDER;
     const vectorDB = process.env.VECTOR_DB;
-    const embeddingEngine = process.env.EMBEDDING_ENGINE ?? "native";
+    const embeddingEngine = process.env.EMBEDDING_ENGINE ?? "ollama";
     return {
       // --------------------------------------------------------
       // General Settings

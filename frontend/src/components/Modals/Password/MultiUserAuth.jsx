@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import System from "../../../models/system";
 import { AUTH_TOKEN, AUTH_USER } from "../../../utils/constants";
-import paths from "../../../utils/paths";
+import paths from "@/utils/paths";
 import showToast from "@/utils/toast";
 import ModalWrapper from "@/components/ModalWrapper";
 import { useModal } from "@/hooks/useModal";
@@ -289,11 +289,11 @@ export default function MultiUserAuth() {
                   {t("login.multi-user.welcome")}
                 </h3>
                 <p className="text-4xl md:text-2xl font-bold bg-gradient-to-r from-[#75D6FF] via-[#FFFFFF] light:via-[#75D6FF] to-[#FFFFFF] light:to-[#75D6FF] bg-clip-text text-transparent">
-                  {customAppName || "AnythingLLM"}
+                  {customAppName || "Chikoro AI"}
                 </p>
               </div>
               <p className="text-sm text-theme-text-secondary text-center">
-                {t("login.sign-in.start")} {customAppName || "AnythingLLM"}{" "}
+                {t("login.sign-in.start")} {customAppName || "Chikoro AI"}{" "}
                 {t("login.sign-in.end")}
               </p>
             </div>
@@ -341,9 +341,21 @@ export default function MultiUserAuth() {
               {t("login.multi-user.forgot-pass")}?
               <b>{t("login.multi-user.reset")}</b>
             </button>
+            <p className="text-sm text-white mt-4">
+  Don’t have an account?{" "}
+  <b
+    className="text-primary-button hover:underline cursor-pointer"
+    onClick={() => (window.location = paths.register())}
+  >
+    Create one
+  </b>
+</p>
           </div>
         </div>
+        
       </form>
+      
+      
 
       <ModalWrapper isOpen={isRecoveryCodeModalOpen} noPortal={true}>
         <RecoveryCodeModal

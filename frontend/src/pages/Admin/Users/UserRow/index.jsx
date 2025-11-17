@@ -10,6 +10,9 @@ const ModMap = {
   admin: ["admin", "manager", "default"],
   manager: ["manager", "default"],
   default: [],
+  student: ["student", "default"],
+  teacher: ["teacher", "default"],
+  parent: ["parent", "default"],
 };
 
 export default function UserRow({ currUser, user }) {

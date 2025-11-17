@@ -114,7 +114,11 @@ export default function ActiveWorkspaces() {
                             flex flex-grow w-[75%] gap-x-2 py-[6px] pl-[4px] pr-[6px] rounded-[4px] text-white justify-start items-center
                             bg-theme-sidebar-item-default
                             hover:bg-theme-sidebar-subitem-hover hover:font-bold
-                            ${isActive ? "bg-theme-sidebar-item-selected font-bold light:outline-2 light:outline light:outline-blue-400 light:outline-offset-[-2px]" : ""}
+                            ${
+                              isActive
+                                ? "bg-theme-sidebar-item-selected font-bold light:outline-2 light:outline light:outline-blue-400 light:outline-offset-[-2px]"
+                                : ""
+                            }
                           `}
                         >
                           <div className="flex flex-row justify-between w-full items-center">
@@ -133,7 +137,9 @@ export default function ActiveWorkspaces() {
                                 <p
                                   className={`
                                   text-[14px] leading-loose whitespace-nowrap overflow-hidden text-white
-                                  ${isActive ? "font-bold" : "font-medium"} truncate
+                                  ${
+                                    isActive ? "font-bold" : "font-medium"
+                                  } truncate
                                   w-full group-hover:w-[130px] group-hover:font-bold group-hover:duration-200
                                 `}
                                 >
@@ -141,9 +147,15 @@ export default function ActiveWorkspaces() {
                                 </p>
                               </div>
                             </div>
-                            {user?.role !== "default" && (
+
+                            {/* 🔒 Allow only admin & manager to access workspace settings */}
+                            {["admin", "manager"].includes(user?.role) && (
                               <div
-                                className={`flex items-center gap-x-[2px] transition-opacity duration-200 ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                                className={`flex items-center gap-x-[2px] transition-opacity duration-200 ${
+                                  isActive
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100"
+                                }`}
                               >
                                 <button
                                   type="button"
@@ -186,6 +198,7 @@ export default function ActiveWorkspaces() {
                           </div>
                         </a>
                       </div>
+
                       {isActive && (
                         <ThreadContainer
                           workspace={workspace}

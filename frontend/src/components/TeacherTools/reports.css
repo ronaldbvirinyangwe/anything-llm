@@ -1,0 +1,143 @@
+.reports-container {
+  padding: 2rem;
+  font-family: "Inter", "Poppins", sans-serif;
+  background: var(--theme-bg, #f9fafb);
+  min-height: 100vh;
+  color: var(--theme-text, #222);
+}
+
+.reports-nav {
+  margin-bottom: 1rem;
+}
+
+.back-btn {
+  text-decoration: none;
+  color: #2563eb;
+  font-weight: 600;
+  background: rgba(37, 99, 235, 0.1);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+.back-btn:hover {
+  background: rgba(37, 99, 235, 0.2);
+}
+
+.reports-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.reports-header h1 {
+  font-size: 2rem;
+  color: #111827;
+  font-weight: 700;
+}
+.reports-header p {
+  color: #4b5563;
+  font-size: 1rem;
+}
+
+.student-overview {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+.student-overview h2 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #1e3a8a;
+}
+.student-overview p {
+  color: #6b7280;
+  font-size: 1rem;
+}
+
+.stats-cards {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.stat-card {
+  background: white;
+  padding: 1.5rem 2rem;
+  border-radius: 12px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
+  min-width: 180px;
+  text-align: center;
+}
+.stat-card h3 {
+  color: #4b5563;
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+.stat-card p {
+  font-size: 1.5rem;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.chart-section {
+  margin: 2rem auto;
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 800px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
+}
+.chart-wrapper {
+  height: 300px;
+}
+.chart-section h2 {
+  margin-bottom: 1rem;
+  text-align: center;
+  color: #1e3a8a;
+}
+
+.ai-summary-section {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  margin-top: 2rem;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
+}
+.ai-summary-section h2 {
+  margin-bottom: 1rem;
+  color: #1e3a8a;
+  text-align: center;
+}
+
+.loading-screen,
+.error-message,
+.empty-report {
+  text-align: center;
+  padding: 3rem;
+  color: #6b7280;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  .reports-container {
+    background: #111827;
+    color: #f9fafb;
+  }
+  .stat-card,
+  .chart-section,
+  .ai-summary-section {
+    background: #1f2937;
+    box-shadow: none;
+  }
+  .stat-card p {
+    color: #93c5fd;
+  }
+}
+.view-report-btn {
+  color: #2563eb;
+  font-weight: 600;
+  text-decoration: none;
+}
+.view-report-btn:hover {
+  text-decoration: underline;
+}

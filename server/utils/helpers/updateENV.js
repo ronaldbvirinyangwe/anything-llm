@@ -991,7 +991,7 @@ async function handleVectorStoreReset(key, prevValue, nextValue) {
  */
 async function downloadEmbeddingModelIfRequired(key, prevValue, nextValue) {
   if (prevValue === nextValue) return;
-  if (key !== "EmbeddingModelPref" || process.env.EMBEDDING_ENGINE !== "native")
+  if (key !== "EmbeddingModelPref" || process.env.EMBEDDING_ENGINE !== "ollama")
     return;
 
   const { NativeEmbedder } = require("../EmbeddingEngines/native");

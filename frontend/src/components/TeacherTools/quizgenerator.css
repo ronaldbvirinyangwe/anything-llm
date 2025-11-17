@@ -1,0 +1,425 @@
+/* ===============================
+   Base Container & Layout
+=============================== */
+.quiz-generator-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem;
+  color: var(--text-primary);
+}
+
+.tool-nav {
+  margin-bottom: 1.5rem;
+}
+
+.tool-nav a {
+  color: var(--primary-color);
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.tool-nav a:hover {
+  color: var(--primary-hover);
+}
+
+/* ===============================
+   Header
+=============================== */
+.tool-header {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+
+.tool-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tool-header p {
+  color: var(--text-secondary);
+  margin-top: 0.5rem;
+}
+
+/* ===============================
+   Quiz Form
+=============================== */
+.quiz-form {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 2rem;
+  margin-bottom: 2.5rem;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text-primary);
+  font-size: 1rem;
+  transition: border 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  border-color: var(--primary-color);
+  outline: none;
+}
+
+/* ===============================
+   Buttons
+=============================== */
+.generate-btn,
+.regen-btn,
+.save-btn {
+  display: inline-block;
+  padding: 0.8rem 1.2rem;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.generate-btn {
+  width: 100%;
+  background: var(--primary-color);
+  color: #fff;
+  font-size: 1rem;
+  margin-top: 0.5rem;
+}
+
+.generate-btn:hover {
+  background: var(--primary-hover);
+  transform: translateY(-2px);
+}
+
+.regen-btn {
+  background: var(--primary-color);
+  color: #fff;
+  margin-top: 0.5rem;
+}
+
+.regen-btn:hover {
+  background: var(--primary-hover);
+}
+
+.save-btn {
+  background: #10b981;
+  color: #fff;
+  margin-top: 1.5rem;
+}
+
+.save-btn:hover {
+  background: #0f9e70;
+}
+
+/* ===============================
+   Generated Quiz Section
+=============================== */
+.quiz-display {
+  background: var(--card-bg);
+  padding: 2rem;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+
+.quiz-display h2 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+.quiz-display p {
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* ===============================
+   Quiz Editor (Customisation)
+=============================== */
+.quiz-editor {
+  margin-top: 2rem;
+}
+
+.quiz-editor h2 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+.question-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  transition: box-shadow 0.2s ease;
+}
+
+.question-card:hover {
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+
+.question-card textarea {
+  width: 100%;
+  height: 120px;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  resize: vertical;
+  transition: border 0.2s ease;
+}
+
+.question-card textarea:focus {
+  border-color: var(--primary-color);
+  outline: none;
+}
+
+/* ===============================
+   Feedback Messages
+=============================== */
+.error-message {
+  color: #ef4444;
+  font-weight: 500;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+
+.success-message {
+  color: #10b981;
+  font-weight: 500;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+.quiz-question-card {
+  margin-bottom: 1.8rem;
+  border-radius: 14px;
+  padding: 1.5rem;
+  background: var(--surface-bg, var(--card-bg));
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+}
+
+.quiz-question-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+}
+
+
+.question-header h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.option-list {
+  margin: 0.75rem 0 0.5rem 0;
+  padding-left: 1.2rem;
+  list-style-type: upper-alpha;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+
+.option-list li {
+  margin-bottom: 0.3rem;
+  color: var(--text-secondary);
+}
+
+.answer-key {
+  color: var(--success-color, #10b981);
+  font-weight: 600;
+  margin-top: 0.75rem;
+}
+
+.question-actions {
+  display: flex;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.edit-btn,
+.regen-btn {
+  flex: 1;
+  text-align: center;
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  background: var(--primary-color);
+  color: #fff;
+  font-weight: 600;
+  border: none;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.edit-btn:hover,
+.regen-btn:hover {
+  background: var(--primary-hover);
+  transform: translateY(-2px);
+}
+
+.question-edit {
+  display: none;
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.question-edit.visible {
+  display: block;
+  opacity: 1;
+  max-height: 250px;
+  margin-top: 1rem;
+}
+/* Add to quizgenerator.css */
+
+.answer-container {
+  margin-top: 1rem;  /* ✅ More space from options */
+  background: rgba(16, 185, 129, 0.07);
+  border-left: 5px solid #10b981;
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  
+  /* ✅ Reset any inherited list styles */
+  list-style: none;
+  counter-reset: none;
+}
+
+.answer-container * {
+  /* ✅ Ensure children don't inherit list numbering */
+  list-style: none;
+}
+
+.answer-key {
+  color: var(--success-color, #10b981);
+  font-weight: 600;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;  /* ✅ Reset margin */
+}
+
+.answer-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+/* ✅ Make sure option list doesn't affect siblings */
+.option-list {
+  margin: 0.75rem 0 1rem 0;  /* ✅ More bottom margin */
+  padding-left: 1.2rem;
+  list-style-type: upper-alpha;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.question-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  background: var(--primary-color);
+  color: white;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.structured-badge {
+  background: #8b5cf6;
+}
+
+.mark-scheme-container {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(139, 92, 246, 0.07);
+  border-left: 5px solid #8b5cf6;
+  border-radius: 10px;
+}
+
+.mark-scheme-container h4 {
+  font-size: 0.95rem;
+  color: #8b5cf6;
+  margin-bottom: 0.5rem;
+}
+
+.mark-scheme-content {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.mark-scheme-content pre{
+    padding: 0.75rem;
+    border-radius: 8px;
+    overflow-x: auto;
+}
+.quiz-actions-container {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.save-btn,
+.share-btn {
+  background: var(--primary-color);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 0.9rem 1.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.save-btn:hover,
+.share-btn:hover {
+  background: var(--primary-hover);
+  transform: translateY(-2px);
+}
+
+.share-btn {
+  background: #2563eb;
+}
+
+.share-btn:hover {
+  background: #1e40af;
+}
+::marker {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+.answer-key-btn:hover {
+  background: #0f9e70;
+}

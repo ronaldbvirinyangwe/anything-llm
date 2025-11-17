@@ -38,9 +38,9 @@ function workspaceThreadEndpoints(app) {
           "workspace_thread_created",
           {
             multiUserMode: multiUserMode(response),
-            LLMSelection: process.env.LLM_PROVIDER || "openai",
-            Embedder: process.env.EMBEDDING_ENGINE || "inherit",
-            VectorDbSelection: process.env.VECTOR_DB || "lancedb",
+            LLMSelection: process.env.LLM_PROVIDER || "ollama",
+            Embedder: process.env.EMBEDDING_ENGINE || "ollama",
+            VectorDbSelection: process.env.VECTOR_DB || "pgvector",
             TTSSelection: process.env.TTS_PROVIDER || "native",
             LLMModel: getModelTag(),
           },

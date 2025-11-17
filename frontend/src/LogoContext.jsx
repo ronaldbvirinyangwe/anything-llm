@@ -1,8 +1,8 @@
 import { createContext, useEffect, useState } from "react";
-import AnythingLLM from "./media/logo/anything-llm.png";
-import AnythingLLMDark from "./media/logo/anything-llm-dark.png";
-import DefaultLoginLogoLight from "./media/illustrations/login-logo.svg";
-import DefaultLoginLogoDark from "./media/illustrations/login-logo-light.svg";
+import AnythingLLM from "./media/logo/logo.jpg";
+import AnythingLLMDark from "./media/logo/logo.jpg";
+import DefaultLoginLogoLight from "./media/logo/logo.jpg";
+import DefaultLoginLogoDark from "./media/logo/logo.jpg";
 import System from "./models/system";
 
 export const REFETCH_LOGO_EVENT = "refetch-logo";

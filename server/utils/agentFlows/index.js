@@ -87,7 +87,7 @@ class AgentFlows {
   }
 
   /**
-   * Save a flow configuration
+   * Save a flow configuration (with disk persistence + safety checks)
    * @param {string} name - The name of the flow
    * @param {Object} config - The flow configuration
    * @param {string|null} uuid - Optional UUID for the flow
@@ -95,30 +95,48 @@ class AgentFlows {
    */
   static saveFlow(name, config, uuid = null) {
     try {
+      if (!name) {
+        return { success: false, error: "Flow name is required" };
+      }
+
+      if (!config || typeof config !== "object") {
+        return { success: false, error: "Invalid or missing config object" };
+      }
+
+      // ✅ Make sure the flows directory exists
       AgentFlows.createOrCheckFlowsDir();
 
-      if (!uuid) uuid = uuidv4();
-      const normalizedUuid = normalizePath(`${uuid}.json`);
-      const filePath = path.join(AgentFlows.flowsDir, normalizedUuid);
+      // ✅ Ensure `blocks` array is always valid
+      if (!Array.isArray(config.blocks)) {
+        console.warn(`[AgentFlows] No blocks array found for "${name}". Creating an empty one.`);
+        config.blocks = [];
+      }
 
-      // Prevent saving flows with unsupported blocks or importing
-      // flows with unsupported blocks (eg: file writing or code execution on Desktop importing to Docker)
-      const supportedFlowTypes = Object.values(FLOW_TYPES).map(
-        (definition) => definition.type
-      );
-      const supportsAllBlocks = config.steps.every((step) =>
-        supportedFlowTypes.includes(step.type)
-      );
-      if (!supportsAllBlocks)
-        throw new Error(
-          "This flow includes unsupported blocks. They may not be supported by your version of AnythingLLM or are not available on this platform."
-        );
+      // Prevent `.every()` crash
+      if (typeof config.blocks.every !== "function") {
+        config.blocks = Array.from(config.blocks);
+      }
 
-      fs.writeFileSync(filePath, JSON.stringify({ ...config, name }, null, 2));
-      return { success: true, uuid };
-    } catch (error) {
-      console.error("Failed to save flow:", error);
-      return { success: false, error: error.message };
+      // Generate a safe UUID
+      const flowUUID = uuid || uuidv4();
+      const flowData = {
+        name,
+        description: config.description || "No description provided",
+        active: config.active !== false,
+        config,
+        uuid: flowUUID,
+        savedAt: new Date().toISOString(),
+      };
+
+      // ✅ Save to disk (persistent)
+      const flowFilePath = path.join(AgentFlows.flowsDir, `${flowUUID}.json`);
+      fs.writeFileSync(flowFilePath, JSON.stringify(flowData, null, 2));
+
+      console.log(`✅ Agent flow saved: "${name}" → ${flowFilePath}`);
+      return { success: true, flow: flowData };
+    } catch (err) {
+      console.error("❌ AgentFlows.saveFlow failed:", err);
+      return { success: false, error: err.message };
     }
   }
 

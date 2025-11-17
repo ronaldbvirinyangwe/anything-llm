@@ -16,21 +16,21 @@ export default function AccountModal({ user, hideModal }) {
   const { t } = useTranslation();
 
   const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return false;
+  const file = event.target.files[0];
+  if (!file) return false;
 
-    const formData = new FormData();
-    formData.append("file", file);
-    const { success, error } = await System.uploadPfp(formData);
-    if (!success) {
-      showToast(t("profile_settings.failed_upload", { error }), "error");
-      return;
-    }
+  const formData = new FormData();
+  formData.append("file", file);
+  const { success, error } = await System.uploadPfp(formData);
+  if (!success) {
+    showToast(t("profile_settings.failed_upload", { error }), "error");
+    return;
+  }
 
-    const pfpUrl = await System.fetchPfp(user.id);
-    setPfp(pfpUrl);
-    showToast(t("profile_settings.upload_success"), "success");
-  };
+  const pfpUrl = await System.fetchPfp(user.id);
+  setPfp(pfpUrl);
+  showToast(t("profile_settings.upload_success"), "success");
+};
 
   const handleRemovePfp = async () => {
     const { success, error } = await System.removePfp();

@@ -16,6 +16,65 @@ import useTextSize from "@/hooks/useTextSize";
 import { v4 } from "uuid";
 import { useTranslation } from "react-i18next";
 import { useChatMessageAlignment } from "@/hooks/useChatMessageAlignment";
+import { useNavigate } from "react-router-dom";
+import './notification.css'
+
+function NotificationMessage({ message }) {
+  const navigate = useNavigate();
+  const API_BASE = import.meta.env.VITE_API_BASE;
+
+  const handleTakeQuiz = async () => {
+    // Mark notification as read
+    if (message.notificationId) {
+      try {
+        const token = localStorage.getItem("chikoroai_authToken");
+        
+        await fetch(`${API_BASE}/system/notifications/${message.notificationId}/read`, {
+          method: 'PATCH',
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        
+        console.log("✅ Marked notification as read:", message.notificationId);
+      } catch (err) {
+        console.error("❌ Failed to mark notification as read:", err);
+      }
+    }
+    
+    // Navigate to quiz
+    if (message.link) {
+      navigate(message.link);
+    }
+  };
+
+  return (
+     <div className={`notification-card ${message.darkMode ? 'dark' : ''}`}>
+      <div className="notification-icon">📚</div>
+
+      <div className="notification-content">
+        <p className="notification-message">{message.content}</p>
+        <p className="notification-time">
+          {message.createdAt
+            ? new Date(message.createdAt).toLocaleString()
+            : 'Just now'}
+        </p>
+      </div>
+
+      {message.link && (
+        <button
+          onClick={handleTakeQuiz}
+          className="notification-button"
+        >
+          Take Quiz
+        </button>
+      )}
+    </div>
+  );
+}
+
+
 
 export default function ChatHistory({
   history = [],
@@ -183,7 +242,7 @@ export default function ChatHistory({
   if (history.length === 0 && !hasAttachments) {
     return (
       <div className="flex flex-col h-full md:mt-0 pb-44 md:pb-40 w-full justify-end items-center">
-        <div className="flex flex-col items-center md:items-start md:max-w-[600px] w-full px-4">
+        {/* <div className="flex flex-col items-center md:items-start md:max-w-[600px] w-full px-4">
           <p className="text-white/60 text-lg font-base py-4">
             {t("chat_window.welcome")}
           </p>
@@ -209,7 +268,7 @@ export default function ChatHistory({
             suggestions={workspace?.suggestedMessages ?? []}
             sendSuggestion={handleSendSuggestedMessage}
           />
-        </div>
+        </div> */}
         {showing && (
           <ManageWorkspace
             hideModal={hideModal}
@@ -305,14 +364,24 @@ function buildMessages({
     const isLastBotReply =
       index === history.length - 1 && props.role === "assistant";
 
-    if (props?.type === "statusResponse" && !!props.content) {
-      if (acc.length > 0 && Array.isArray(acc[acc.length - 1])) {
-        acc[acc.length - 1].push(props);
-      } else {
-        acc.push([props]);
-      }
+      if (props.role === "notification") {
+      acc.push(
+        <NotificationMessage key={props.uuid || v4()} message={props} />
+      );
       return acc;
     }
+    
+    {history
+  .filter((msg) => msg.role === "notification")
+  .length > 0 && (
+    <div className="notification-list">
+      {history
+        .filter((msg) => msg.role === "notification")
+        .map((msg) => (
+          <NotificationMessage key={msg.uuid || v4()} message={msg} />
+        ))}
+    </div>
+  )}
 
     if (props.type === "rechartVisualize" && !!props.content) {
       acc.push(

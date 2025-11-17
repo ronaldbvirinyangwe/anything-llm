@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <defs>
+    <style>
+      :root {
+        --chikoro-green: #22C55E;
+        --chikoro-green-dark: #16A34A;
+        --ink: #0B0B0F;
+        --white: #FFFFFF;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --ink: #F8FAFC; }
+      }
+    </style>
+
+    <!-- Soft glows -->
+    <radialGradient id="glowCenter" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="var(--chikoro-green)" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="var(--chikoro-green)" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowTL" cx="0%" cy="0%" r="60%">
+      <stop offset="0%" stop-color="var(--chikoro-green)" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="var(--chikoro-green)" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowBR" cx="100%" cy="100%" r="60%">
+      <stop offset="0%" stop-color="var(--chikoro-green-dark)" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="var(--chikoro-green-dark)" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Decorative wave -->
+    <linearGradient id="waveGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="var(--chikoro-green)" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="var(--chikoro-green-dark)" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <!-- Soft shadow for dots/marks -->
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <!-- Transparent canvas with subtle glows -->
+  <rect width="100%" height="100%" fill="none"/>
+  <rect width="100%" height="100%" fill="url(#glowTL)"/>
+  <rect width="100%" height="100%" fill="url(#glowBR)"/>
+  <circle cx="400" cy="300" r="260" fill="url(#glowCenter)"/>
+
+  <!-- Gentle wave bands (very low opacity) -->
+  <g opacity="0.7">
+    <path d="M -50,450 C 150,360 300,520 520,480 C 650,455 770,490 850,520 L 850,650 L -50,650 Z"
+          fill="url(#waveGrad)"/>
+    <path d="M -50,130 C 140,200 270,100 460,150 C 600,188 720,165 850,140 L 850,-50 L -50,-50 Z"
+          fill="url(#waveGrad)" opacity="0.6"/>
+  </g>
+
+  <!-- Floating accents -->
+  <g opacity="0.28" filter="url(#soft)">
+    <circle cx="170" cy="170" r="6" fill="var(--chikoro-green)" />
+    <circle cx="650" cy="160" r="4" fill="var(--chikoro-green)" />
+    <circle cx="640" cy="420" r="5" fill="var(--chikoro-green)" />
+    <circle cx="200" cy="450" r="4" fill="var(--chikoro-green)" />
+    <path d="M680 300 l12 0 m-6 -6 l0 12" stroke="var(--chikoro-green)" stroke-width="3" stroke-linecap="round"/>
+    <path d="M140 320 l10 0 m-5 -5 l0 10" stroke="var(--chikoro-green)" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

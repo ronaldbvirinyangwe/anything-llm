@@ -1,0 +1,74 @@
+{
+  "name": "quiz_create_agent",
+  "description": "Generates curriculum-aligned quizzes for Chikoro AI",
+  "active": true,
+  "config": {
+    "name": "quiz_create_agent",
+    "description": "Generates curriculum-aligned quizzes for Chikoro AI",
+    "active": true,
+    "config": {
+      "name": "quiz_create_agent",
+      "description": "Generates curriculum-aligned quizzes for Chikoro AI",
+      "active": false,
+      "config": {
+        "name": "quiz_create_agent",
+        "description": "Generates curriculum-aligned quizzes for Chikoro AI",
+        "active": true,
+        "config": {
+          "name": "quiz_create_agent",
+          "description": "Generates curriculum-aligned quizzes for Chikoro AI",
+          "active": false,
+          "config": {
+            "name": "quiz_create_agent",
+            "description": "Generates curriculum-aligned quizzes for Chikoro AI",
+            "active": true,
+            "config": {
+              "name": "quiz_create_agent",
+              "description": "Generates curriculum-aligned quizzes for Chikoro AI",
+              "active": false,
+              "config": {
+                "description": "Generates curriculum-aligned quizzes for Chikoro AI",
+                "active": true,
+                "blocks": [
+                  {
+                    "type": "tool",
+                    "name": "quiz_create",
+                    "endpoint": "/agent-flows/quiz/create",
+                    "method": "POST",
+                    "params": [
+                      "subject",
+                      "grade",
+                      "numQuestions",
+                      "userMessage",
+                      "difficulty"
+                    ]
+                  }
+                ]
+              },
+              "uuid": "29c9cae0-8a8d-41be-b490-bce27ce742de",
+              "savedAt": "2025-10-31T17:15:28.453Z",
+              "blocks": []
+            },
+            "uuid": "29c9cae0-8a8d-41be-b490-bce27ce742de",
+            "savedAt": "2025-11-10T15:20:11.964Z",
+            "blocks": []
+          },
+          "uuid": "29c9cae0-8a8d-41be-b490-bce27ce742de",
+          "savedAt": "2025-11-10T15:20:28.735Z",
+          "blocks": []
+        },
+        "uuid": "29c9cae0-8a8d-41be-b490-bce27ce742de",
+        "savedAt": "2025-11-10T15:21:50.039Z",
+        "blocks": []
+      },
+      "uuid": "29c9cae0-8a8d-41be-b490-bce27ce742de",
+      "savedAt": "2025-11-10T15:22:08.406Z",
+      "blocks": []
+    },
+    "uuid": "29c9cae0-8a8d-41be-b490-bce27ce742de",
+    "savedAt": "2025-11-11T06:44:15.687Z",
+    "blocks": []
+  },
+  "uuid": "29c9cae0-8a8d-41be-b490-bce27ce742de",
+  "savedAt": "2025-11-11T06:44:31.801Z"
+}

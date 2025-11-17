@@ -182,19 +182,30 @@ const Workspace = {
    * @param {Object} additionalFields - Additional fields to apply to the workspace - will be validated.
    * @returns {Promise<{workspace: Object | null, message: string | null}>} A promise that resolves to an object containing the created workspace and an error message if applicable.
    */
-  new: async function (name = null, creatorId = null, additionalFields = {}) {
-    if (!name) return { workspace: null, message: "name cannot be null" };
-    var slug = this.slugify(name, { lower: true });
-    slug = slug || uuidv4();
+ new: async function (name = null, creatorId = null, additionalFields = {}) {
+  if (!name) return { workspace: null, message: "name cannot be null" };
+  let slug = this.slugify(name, { lower: true });
+  slug = slug || uuidv4();
 
-    const existingBySlug = await this.get({ slug });
-    if (existingBySlug !== null) {
-      const slugSeed = Math.floor(10000000 + Math.random() * 90000000);
-      slug = this.slugify(`${name}-${slugSeed}`, { lower: true });
-    }
+  // Ensure slug uniqueness
+  const existingBySlug = await this.get({ slug });
+  if (existingBySlug !== null) {
+    const slugSeed = Math.floor(10000000 + Math.random() * 90000000);
+    slug = this.slugify(`${name}-${slugSeed}`, { lower: true });
+  }
 
-    try {
-      const workspace = await prisma.workspaces.create({
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // ✅ Ensure creator exists before linking
+      const userExists = await tx.users.findUnique({
+        where: { id: Number(creatorId) },
+      });
+      if (!userExists && creatorId) {
+        throw new Error(`Creator user (ID: ${creatorId}) not found.`);
+      }
+
+      // ✅ Create workspace atomically
+      const workspace = await tx.workspaces.create({
         data: {
           name: this.validations.name(name),
           ...this.validateFields(additionalFields),
@@ -202,16 +213,25 @@ const Workspace = {
         },
       });
 
-      // If created with a user then we need to create the relationship as well.
-      // If creating with an admin User it wont change anything because admins can
-      // view all workspaces anyway.
-      if (!!creatorId) await WorkspaceUser.create(creatorId, workspace.id);
-      return { workspace, message: null };
-    } catch (error) {
-      console.error(error.message);
-      return { workspace: null, message: error.message };
-    }
-  },
+      // ✅ Create relationship if user exists
+      if (creatorId) {
+        await tx.workspace_users.create({
+          data: {
+            user_id: Number(creatorId),
+            workspace_id: workspace.id,
+          },
+        });
+      }
+
+      return workspace;
+    });
+
+    return { workspace: result, message: null };
+  } catch (error) {
+    console.error("❌ Workspace.new() failed:", error.message);
+    return { workspace: null, message: error.message };
+  }
+},
 
   /**
    * Update the settings for a workspace. Applies validations to the updates provided.
@@ -258,41 +278,54 @@ const Workspace = {
     }
   },
 
-  getWithUser: async function (user = null, clause = {}) {
-    if ([ROLES.admin, ROLES.manager].includes(user.role))
-      return this.get(clause);
+getWithUser: async function (user = null, clause = {}) {
+  const { WorkspaceChats } = require("./workspaceChats");
 
-    try {
-      const workspace = await prisma.workspaces.findFirst({
-        where: {
-          ...clause,
-          workspace_users: {
-            some: {
-              user_id: user?.id,
-            },
-          },
+  // Admins & managers can access any workspace
+  if ([ROLES.admin, ROLES.manager].includes(user.role)) {
+    const workspace = await this.get(clause);
+    if (!workspace) return null;
+
+    workspace.documents = await Document.forWorkspace(workspace.id);
+    workspace.contextWindow = this._getContextWindow(workspace);
+    workspace.currentContextTokenCount = await this._getCurrentContextTokenCount(workspace.id);
+
+    // ✅ Admin sees all chats (no restriction)
+    workspace.chatHistory = await WorkspaceChats.forWorkspace(workspace.id, null);
+    return workspace;
+  }
+
+  try {
+    const workspace = await prisma.workspaces.findFirst({
+      where: {
+        ...clause,
+        workspace_users: {
+          some: { user_id: user?.id }, // 🔒 ensure ownership
         },
-        include: {
-          workspace_users: true,
-          documents: true,
-        },
-      });
+      },
+      include: {
+        workspace_users: true,
+        documents: true,
+      },
+    });
 
-      if (!workspace) return null;
+    if (!workspace) return null;
 
-      return {
-        ...workspace,
-        documents: await Document.forWorkspace(workspace.id),
-        contextWindow: this._getContextWindow(workspace),
-        currentContextTokenCount: await this._getCurrentContextTokenCount(
-          workspace.id
-        ),
-      };
-    } catch (error) {
-      console.error(error.message);
-      return null;
-    }
-  },
+    // 🔒 Only get chats belonging to this user
+    const chats = await WorkspaceChats.forWorkspace(workspace.id, user.id);
+
+    return {
+      ...workspace,
+      chatHistory: chats,
+      documents: await Document.forWorkspace(workspace.id),
+      contextWindow: this._getContextWindow(workspace),
+      currentContextTokenCount: await this._getCurrentContextTokenCount(workspace.id),
+    };
+  } catch (error) {
+    console.error("Error in getWithUser:", error.message);
+    return null;
+  }
+},
 
   /**
    * Get the total token count of all parsed files in a workspace/thread
@@ -379,34 +412,28 @@ const Workspace = {
     }
   },
 
-  whereWithUser: async function (
-    user,
-    clause = {},
-    limit = null,
-    orderBy = null
-  ) {
-    if ([ROLES.admin, ROLES.manager].includes(user.role))
-      return await this.where(clause, limit, orderBy);
+  whereWithUser: async function (user, clause = {}, limit = null, orderBy = null) {
+  if ([ROLES.admin, ROLES.manager].includes(user.role)) {
+    return await this.where(clause, limit, orderBy);
+  }
 
-    try {
-      const workspaces = await prisma.workspaces.findMany({
-        where: {
-          ...clause,
-          workspace_users: {
-            some: {
-              user_id: user.id,
-            },
-          },
+  try {
+    const workspaces = await prisma.workspaces.findMany({
+      where: {
+        ...clause,
+        workspace_users: {
+          some: { user_id: user.id }, // 🔒 only their workspaces
         },
-        ...(limit !== null ? { take: limit } : {}),
-        ...(orderBy !== null ? { orderBy } : {}),
-      });
-      return workspaces;
-    } catch (error) {
-      console.error(error.message);
-      return [];
-    }
-  },
+      },
+      ...(limit !== null ? { take: limit } : {}),
+      ...(orderBy !== null ? { orderBy } : {}),
+    });
+    return workspaces;
+  } catch (error) {
+    console.error("Error in whereWithUser:", error.message);
+    return [];
+  }
+},
 
   whereWithUsers: async function (clause = {}, limit = null, orderBy = null) {
     try {
@@ -590,7 +617,7 @@ const Workspace = {
    * Delete the prompt history for a workspace.
    * @param {Object} options - The options to delete the prompt history for.
    * @param {number} options.workspaceId - The ID of the workspace to delete prompt history for.
-   * @param {number} options.id - The ID of the prompt history to delete.
+   * @param {number} opawait WorkspaceChats.new({tions.id - The ID of the prompt history to delete.
    * @returns {Promise<boolean>} A promise that resolves to a boolean indicating the success of the operation.
    */
   deletePromptHistory: async function ({ workspaceId, id }) {

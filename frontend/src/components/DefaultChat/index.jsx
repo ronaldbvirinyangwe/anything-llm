@@ -83,7 +83,31 @@ export default function DefaultChatContainer() {
           {t("home.welcome")}, {user.username}!
         </h1>
         <p className="text-theme-home-text-secondary text-base text-center whitespace-pre-line">
-          {hasWorkspaces ? t("home.chooseWorkspace") : t("home.notAssigned")}
+         {hasWorkspaces ? (
+  <NavLink
+    to={paths.workspace.chat(
+      lastVisitedWorkspace?.slug || workspaces[0].slug
+    )}
+    className="text-sm font-medium mt-[10px] w-fit px-4 h-[34px] flex items-center justify-center rounded-lg cursor-pointer bg-theme-home-button-secondary hover:bg-theme-home-button-secondary-hover text-theme-home-button-secondary-text hover:text-theme-home-button-secondary-hover-text transition-all duration-200"
+  >
+    {t("home.goToWorkspace", {
+      workspace: lastVisitedWorkspace?.name || workspaces[0].name,
+    })}{" "}
+    &rarr;
+  </NavLink>
+) : (
+  <div className="mt-6 flex flex-col items-center">
+    <NavLink
+      to={paths.enrol()}
+      className="text-sm font-medium w-fit px-4 h-[40px] flex items-center justify-center rounded-lg cursor-pointer bg-primary-button hover:bg-primary-button/80 text-dark-text transition-all duration-200"
+    >
+      Enrol Now →
+    </NavLink>
+    <p className="text-white/60 text-sm mt-3 italic text-center">
+      Once you enrol, your workspace will be created automatically.
+    </p>
+  </div>
+)}
         </p>
         {hasWorkspaces && (
           <NavLink

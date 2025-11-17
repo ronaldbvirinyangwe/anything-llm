@@ -1,13 +1,12 @@
-import { defineConfig } from "vite"
-import { fileURLToPath, URL } from "url"
-import postcss from "./postcss.config.js"
-import react from "@vitejs/plugin-react"
-import dns from "dns"
-import { visualizer } from "rollup-plugin-visualizer"
+import { defineConfig } from "vite";
+import { fileURLToPath, URL } from "url";
+import postcss from "./postcss.config.js";
+import react from "@vitejs/plugin-react";
+import dns from "dns";
+import { visualizer } from "rollup-plugin-visualizer";
 
-dns.setDefaultResultOrder("verbatim")
+dns.setDefaultResultOrder("verbatim");
 
-// https://vitejs.dev/config/
 export default defineConfig({
   assetsInclude: [
     './public/piper/ort-wasm-simd-threaded.wasm',
@@ -19,7 +18,15 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: "localhost"
+    host: "localhost",
+    proxy: {
+      // 🧠 Automatically forward all API requests to backend (port 3001)
+      "/api": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
   define: {
     "process.env": process.env
@@ -34,7 +41,7 @@ export default defineConfig({
       open: false,
       gzipSize: true,
       brotliSize: true,
-      filename: "bundleinspector.html" // will be saved in project's root
+      filename: "bundleinspector.html"
     })
   ],
   resolve: {
@@ -49,17 +56,13 @@ export default defineConfig({
         zlib: "browserify-zlib",
         util: "util",
         find: /^~.+/,
-        replacement: (val) => {
-          return val.replace(/^~/, "")
-        }
+        replacement: (val) => val.replace(/^~/, "")
       }
     ]
   },
   build: {
     rollupOptions: {
       output: {
-        // These settings ensure the primary JS and CSS file references are always index.{js,css}
-        // so we can SSR the index.html as text response from server/index.js without breaking references each build.
         entryFileNames: 'index.js',
         assetFileNames: (assetInfo) => {
           if (assetInfo.name === 'index.css') return `index.css`;
@@ -67,7 +70,6 @@ export default defineConfig({
         },
       },
       external: [
-        // Reduces transformation time by 50% and we don't even use this variant, so we can ignore.
         /@phosphor-icons\/react\/dist\/ssr/,
       ]
     },
@@ -84,4 +86,4 @@ export default defineConfig({
       plugins: []
     }
   }
-})
+});

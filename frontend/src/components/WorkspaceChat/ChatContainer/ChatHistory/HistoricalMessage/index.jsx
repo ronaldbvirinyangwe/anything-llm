@@ -211,43 +211,80 @@ function ChatAttachments({ attachments = [] }) {
   );
 }
 
+
 const RenderChatContent = memo(
   ({ role, message, expanded = false }) => {
-    // If the message is not from the assistant, we can render it directly
-    // as normal since the user cannot think (lol)
-    if (role !== "assistant")
+    // 🧠 Strip context prefix from user messages before display
+    if (role !== "assistant") {
+      let displayMessage = message;
+      
+      // Remove context prefix pattern: [Subject: ...] [Curriculum: ...] etc.
+      if (typeof message === "string") {
+        // This regex removes all [Key: Value] patterns at the start
+        displayMessage = message.replace(/^(?:\[[\w\s]+:[\w\s]+\]\s*)+/, "").trim();
+      }
+      
       return (
         <span
           className="flex flex-col gap-y-1"
           dangerouslySetInnerHTML={{
-            __html: DOMPurify.sanitize(renderMarkdown(message)),
+            __html: DOMPurify.sanitize(renderMarkdown(displayMessage)),
           }}
         />
       );
+    }
+
     let thoughtChain = null;
     let msgToRender = message;
+
     if (!message) return null;
 
-    // If the message is a perfect thought chain, we can render it directly
-    // Complete == open and close tags match perfectly.
-    if (message.match(THOUGHT_REGEX_COMPLETE)) {
-      thoughtChain = message.match(THOUGHT_REGEX_COMPLETE)?.[0];
-      msgToRender = message.replace(THOUGHT_REGEX_COMPLETE, "");
+    // 🧩 Try parsing JSON (tool calls, structured messages, etc.)
+    let displayMsg = null;
+    try {
+      const parsed = typeof message === "string" ? JSON.parse(message) : message;
+
+      // ✅ Prefer display_message if backend provided it
+      if (parsed?.display_message) {
+        displayMsg = parsed.display_message;
+      } 
+      // ✅ Fallback: handle tool calls like {"tool_call": "quiz_create"}
+      else if (parsed?.tool_call) {
+        const readableName = parsed.tool_call
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (l) => l.toUpperCase());
+        displayMsg = `✅ ${readableName} completed successfully!`;
+      } 
+      // ✅ Fallback for error-style tool responses
+      else if (parsed?.error) {
+        displayMsg = `⚠️ ${parsed.error}`;
+      }
+    } catch (err) {
+      // Not JSON, ignore
     }
 
-    // If the message is a thought chain but not a complete thought chain (matching opening tags but not closing tags),
-    // we can render it as a thought chain if we can at least find a closing tag
-    // This can occur when the assistant starts with <thinking> and then <response>'s later.
-    if (
-      message.match(THOUGHT_REGEX_OPEN) &&
-      message.match(THOUGHT_REGEX_CLOSE)
-    ) {
-      const closingTag = message.match(THOUGHT_REGEX_CLOSE)?.[0];
-      const splitMessage = message.split(closingTag);
-      thoughtChain = splitMessage[0] + closingTag;
-      msgToRender = splitMessage[1];
+    // ✅ If we have a human-readable display message, use it
+    if (displayMsg) msgToRender = displayMsg;
+
+    // 🧩 Handle AI thought chains (<thinking> ... </thinking>)
+    if (typeof msgToRender === "string") {
+      if (msgToRender.match(THOUGHT_REGEX_COMPLETE)) {
+        thoughtChain = msgToRender.match(THOUGHT_REGEX_COMPLETE)?.[0];
+        msgToRender = msgToRender.replace(THOUGHT_REGEX_COMPLETE, "");
+      }
+
+      if (
+        msgToRender.match(THOUGHT_REGEX_OPEN) &&
+        msgToRender.match(THOUGHT_REGEX_CLOSE)
+      ) {
+        const closingTag = msgToRender.match(THOUGHT_REGEX_CLOSE)?.[0];
+        const splitMessage = msgToRender.split(closingTag);
+        thoughtChain = splitMessage[0] + closingTag;
+        msgToRender = splitMessage[1];
+      }
     }
 
+    // ✅ Finally, render sanitized markdown
     return (
       <>
         {thoughtChain && (

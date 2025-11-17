@@ -18,6 +18,31 @@ import { LogoProvider } from "./LogoContext";
 import { FullScreenLoader } from "./components/Preloader";
 import { ThemeProvider } from "./ThemeContext";
 import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
+import Register from "@/pages/Auth/Register";
+import Enrol from "@/pages/Enrol/Enrol";
+import PaymentPage from "./pages/PaymentPage/PaymentPage";
+import PaperSelector from "./pages/PaperSelector/PaperSelector";
+import Test from "./pages/QuizPage/Test";
+import QuizPage from "./pages/QuizPage/QuizPage";
+import ViewTest from "./pages/QuizPage/ViewTest";
+import Reports from "./pages/Reports/Reports";
+import TeacherDashboard from "./components/TeacherDashboard/TeacherDashboard";
+import LessonPlanner from "./components/TeacherTools/LessonPlanner.jsx";
+import SchemeOfWorkCreator from "./components/TeacherTools/SchemeofWorkCreator.jsx";
+import ResourceFinder from "./components/TeacherTools/ResourceFinder.jsx";
+import LinkStudent from "./components/TeacherTools/ LinkStudent.jsx";
+import JoinClass from "./components/TeacherTools/JoinClass.jsx";
+import StudentReport from "./components/TeacherTools/StudentReport";
+import TeacherReport from "./components/TeacherTools/TeacherReports";
+import QuizGenerator from "./components/TeacherTools/QuizGenerator.jsx";
+import StudentQuiz from "./components/TeacherTools/StudentQuiz";
+import PaymentHistory from "./components/Payments/PaymentHistory";
+import PaymentManagement from "./components/Payments/PaymentManagement";
+import ParentDashboard from "./components/Parents/ParentDashboard";
+import LinkParent from "./components/Parents/LinkParent"
+import GenerateLinkCode from "./components/Parents/GenerateLink";
+import ParentReport from "./components/Parents/ParentReport";
+import ExamPaperUpload from "./components/TeacherTools/ExamPaperUpload";
 
 const Main = lazy(() => import("@/pages/Main"));
 const InvitePage = lazy(() => import("@/pages/Invite"));
@@ -108,6 +133,32 @@ export default function App() {
                     path="/sso/simple"
                     element={<SimpleSSOPassthrough />}
                   />
+                  <Route path="/register" element={<Register />} />
+                  <Route path="/enrol" element={<Enrol />} />
+                  <Route path="/payment" element={<PaymentPage />} />
+                  <Route path="/papers" element={<PaperSelector />} />
+                  <Route path="/test" element={<Test />} />
+                  <Route path="/quiz" element={<QuizPage />} />
+                  <Route path="/reports/:id" element={<Reports />} />
+                   <Route path="/test/result/:id" element={<ViewTest readOnly={true} />} />
+                    <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
+                    <Route path="/teacher-tools/lesson-planner" element={<LessonPlanner />} />
+                    <Route path="/teacher-tools/scheme-creator" element={<SchemeOfWorkCreator />} />
+                    <Route path="/teacher-tools/resource-finder" element={<ResourceFinder />} />
+                    <Route path="/teacher-tools/reports/:id" element={<Reports />} />
+                    <Route path="/teacher/link-student" element={<LinkStudent />} />
+                    <Route path="/join/:classCode" element={<JoinClass />} />
+                   <Route path="/teacher/reports/student/:id" element={<StudentReport />} />
+                    <Route path="/teacher/reports" element={<TeacherReport />} />
+                    <Route path="/teacher-tools/quiz-generator" element={<QuizGenerator />} />
+                    <Route path="/student/quiz/:quizCode" element={<StudentQuiz />} />
+                    <Route path="/payments/manage" element={<PaymentManagement/ >} />
+                    <Route path="/payments/history" element={<PaymentHistory/ >} />
+                    <Route path="parent/dashboard" element={<ParentDashboard/ >} />
+                    <Route path="/link-student" element={<LinkParent/ >} />
+                    <Route path="/link-parent" element={<GenerateLinkCode/ >} />
+                    <Route path="/parent/reports/:childId" element={<ParentReport/ >} />
+                    <Route path="/upload-exam" element={<ExamPaperUpload/ >} />
 
                   <Route
                     path="/workspace/:slug/settings/:tab"

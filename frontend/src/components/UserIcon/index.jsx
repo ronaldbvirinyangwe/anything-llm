@@ -1,7 +1,7 @@
 import React, { memo } from "react";
 import usePfp from "../../hooks/usePfp";
 import UserDefaultPfp from "./user.svg";
-import WorkspaceDefaultPfp from "./workspace.svg";
+import WorkspaceDefaultPfp from "./logo.jpg";
 
 const UserIcon = memo(({ role }) => {
   const { pfp } = usePfp();

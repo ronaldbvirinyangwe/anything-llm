@@ -170,11 +170,11 @@ function apiSystemEndpoints(app) {
             example: [
               {
                 "role": "user",
-                "content": "What is AnythinglLM?"
+                "content": "What is Chikoro AI?"
               },
               {
                 "role": "assistant",
-                "content": "AnythingLLM is a knowledge graph and vector database management system built using NodeJS express server. It provides an interface for handling all interactions, including vectorDB management and LLM (Language Model) interactions."
+                "content": "Chikoro AI is a cutting-edge platform that leverages artificial intelligence to provide advanced solutions for various applications. It offers a range of AI-powered tools and services designed to enhance productivity, streamline workflows, and drive innovation across different industries."
               },
             ]
           }

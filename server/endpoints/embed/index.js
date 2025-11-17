@@ -46,9 +46,9 @@ function embeddedEndpoints(app) {
         });
         await Telemetry.sendTelemetry("embed_sent_chat", {
           multiUserMode: multiUserMode(response),
-          LLMSelection: process.env.LLM_PROVIDER || "openai",
-          Embedder: process.env.EMBEDDING_ENGINE || "inherit",
-          VectorDbSelection: process.env.VECTOR_DB || "lancedb",
+          LLMSelection: process.env.LLM_PROVIDER || "ollama",
+          Embedder: process.env.EMBEDDING_ENGINE || "ollama",
+          VectorDbSelection: process.env.VECTOR_DB || "pgvector",
         });
         response.end();
       } catch (e) {

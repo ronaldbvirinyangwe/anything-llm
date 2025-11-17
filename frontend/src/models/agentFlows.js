@@ -144,6 +144,30 @@ const AgentFlows = {
       return { success: false, error: error.message };
     }
   },
+  /**
+   * Run the Quiz Creation agent (AI-powered)
+   * @param {object} data - { subject, grade, numQuestions, difficulty }
+   * @returns {Promise<{success: boolean, quiz: object | null, error: string | null}>}
+   */
+  createQuiz: async (data) => {
+    try {
+      const res = await fetch(`${API_BASE}/agent-flows/quiz/create`, {
+        method: "POST",
+        headers: {
+          ...baseHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Quiz agent failed");
+      return json;
+    } catch (error) {
+      console.error("Quiz creation failed:", error);
+      return { success: false, quiz: null, error: error.message };
+    }
+  },
 };
 
 export default AgentFlows;

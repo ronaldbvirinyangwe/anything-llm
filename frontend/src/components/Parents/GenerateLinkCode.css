@@ -1,0 +1,164 @@
+/* General layout */
+.link-page {
+  display: flex;
+  min-height: 100vh;
+  background: #f9fafb;
+}
+
+/* Content wrapper */
+.link-content {
+  flex: 1;
+  padding: 2rem;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+/* Card styling */
+.link-card {
+  background: white;
+  border-radius: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  padding: 2rem;
+  max-width: 480px;
+  width: 100%;
+}
+
+/* Headings */
+.link-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 1rem;
+}
+
+.link-subtitle {
+  font-size: 0.9rem;
+  color: #4b5563;
+  margin-bottom: 1.5rem;
+}
+
+/* Loading spinner */
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  color: #4b5563;
+}
+
+.spinner {
+  border: 2px solid #e5e7eb;
+  border-top: 2px solid #3b82f6;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Code box */
+.code-box {
+  background: linear-gradient(to right, #eff6ff, #eef2ff);
+  border: 2px solid #bfdbfe;
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  color: #374151;
+}
+
+.copy-btn {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.copy-btn:hover {
+  background: #2563eb;
+}
+
+.code-display {
+  font-family: monospace;
+  font-size: 1.8rem;
+  color: #2563eb;
+  text-align: center;
+  letter-spacing: 0.15em;
+  font-weight: bold;
+}
+
+/* Expiry box */
+.expiry-box {
+  background: #fefce8;
+  border: 1px solid #fef08a;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: #854d0e;
+}
+
+.hint {
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
+/* Buttons */
+.generate-btn {
+  margin-top: 1rem;
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.generate-btn.primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.generate-btn.primary:hover {
+  background: #2563eb;
+}
+
+.generate-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Alerts */
+.error-alert,
+.expired-alert {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+}
+
+/* Footer note */
+.footer-note {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+  font-size: 0.8rem;
+  color: #6b7280;
+}

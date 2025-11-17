@@ -1,0 +1,189 @@
+/* ───────────────────────────────
+   Payment Page Styling
+   Clean + minimal Chikoro AI look
+────────────────────────────────── */
+
+.page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: var(--theme-bg, #f8f9fc);
+  padding: 2rem;
+  font-family: "Inter", "Poppins", sans-serif;
+}
+
+/* Container */
+.payment-container {
+  background: #fff;
+  max-width: 460px;
+  width: 100%;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  padding: 2rem 2.5rem;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.payment-container:hover {
+  transform: translateY(-2px);
+}
+
+.payment-container h2 {
+  font-size: 1.6rem;
+  margin-bottom: 1.5rem;
+  color: #1f2937;
+  font-weight: 600;
+}
+
+/* Plan Cards */
+.plan-options {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 2rem;
+}
+
+.plan-card {
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1rem 1.5rem;
+  background: #fafafa;
+  width: 100%;
+  transition: all 0.2s ease;
+}
+
+.plan-card.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.plan-card h3 {
+  margin: 0.3rem 0;
+  color: #111827;
+}
+
+.plan-card .price {
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.plan-card .hint {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+/* Method Selector */
+.method-selector {
+  display: flex;
+  justify-content: space-evenly;
+  margin-bottom: 1.2rem;
+  font-size: 0.95rem;
+  color: #374151;
+}
+
+.method-selector label {
+  cursor: pointer;
+}
+
+.method-selector input {
+  accent-color: #2563eb;
+}
+
+/* Form Group */
+.form-group {
+  text-align: left;
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  font-weight: 500;
+  display: block;
+  margin-bottom: 0.4rem;
+  color: #1f2937;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  font-size: 1rem;
+  border: 1.8px solid #d1d5db;
+  border-radius: 8px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.form-group input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.form-group small.help {
+  display: block;
+  color: #6b7280;
+  margin-top: 0.25rem;
+}
+
+/* Buttons */
+.submit-btn {
+  width: 100%;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.submit-btn:hover {
+  background: #1d4ed8;
+}
+
+.submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Error Messages */
+.error-message {
+  margin-top: 1rem;
+  color: #dc2626;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+/* Spinners & Loaders */
+.spinner-centered,
+.message-centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  text-align: center;
+  color: #374151;
+}
+
+.spinner {
+  width: 42px;
+  height: 42px;
+  border: 4px solid #e5e7eb;
+  border-top: 4px solid #2563eb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 1rem 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.instructions {
+  color: #2563eb;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}

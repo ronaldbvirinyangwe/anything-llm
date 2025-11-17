@@ -1,4 +1,4 @@
-import React, { useState, createContext } from "react";
+import React, { useState, createContext,useContext } from "react";
 import { AUTH_TIMESTAMP, AUTH_TOKEN, AUTH_USER } from "@/utils/constants";
 
 export const AuthContext = createContext(null);
@@ -29,4 +29,18 @@ export function AuthProvider(props) {
       {props.children}
     </AuthContext.Provider>
   );
+}
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+
+  const { store, actions } = context;
+  return {
+    user: store.user,
+    accessToken: store.authToken,
+    updateUser: actions.updateUser,
+    unsetUser: actions.unsetUser,
+  };
 }

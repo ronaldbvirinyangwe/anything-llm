@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "parent_students" ADD COLUMN     "linked_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

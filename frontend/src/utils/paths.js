@@ -18,6 +18,12 @@ export default {
   login: (noTry = false) => {
     return `/login${noTry ? "?nt=1" : ""}`;
   },
+  register: (noTry = false) => {
+    return `/register${noTry ? "?nt=1" : ""}`;
+  },
+  enrol: (noTry = false) => {
+    return `/enrol${noTry ? "?nt=1" : ""}`;
+  },
   sso: {
     login: () => {
       return "/sso/simple";
@@ -56,17 +62,49 @@ export default {
     return "https://discord.com/invite/6UyHPeGZAC";
   },
   docs: () => {
-    return "https://docs.anythingllm.com";
+    return "https://scalesai.online";
+  },
+  facebook: () => {
+    return "https://www.facebook.com/chikoroai/";
+  },
+  linkedin: () => {
+    return "https://zw.linkedin.com/company/chikoro-ai/";
   },
   chatModes: () => {
     return "https://docs.anythingllm.com/features/chat-modes";
   },
   mailToMintplex: () => {
-    return "mailto:team@mintplexlabs.com";
+    return "mailto:ceo@scalesai.online";
   },
   hosting: () => {
     return "https://my.mintplexlabs.com/aio-checkout?product=anythingllm";
   },
+  payments: {
+  manage: () => "/payments/manage",
+  history: () => "/payments/history",
+},
+roles: {
+  home: () => "/",
+  login: () => "/login",
+  teacher: {
+    dashboard: () => "/teacher-dashboard",
+  },
+  student: {
+    dashboard: () => "/student-dashboard",
+  },
+  admin: {
+    dashboard: () => "/admin-dashboard",
+  },
+  parent: {
+    dashboard: () => "/parent-dashboard",
+  },
+  sso: {
+    login: () => "/sso-login",
+  },
+},
+links: {
+  linkparent: () => "link-parent"
+},
   workspace: {
     chat: (slug, options = {}) => {
       return applyOptions(`/workspace/${slug}`, options);

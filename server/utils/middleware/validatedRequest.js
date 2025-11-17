@@ -1,3 +1,4 @@
+const prisma = require("../prisma");
 const { SystemSettings } = require("../../models/systemSettings");
 const { User } = require("../../models/user");
 const { EncryptionManager } = require("../EncryptionManager");
@@ -11,7 +12,6 @@ async function validatedRequest(request, response, next) {
     return await validateMultiUserRequest(request, response, next);
 
   // When in development passthrough auth token for ease of development.
-  // Or if the user simply did not set an Auth token or JWT Secret
   if (
     process.env.NODE_ENV === "development" ||
     !process.env.AUTH_TOKEN ||
@@ -22,47 +22,31 @@ async function validatedRequest(request, response, next) {
   }
 
   if (!process.env.AUTH_TOKEN) {
-    response.status(401).json({
+    return response.status(401).json({
       error: "You need to set an AUTH_TOKEN environment variable.",
     });
-    return;
   }
 
   const auth = request.header("Authorization");
   const token = auth ? auth.split(" ")[1] : null;
-
   if (!token) {
-    response.status(401).json({
-      error: "No auth token found.",
-    });
-    return;
+    return response.status(401).json({ error: "No auth token found." });
   }
 
   const bcrypt = require("bcrypt");
   const { p } = decodeJWT(token);
 
   if (p === null || !/\w{32}:\w{32}/.test(p)) {
-    response.status(401).json({
-      error: "Token expired or failed validation.",
-    });
-    return;
+    return response.status(401).json({ error: "Token expired or failed validation." });
   }
 
-  // Since the blame of this comment we have been encrypting the `p` property of JWTs with the persistent
-  // encryptionManager PEM's. This prevents us from storing the `p` unencrypted in the JWT itself, which could
-  // be unsafe. As a consequence, existing JWTs with invalid `p` values that do not match the regex
-  // in ln:44 will be marked invalid so they can be logged out and forced to log back in and obtain an encrypted token.
-  // This kind of methodology only applies to single-user password mode.
   if (
     !bcrypt.compareSync(
       EncryptionMgr.decrypt(p),
       bcrypt.hashSync(process.env.AUTH_TOKEN, 10)
     )
   ) {
-    response.status(401).json({
-      error: "Invalid auth credentials.",
-    });
-    return;
+    return response.status(401).json({ error: "Invalid auth credentials." });
   }
 
   next();
@@ -73,39 +57,37 @@ async function validateMultiUserRequest(request, response, next) {
   const token = auth ? auth.split(" ")[1] : null;
 
   if (!token) {
-    response.status(401).json({
-      error: "No auth token found.",
-    });
-    return;
+    return response.status(401).json({ error: "No auth token found." });
   }
 
   const valid = decodeJWT(token);
   if (!valid || !valid.id) {
-    response.status(401).json({
-      error: "Invalid auth token.",
-    });
-    return;
+    return response.status(401).json({ error: "Invalid auth token." });
   }
 
   const user = await User.get({ id: valid.id });
   if (!user) {
-    response.status(401).json({
-      error: "Invalid auth for user.",
-    });
-    return;
+    return response.status(401).json({ error: "Invalid auth for user." });
   }
 
   if (user.suspended) {
-    response.status(401).json({
-      error: "User is suspended from system",
-    });
-    return;
+    return response.status(401).json({ error: "User is suspended from system" });
   }
 
-  response.locals.user = user;
+  // ✅ Merge academic profile info
+  let profile = null;
+  if (user.role === "student") {
+    profile = await prisma.students.findFirst({ where: { user_id: user.id } });
+  } else if (user.role === "teacher") {
+    profile = await prisma.teachers.findFirst({ where: { user_id: user.id } });
+  } else if (user.role === "parent") {
+    profile = await prisma.parents.findFirst({ where: { user_id: user.id } });
+  }
+
+  // ✅ Attach merged user
+  response.locals.user = { ...user, ...profile };
+
   next();
 }
 
-module.exports = {
-  validatedRequest,
-};
+module.exports = { validatedRequest };

@@ -10,6 +10,10 @@ import {
   HouseLine,
   Info,
   LinkSimple,
+  FacebookLogo,
+  LinkedinLogo,
+  ChartLine,
+
 } from "@phosphor-icons/react";
 import React, { useEffect, useState } from "react";
 import SettingsButton from "../SettingsButton";
@@ -19,7 +23,7 @@ import { Link } from "react-router-dom";
 
 export const MAX_ICONS = 3;
 export const ICON_COMPONENTS = {
-  BookOpen: BookOpen,
+  ChartLine:ChartLine,
   DiscordLogo: DiscordLogo,
   GithubLogo: GithubLogo,
   Envelope: Envelope,
@@ -28,10 +32,14 @@ export const ICON_COMPONENTS = {
   Globe: Globe,
   Briefcase: Briefcase,
   Info: Info,
+  FacebookLogo: FacebookLogo,
+  LinkedinLogo: LinkedinLogo,
 };
 
 export default function Footer() {
   const [footerData, setFooterData] = useState(false);
+  const student = JSON.parse(localStorage.getItem("chikoroai_user") || "{}");
+const reportLink = student?.id ? `/reports/${student.id}` : "/reports";
 
   useEffect(() => {
     async function fetchFooterData() {
@@ -51,49 +59,47 @@ export default function Footer() {
         <div className="flex space-x-4">
           <div className="flex w-fit">
             <Link
-              to={paths.github()}
+              to={paths.facebook()}
               target="_blank"
               rel="noreferrer"
               className="transition-all duration-300 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
-              aria-label="Find us on GitHub"
+              aria-label="Find us on Facebook"
               data-tooltip-id="footer-item"
-              data-tooltip-content="View source code on GitHub"
+              data-tooltip-content="Open ChikoroAI Facebook page"
             >
-              <GithubLogo
+              <FacebookLogo
                 weight="fill"
                 className="h-5 w-5"
                 color="var(--theme-sidebar-footer-icon-fill)"
               />
             </Link>
           </div>
-          <div className="flex w-fit">
+           <div className="flex w-fit">
             <Link
-              to={paths.docs()}
-              target="_blank"
-              rel="noreferrer"
-              className="transition-all duration-300 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
-              aria-label="Docs"
-              data-tooltip-id="footer-item"
-              data-tooltip-content="Open AnythingLLM help docs"
-            >
-              <BookOpen
-                weight="fill"
-                className="h-5 w-5"
-                color="var(--theme-sidebar-footer-icon-fill)"
-              />
-            </Link>
+  to={reportLink}
+  className="transition-all duration-300 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
+  aria-label="Reports"
+  data-tooltip-id="footer-item"
+  data-tooltip-content="View performance reports"
+>
+  <ChartLine
+    weight="fill"
+    className="h-5 w-5"
+    color="var(--theme-sidebar-footer-icon-fill)"
+  />
+</Link>
           </div>
           <div className="flex w-fit">
             <Link
-              to={paths.discord()}
+              to={paths.linkedin()}
               target="_blank"
               rel="noreferrer"
               className="transition-all duration-300 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
-              aria-label="Join our Discord server"
+              aria-label="Join our LinkedIn"
               data-tooltip-id="footer-item"
-              data-tooltip-content="Join the AnythingLLM Discord"
+              data-tooltip-content="Join the ChikoroAI LinkedIn"
             >
-              <DiscordLogo
+              <LinkedinLogo
                 weight="fill"
                 className="h-5 w-5"
                 color="var(--theme-sidebar-footer-icon-fill)"

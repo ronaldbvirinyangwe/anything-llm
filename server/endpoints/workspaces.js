@@ -45,7 +45,7 @@ function workspaceEndpoints(app) {
 
   app.post(
     "/workspace/new",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.teacher, ROLES.student])],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
@@ -55,9 +55,9 @@ function workspaceEndpoints(app) {
           "workspace_created",
           {
             multiUserMode: multiUserMode(response),
-            LLMSelection: process.env.LLM_PROVIDER || "openai",
-            Embedder: process.env.EMBEDDING_ENGINE || "inherit",
-            VectorDbSelection: process.env.VECTOR_DB || "lancedb",
+            LLMSelection: process.env.LLM_PROVIDER || "ollama",
+            Embedder: process.env.EMBEDDING_ENGINE || "ollama",
+            VectorDbSelection: process.env.VECTOR_DB || "pgvector",
             TTSSelection: process.env.TTS_PROVIDER || "native",
             LLMModel: getModelTag(),
           },

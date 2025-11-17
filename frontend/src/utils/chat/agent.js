@@ -117,15 +117,39 @@ export default function handleSocketResponse(socket, event, setChatHistory) {
         const { type, content, uuid } = data.content;
         // For tool call invocations, we need to update the existing message entirely since it is accumulated
         // and we dont know if the function will have arguments or not while streaming - so replace the existing message entirely
-        if (type === "toolCallInvocation") {
-          const knownMessage = prev.find((msg) => msg.uuid === uuid);
-          if (!knownMessage)
-            return [...prev, { uuid, type: "toolCallInvocation", content }]; // If the message is not known, add it to the end of the list
-          return [
-            ...prev.filter((msg) => msg.uuid !== uuid),
-            { ...knownMessage, content },
-          ]; // If the message is known, replace it with the new content
-        }
+       if (type === "toolCallInvocation") {
+  const knownMessage = prev.find((msg) => msg.uuid === uuid);
+
+  // 🧠 Detect specific tool types and set a human-friendly display message
+  let displayMessage = null;
+  try {
+    const parsed = typeof content === "string" ? JSON.parse(content) : content;
+
+    if (parsed?.tool_call === "quiz_create") {
+      displayMessage = "✅ Quiz generated successfully!";
+    } else if (parsed?.tool_call === "flashcard_create") {
+      displayMessage = "🧠 Flashcards created successfully!";
+    } else if (parsed?.tool_call) {
+      displayMessage = `🧩 ${parsed.tool_call.replace(/_/g, " ")} completed.`;
+    }
+  } catch {
+    // content is not JSON, skip
+  }
+
+  const newMessage = {
+    uuid,
+    type: "toolCallInvocation",
+    content,
+    display_message: displayMessage, // 🪄 add this
+  };
+
+  if (!knownMessage) return [...prev, newMessage];
+
+  return [
+    ...prev.filter((msg) => msg.uuid !== uuid),
+    { ...knownMessage, ...newMessage },
+  ];
+}
 
         if (type === "textResponseChunk") {
           return prev

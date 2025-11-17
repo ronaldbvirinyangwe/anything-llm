@@ -1,0 +1,166 @@
+/* reports.css */
+/* Base styles that work with global theme (data-theme="default" or "light" on html, and body.light class) */
+.reports-wrapper {
+  display: flex;
+  min-height: 100vh;
+  width: 100vw; /* Ensure full viewport width to eliminate side whitespace */
+  /* Inherit global theme colors via CSS variables if defined (e.g., --theme-bg-primary) */
+    background-color: var(--theme-bg-primary, #f9f9f9); /* Fallback to light gray */
+}
+
+.reports-container,
+.reports-container-mobile {
+  padding: 2rem;
+  flex: 1; /* Take remaining space after sidebar */
+  width: calc(100vw - 292px); /* Full width minus max sidebar width; adjust dynamically if needed */
+  max-width: none; /* Remove max-width to fill available space */
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  transition: margin-left 0.5s ease-in-out, padding-top 0.5s ease-in-out, width 0.5s ease-in-out;
+  /* Use theme-aware backgrounds/text if CSS vars are set globally */
+  background-color: var(--theme-bg-sidebar, #ffffff); /* Fallback to white */
+  color: var(--theme-text-primary, #000000); /* Fallback to black */
+  box-sizing: border-box; /* Ensure padding doesn't add to width */
+}
+
+.reports-container {
+  margin-left: 0; /* Overridden by inline style for sidebar offset */
+  width: auto; /* Override for dynamic width based on sidebar state */
+}
+
+/* Adjust width when sidebar is hidden (16px space) */
+.reports-container[style*="margin-left: 16px"] {
+  width: calc(100vw - 16px);
+}
+
+/* Theme-specific overrides using attribute selectors to match the hook's data-theme */
+[data-theme="default"] .reports-container,
+[data-theme="default"] .reports-container-mobile,
+body:not(.light) .reports-container,
+body:not(.light) .reports-container-mobile {
+  background-color: var(--theme-bg-dark, #0f0f0f); /* Dark theme background */
+  color: var(--theme-text-light, #ffffff); /* Light text on dark */
+}
+
+[data-theme="light"] .reports-container,
+[data-theme="light"] .reports-container-mobile,
+body.light .reports-container,
+body.light .reports-container-mobile {
+  background-color: var(--theme-bg-light, #ffffff); /* Light theme background */
+  color: var(--theme-text-dark, #000000); /* Dark text on light */
+}
+
+/* Mobile-specific overrides */
+@media (max-width: 767px) {
+  .reports-container-mobile {
+    padding: 1rem; /* Reduced padding on small screens for more space */
+    width: 100vw; /* Full viewport width on mobile */
+    max-width: none; /* Full width on mobile */
+    background-color: inherit; /* Ensure theme propagation */
+    margin-left: 0; /* No sidebar offset on mobile */
+  }
+
+  .reports-wrapper {
+    /* On mobile, hide persistent sidebar and use overlay; wrapper can be full */
+    width: 100vw;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); /* Smaller cards on mobile */
+    gap: 0.75rem;
+  }
+
+  .summary-grid card,
+  .chart-card {
+    text-align: center;
+    padding: 1rem; /* Ensure cards have breathing room */
+    /* Tremor Cards will auto-handle theme via data-theme prop */
+  }
+
+  .subject-performance li {
+    padding: 0.5rem 0;
+    font-size: 0.9rem; /* Slightly smaller text for mobile */
+    color: inherit; /* Inherit theme text color */
+    border-bottom-color: rgba(200, 200, 200, 0.3); /* Adjust opacity for theme if needed */
+  }
+
+  .ai-summary {
+    padding: 1rem;
+    font-size: 1rem; /* Adjust for mobile readability */
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); /* Keep gradient, but override text if needed */
+    color: white; /* Fixed white for contrast on gradient */
+  }
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.summary-grid card,
+.chart-card {
+  text-align: center;
+  /* Borders and shadows can use theme vars */
+  border-color: var(--theme-border, #e5e7eb);
+  box-shadow: var(--theme-shadow, 0 1px 3px rgba(0, 0, 0, 0.1));
+}
+
+.subject-performance {
+  list-style: none;
+  padding: 0;
+}
+
+.subject-performance li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(200, 200, 200, 0.3);
+}
+
+.ai-summary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  padding: 1.5rem;
+  border-radius: 12px;
+}
+
+/* Loading and error states with theme awareness */
+.reports-loading,
+.reports-error {
+  padding: 2rem;
+  text-align: center;
+  color: var(--theme-text-primary, #000000);
+  width: 100vw; /* Full width for loading/error states */
+}
+
+[data-theme="default"] .reports-loading,
+[data-theme="default"] .reports-error,
+body:not(.light) .reports-loading,
+body:not(.light) .reports-error {
+  color: var(--theme-text-light, #ffffff);
+}
+
+/* Recharts theme integration (basic override; for full integration, consider recharts-theme plugin) */
+.recharts-text {
+  fill: var(--theme-text-primary, #000000);
+}
+
+[data-theme="default"] .recharts-text,
+body:not(.light) .recharts-text {
+  fill: var(--theme-text-light, #ffffff);
+}
+
+.recharts-line {
+  stroke: var(--theme-accent, #4caf50); /* Use theme accent color */
+}
+
+/* Ensure no horizontal scroll or extra margins */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}

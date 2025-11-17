@@ -238,29 +238,36 @@ function OllamaLLMModelSelection({
   const [customModels, setCustomModels] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function findCustomModels() {
-      if (!basePath) {
-        setCustomModels([]);
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      try {
-        const { models } = await System.customModels(
-          "ollama",
-          authToken,
-          basePath
-        );
-        setCustomModels(models || []);
-      } catch (error) {
-        console.error("Failed to fetch custom models:", error);
-        setCustomModels([]);
-      }
+useEffect(() => {
+  async function findCustomModels() {
+    if (!basePath) {
+      setCustomModels([]);
       setLoading(false);
+      return;
     }
-    findCustomModels();
-  }, [basePath, authToken]);
+    setLoading(true);
+    try {
+      const { models } = await System.customModels(
+        "ollama",
+        authToken,
+        basePath
+      );
+      setCustomModels(models || []);
+
+      // 👇 Automatically select a default model if none chosen
+      if (models && models.length > 0 && !settings.OllamaLLMModelPref) {
+        const defaultModel = models.find(m => m.id.includes("qwen3-vl:235b-cloud")) || models[0];
+        settings.OllamaLLMModelPref = defaultModel.id;
+      }
+
+    } catch (error) {
+      console.error("Failed to fetch custom models:", error);
+      setCustomModels([]);
+    }
+    setLoading(false);
+  }
+  findCustomModels();
+}, [basePath, authToken]);
 
   if (loading || customModels.length === 0) {
     return (
@@ -269,16 +276,22 @@ function OllamaLLMModelSelection({
           Ollama Model
         </label>
         <select
-          name="OllamaLLMModelPref"
-          disabled={true}
-          className="border-none bg-theme-settings-input-bg border-gray-500 text-white text-sm rounded-lg block w-full p-2.5"
-        >
-          <option disabled={true} selected={true}>
-            {!!basePath
-              ? "--loading available models--"
-              : "Enter Ollama URL first"}
-          </option>
-        </select>
+  name="OllamaLLMModelPref"
+  required={true}
+  value={settings.OllamaLLMModelPref || ""}
+  onChange={(e) => (settings.OllamaLLMModelPref = e.target.value)}
+  className="border-none bg-theme-settings-input-bg border-gray-500 text-white text-sm rounded-lg block w-full p-2.5"
+>
+  {customModels.length > 0 && (
+    <optgroup label="Your loaded models">
+      {customModels.map((model) => (
+        <option key={model.id} value={model.id}>
+          {model.id}
+        </option>
+      ))}
+    </optgroup>
+  )}
+</select>
         <p className="text-xs leading-[18px] font-base text-white text-opacity-60 mt-2">
           Select the Ollama model you want to use. Models will load after
           entering a valid Ollama URL.

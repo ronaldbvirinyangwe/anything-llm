@@ -402,7 +402,7 @@ export default function GeneralLLMPreference() {
     async function fetchKeys() {
       const _settings = await System.keys();
       setSettings(_settings);
-      setSelectedLLM(_settings?.LLMProvider);
+      setSelectedLLM("ollama");
       setLoading(false);
     }
     fetchKeys();

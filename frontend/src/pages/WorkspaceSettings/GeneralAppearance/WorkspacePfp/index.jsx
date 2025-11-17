@@ -15,25 +15,32 @@ export default function WorkspacePfp({ workspace, slug }) {
     fetchWorkspace();
   }, [slug]);
 
-  const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return false;
+ const handleFileUpload = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return false;
 
-    const formData = new FormData();
-    formData.append("file", file);
-    const { success, error } = await Workspace.uploadPfp(
-      formData,
-      workspace.slug
-    );
-    if (!success) {
-      showToast(`Failed to upload profile picture: ${error}`, "error");
-      return;
-    }
+  console.log("📤 Uploading file:", file.name, file.type, file.size);
 
-    const pfpUrl = await Workspace.fetchPfp(workspace.slug);
-    setPfp(pfpUrl);
-    showToast("Profile picture uploaded.", "success");
-  };
+  const formData = new FormData();
+  formData.append("file", file);
+  const { success, error } = await Workspace.uploadPfp(
+    formData,
+    workspace.slug
+  );
+  
+  console.log("📤 Upload result:", { success, error });
+
+  if (!success) {
+    showToast(`Failed to upload profile picture: ${error}`, "error");
+    return;
+  }
+
+  const pfpUrl = await Workspace.fetchPfp(workspace.slug);
+  console.log("🖼️ Fetched PFP URL:", pfpUrl);
+  
+  setPfp(pfpUrl);
+  showToast("Profile picture uploaded.", "success");
+};
 
   const handleRemovePfp = async () => {
     const { success, error } = await Workspace.removePfp(workspace.slug);

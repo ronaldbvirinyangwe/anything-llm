@@ -479,7 +479,7 @@ export default function DataHandling({ setHeader, setForwardBtn, setBackBtn }) {
     setBackBtn({ showing: false, disabled: false, onClick: handleBack });
     async function fetchKeys() {
       const _settings = await System.keys();
-      setLLMChoice(_settings?.LLMProvider || "openai");
+      setLLMChoice(_settings?.LLMProvider || "ollama");
       setVectorDb(_settings?.VectorDB || "lancedb");
       setEmbeddingEngine(_settings?.EmbeddingEngine || "openai");
 

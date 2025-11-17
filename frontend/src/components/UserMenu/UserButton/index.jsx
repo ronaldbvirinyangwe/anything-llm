@@ -14,6 +14,7 @@ import {
   LAST_VISITED_WORKSPACE,
 } from "@/utils/constants";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 
 export default function UserButton() {
   const { t } = useTranslation();
@@ -38,6 +39,12 @@ export default function UserButton() {
   const handleOpenAccountModal = () => {
     setShowAccountSettings(true);
     setShowMenu(false);
+  };
+
+  const navigate = useNavigate();
+
+  const LinkParent = () => {
+    navigate("/link-parent");
   };
 
   useEffect(() => {
@@ -91,6 +98,11 @@ export default function UserButton() {
             >
               {t("profile_settings.support")}
             </a>
+            <button className="text-white hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md" 
+            onClick={LinkParent}
+            >
+              Link Parent
+            </button>
             <button
               onClick={() => {
                 window.localStorage.removeItem(AUTH_USER);
