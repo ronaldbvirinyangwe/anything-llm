@@ -317,7 +317,7 @@ Remember: Return ONLY the JSON object. Start with { and end with }.`;
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
-        model: "gemma3:1b", 
+        model: "gpt-oss:20b-cloud",
         prompt,
         stream: false, // ✅ Don't stream for easier parsing
         format: "json" // ✅ Request JSON format
@@ -506,7 +506,7 @@ Return ONLY the JSON object. Start with { and end with }. No other text.`;
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
-        model: "gemma3:1b", 
+        model: "gpt-oss:20b-cloud", 
         prompt,
         stream: false,
         format: "json"

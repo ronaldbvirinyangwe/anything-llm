@@ -12,7 +12,7 @@ export default function GenerateLinkCode() {
   const [studentId, setStudentId] = useState(null);
 
   const { user } = useUser();
-  const API_BASE = import.meta.env.VITE_API_BASE;
+  const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 
   useEffect(() => {
     async function fetchStudentProfile() {

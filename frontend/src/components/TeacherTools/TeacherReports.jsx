@@ -23,7 +23,7 @@ export default function TeacherReports() {
         }
 
         const res = await axios.get(
-          `http://localhost:3001/api/system/teacher/my-students/${teacherId}`,
+          `https://api.chikoro-ai.com/api/system/teacher/my-students/${teacherId}`,
           {
             headers: { Authorization: `Bearer ${token}` },
           }

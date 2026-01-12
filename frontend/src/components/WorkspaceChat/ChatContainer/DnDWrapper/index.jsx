@@ -118,24 +118,20 @@ export function DnDFileUploaderProvider({
    * for a chat.
    * @returns {{name:string,mime:string,contentString:string}[]}
    */
-  function parseAttachments() {
-    return (
-      files
-        ?.filter((file) => file.type === "attachment")
-        ?.map(
-          (
-            /** @type {Attachment} */
-            attachment
-          ) => {
-            return {
-              name: attachment.file.name,
-              mime: attachment.file.type,
-              contentString: attachment.contentString,
-            };
-          }
-        ) || []
-    );
-  }
+ function parseAttachments() {
+  return (
+    files
+      ?.filter((file) => file.type === "attachment")
+      ?.map((attachment) => {
+        return {
+          name: attachment.file.name,
+          mime: attachment.file.type,
+          contentString: attachment.contentString,
+          analysis: attachment.analysis || null, // ← NEW: Include vision analysis
+        };
+      }) || []
+  );
+}
 
   /**
    * Handle pasted attachments.
@@ -175,36 +171,112 @@ export function DnDFileUploaderProvider({
    * @param {Attachment[]} acceptedFiles
    * @param {any[]} _rejections
    */
-  async function onDrop(acceptedFiles, _rejections) {
-    setDragging(false);
 
-    /** @type {Attachment[]} */
-    const newAccepted = [];
-    for (const file of acceptedFiles) {
-      if (file.type.startsWith("image/")) {
-        newAccepted.push({
-          uid: v4(),
-          file,
-          contentString: await toBase64(file),
-          status: "success",
-          error: null,
-          type: "attachment",
-        });
-      } else {
-        newAccepted.push({
-          uid: v4(),
-          file,
-          contentString: null,
-          status: "in_progress",
-          error: null,
-          type: "upload",
-        });
-      }
+async function onDrop(acceptedFiles, _rejections) {
+  setDragging(false);
+
+  const newAccepted = [];
+  for (const file of acceptedFiles) {
+    if (file.type.startsWith("image/")) {
+      // ✅ NEW: Images will be analyzed by vision model
+      newAccepted.push({
+        uid: v4(),
+        file,
+        contentString: await toBase64(file),
+        status: "analyzing", // ← New status
+        error: null,
+        type: "attachment",
+        analysis: null, // ← Will store vision model output
+      });
+    } else if (file.type === "application/pdf") {
+      // ✅ NEW: PDFs will be analyzed by vision model
+      newAccepted.push({
+        uid: v4(),
+        file,
+        contentString: null,
+        status: "analyzing",
+        error: null,
+        type: "upload",
+        analysis: null,
+      });
+    } else {
+      // Other documents: existing flow
+      newAccepted.push({
+        uid: v4(),
+        file,
+        contentString: null,
+        status: "in_progress",
+        error: null,
+        type: "upload",
+      });
     }
-
-    setFiles((prev) => [...prev, ...newAccepted]);
-    embedEligibleAttachments(newAccepted);
   }
+
+  setFiles((prev) => [...prev, ...newAccepted]);
+  
+  // ✅ NEW: Analyze images and PDFs with vision model
+  await analyzeVisualAttachments(newAccepted);
+  
+  // Existing: Embed non-visual documents
+  embedEligibleAttachments(newAccepted);
+}
+
+/**
+ * ✅ NEW: Analyze images/PDFs with vision model before chat
+ */
+async function analyzeVisualAttachments(attachments = []) {
+  const visualAttachments = attachments.filter(
+    (att) =>
+      att.file.type.startsWith("image/") ||
+      att.file.type === "application/pdf"
+  );
+
+  if (visualAttachments.length === 0) return;
+
+  for (const attachment of visualAttachments) {
+    try {
+      // Send to backend for vision model analysis
+      const analysisResult = await Workspace.analyzeVisualContent(
+        workspace.slug,
+        {
+          name: attachment.file.name,
+          mime: attachment.file.type,
+          contentString: attachment.contentString,
+        }
+      );
+
+      if (analysisResult.success) {
+        // Update attachment with analysis
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.uid === attachment.uid
+              ? {
+                  ...f,
+                  status: "analyzed",
+                  analysis: analysisResult.analysis,
+                }
+              : f
+          )
+        );
+      } else {
+        throw new Error(analysisResult.error);
+      }
+    } catch (error) {
+      console.error("Vision analysis failed:", error);
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.uid === attachment.uid
+            ? {
+                ...f,
+                status: "success", // Fallback: use without analysis
+                error: "Analysis unavailable",
+              }
+            : f
+        )
+      );
+    }
+  }
+}
 
   /**
    * Embeds attachments that are eligible for embedding - basically files that are not images.

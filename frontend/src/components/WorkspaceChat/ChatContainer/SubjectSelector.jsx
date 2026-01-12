@@ -102,6 +102,7 @@ export default function SubjectSelector({ subject, setSubject, curriculum, grade
     "English (as First Language or Second Language)",
     "Mathematics",
     "Science",
+    "French",
   ];
 
   // 🎯 Filter subjects based on curriculum and grade

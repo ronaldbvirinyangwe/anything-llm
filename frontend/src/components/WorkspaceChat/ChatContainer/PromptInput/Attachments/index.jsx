@@ -36,6 +36,75 @@ function AttachmentItem({ attachment }) {
     attachment;
   const { iconBgColor, Icon } = displayFromFile(file);
 
+  if (status === "analyzing") {
+    return (
+      <div className="relative flex items-center gap-x-1 rounded-lg bg-theme-attachment-bg border-none w-[180px] group">
+        <div className={`bg-theme-attachment-icon-spinner-bg rounded-md flex items-center justify-center flex-shrink-0 h-[32px] w-[32px] m-1`}>
+          <CircleNotch
+            size={18}
+            weight="bold"
+            className="text-theme-attachment-icon-spinner animate-spin"
+          />
+        </div>
+        <div className="flex flex-col w-[125px]">
+          <p className="text-theme-attachment-text text-xs font-semibold truncate">
+            {file.name}
+          </p>
+          <p className="text-theme-attachment-text-secondary text-[10px] leading-[14px] font-medium">
+            Analyzing content...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "analyzed" && type === "attachment") {
+    return (
+      <>
+        <div
+          data-tooltip-id={`attachment-uid-${uid}-analyzed`}
+          data-tooltip-content={`${file.name} has been analyzed. The AI can now understand its content.`}
+          className={`relative flex items-center gap-x-1 rounded-lg bg-theme-attachment-success-bg border-none w-[180px] group`}
+        >
+          <div className="invisible group-hover:visible absolute -top-[5px] -right-[5px] w-fit h-fit z-[10]">
+            <button
+              onClick={removeFileFromQueue}
+              type="button"
+              className="bg-white hover:bg-error hover:text-theme-attachment-text rounded-full p-1 flex items-center justify-center hover:border-transparent border border-theme-attachment-bg"
+            >
+              <X size={10} className="flex-shrink-0" />
+            </button>
+          </div>
+          {contentString ? (
+            <img
+              alt={`Preview of ${file.name}`}
+              src={contentString}
+              className={`${iconBgColor} w-[30px] h-[30px] rounded-lg flex items-center justify-center m-1`}
+            />
+          ) : (
+            <div className={`${iconBgColor} rounded-md flex items-center justify-center flex-shrink-0 h-[32px] w-[32px] m-1`}>
+              <Icon size={24} className="text-theme-attachment-icon" />
+            </div>
+          )}
+          <div className="flex flex-col w-[125px]">
+            <p className="text-theme-attachment-text text-xs font-semibold truncate">
+              {file.name}
+            </p>
+            <p className="text-theme-attachment-text-secondary text-[10px] leading-[14px] font-medium">
+              ✓ Content analyzed
+            </p>
+          </div>
+        </div>
+        <Tooltip
+          id={`attachment-uid-${uid}-analyzed`}
+          place="top"
+          delayShow={300}
+          className="allm-tooltip !allm-text-xs"
+        />
+      </>
+    );
+  }
+
   function removeFileFromQueue() {
     window.dispatchEvent(
       new CustomEvent(REMOVE_ATTACHMENT_EVENT, { detail: { uid, document } })

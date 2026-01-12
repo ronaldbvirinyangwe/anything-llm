@@ -234,6 +234,26 @@
 .dark {
   --card-bg: #1e293b;
   --border-color: #334155;
-  --text-primary: #f9fafb;
-  --text-secondary: #9ca3af;
+  --text-primary: #000;
+  --text-secondary: #000;
+}
+
+.prose :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+    color: #000;
+    font-weight: 550;
+}
+.prose :where(ul > li):not(:where([class~="not-prose"], [class~="not-prose"] *))::marker {
+    color: green;
+}
+.prose :where(ol > li):not(:where([class~="not-prose"], [class~="not-prose"] *))::marker {
+    font-weight: 400;
+    color:green;
+}
+.prose :where(h2 + *):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+    margin-top: 0px;
+    color: #000;
+}
+.prose :where(.prose > :first-child):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+    margin-top: 0px;
+    color: #000;
 }

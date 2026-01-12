@@ -48,7 +48,7 @@ export default function PaymentManagement() {
   const fetchStudents = async () => {
   try {
     const token = localStorage.getItem("chikoroai_authToken");
-    const res = await axios.get("http://localhost:3001/api/system/students", {
+    const res = await axios.get("https://api.chikoro-ai.com/api/system/students", {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.data.success) {
@@ -86,7 +86,7 @@ export default function PaymentManagement() {
   try {
     const token = localStorage.getItem("chikoroai_authToken");
     const res = await axios.post(
-      `http://localhost:3001/api/payments/cash/${selectedStudent.id}`,
+      `https://api.chikoro-ai.com/api/payments/cash/${selectedStudent.id}`,
       formData,
       { headers: { Authorization: `Bearer ${token}` } }
     );

@@ -34,7 +34,7 @@ export default function QuizPage() {
         const userId = storedUser?.id;
         if (!userId || !token) return;
 
-        const res = await fetch(`http://localhost:3001/api/system/profile/${userId}`, {
+        const res = await fetch(`https://api.chikoro-ai.com/api/system/profile/${userId}`, {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
@@ -62,8 +62,8 @@ export default function QuizPage() {
       try {
         const res = await fetch(
           import.meta.env.MODE === "development"
-            ? "http://localhost:3001/api/quiz/results"
-            : "https://chikoro-ai.com/quiz/results",
+            ? "https://api.chikoro-ai.com/api/quiz/results"
+            : "https://api.chikoro-ai.com/quiz/results",
           {
             headers: { Authorization: `Bearer ${token}` },
           }
@@ -97,7 +97,7 @@ export default function QuizPage() {
         return;
       }
 
-      const res = await fetch("http://localhost:3001/api/quiz/generate", {
+      const res = await fetch("https://api.chikoro-ai.com/api/quiz/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -13,20 +13,22 @@ export default function StudentQuiz() {
   const [feedback, setFeedback] = useState(null);
   const [loading, setLoading] = useState(false);
   const [tabViolations, setTabViolations] = useState(0);
+  const [hasWarned, setHasWarned] = useState(false);
+
   const cleanQuizText = (rawQuiz) => {
-  if (!rawQuiz || typeof rawQuiz !== "string") return "";
-  return rawQuiz
-    .replace(/^.*?(?:here'?s?|here is).*?quiz.*?:/i, '') // remove intros like "Here's your quiz:"
-    .replace(/^(sure|certainly|okay|alright)[!,.\s]*/i, '') // remove chatty prefixes
-    .replace(/```.*?```/gs, '') // remove markdown code fences
-    .trim();
-};
+    if (!rawQuiz || typeof rawQuiz !== "string") return "";
+    return rawQuiz
+      .replace(/^.*?(?:here'?s?|here is).*?quiz.*?:/i, '')
+      .replace(/^(sure|certainly|okay|alright)[!,.\s]*/i, '')
+      .replace(/```.*?```/gs, '')
+      .trim();
+  };
 
   // Fetch quiz details
   useEffect(() => {
     const fetchQuiz = async () => {
       try {
-        const res = await axios.get(`http://localhost:3001/api/system/quiz/${quizCode}`);
+        const res = await axios.get(`https://api.chikoro-ai.com/api/system/quiz/${quizCode}`);
         if (res.data.success) setQuiz(res.data.quiz);
       } catch (err) {
         console.error("Error loading quiz:", err);
@@ -35,22 +37,94 @@ export default function StudentQuiz() {
     fetchQuiz();
   }, [quizCode]);
 
-  // Restrict tab switching
+  // ✅ SINGLE useEffect for tab detection with warning and auto-submit
   useEffect(() => {
+    if (!quiz || submitted) return; // Don't track if quiz not loaded or already submitted
+
+    const maxTabSwitches = quiz.tabLimit || 1;
+
     const handleVisibility = () => {
       if (document.hidden) {
-        setTabViolations((v) => v + 1);
+        setTabViolations((prevViolations) => {
+          const newViolations = prevViolations + 1;
+
+          // ✅ First violation - show warning
+          if (newViolations === 1 && !hasWarned) {
+            setHasWarned(true);
+            alert(
+              `⚠️ WARNING: Tab Switch Detected!\n\n` +
+              `You have ${maxTabSwitches} allowed tab switch(es).\n` +
+              `You have used 1 so far.\n\n` +
+              `If you exceed the limit, your quiz will be automatically submitted.`
+            );
+          }
+
+          // ✅ Exceeded limit - auto-submit
+          if (newViolations > maxTabSwitches) {
+            alert(
+              `🚨 TAB LIMIT EXCEEDED!\n\n` +
+              `You switched tabs ${newViolations} times (limit: ${maxTabSwitches}).\n` +
+              `Your quiz will now be automatically submitted.\n\n` +
+              `Your teacher will be notified of this violation.`
+            );
+            
+            // Auto-submit the quiz
+            autoSubmitQuiz(newViolations);
+          }
+
+          return newViolations;
+        });
       }
     };
+
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
+  }, [quiz, submitted, hasWarned]);
+
+  // ✅ Auto-submit function
+  const autoSubmitQuiz = async (violations) => {
+    if (submitted || loading) return;
+
+    setLoading(true);
+    try {
+      const student = JSON.parse(localStorage.getItem("chikoroai_user"));
+
+      const formattedAnswers = Object.entries(answers).map(([index, answer]) => ({
+        questionIndex: parseInt(index),
+        answer: answer || "", // Empty answer for unanswered questions
+      }));
+
+      const res = await axios.post("https://api.chikoro-ai.com/api/system/student/submit-quiz", {
+        quizCode,
+        answers: formattedAnswers,
+        studentId: student.id,
+        tabViolations: violations,
+        tabLimitExceeded: true,
+        autoSubmitted: true,
+      });
+
+      if (res.data.success) {
+        setSubmitted(true);
+        setFeedback(res.data);
+      }
+    } catch (err) {
+      console.error("Error auto-submitting quiz:", err);
+      alert("❌ Auto-submission failed. Please contact your teacher.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleChange = (qIndex, value) => {
     setAnswers({ ...answers, [qIndex]: value });
   };
 
- const handleSubmit = async () => {
+  // ✅ Manual submit
+  const handleSubmit = async () => {
+    if (loading) return;
+
+    const maxTabSwitches = quiz?.tabLimit || 1;
+    
     setLoading(true);
     try {
       const student = JSON.parse(localStorage.getItem("chikoroai_user"));
@@ -60,10 +134,13 @@ export default function StudentQuiz() {
         answer,
       }));
 
-      const res = await axios.post("http://localhost:3001/api/system/student/submit-quiz", {
+      const res = await axios.post("https://api.chikoro-ai.com/api/system/student/submit-quiz", {
         quizCode,
         answers: formattedAnswers,
         studentId: student.id,
+        tabViolations: tabViolations,
+        tabLimitExceeded: tabViolations > maxTabSwitches,
+        autoSubmitted: false,
       });
 
       if (res.data.success) {
@@ -78,35 +155,49 @@ export default function StudentQuiz() {
     }
   };
 
+  // ✅ Early returns - check conditions in order
   if (!quiz) return <div className="loading">Loading quiz...</div>;
 
   if (submitted && feedback) {
     return <QuizFeedback feedback={feedback} quiz={quiz} quizCode={quizCode} />;
   }
 
-
-  if (!quiz) return <div className="loading">Loading quiz...</div>;
-
-// 🛡️ Protect against missing quiz_content
-if (!quiz.quiz_content) {
-  return (
-    <div className="error">
-      ⚠️ Quiz content is missing or not yet generated for this code.
-      <br />
-      <Link to="/student-dashboard">← Go Back</Link>
-    </div>
-  );
-}
-
-const questions = quiz.quiz_content.split(/\n(?=\d+\.)/);
-
+  if (!quiz.quiz_content) {
     return (
+      <div className="error">
+        ⚠️ Quiz content is missing or not yet generated for this code.
+        <br />
+        <Link to="/">← Go Back</Link>
+      </div>
+    );
+  }
+
+  // ✅ Only split questions after confirming quiz_content exists
+  const questions = quiz.quiz_content.split(/\n(?=\d+\.)/);
+  const maxTabSwitches = quiz.tabLimit || 1;
+  const violationsRemaining = maxTabSwitches - tabViolations;
+
+  return (
     <div className="student-quiz-container">
       <header className="quiz-header">
         <h1>{quiz.subject} Quiz</h1>
         <h2>{quiz.topic}</h2>
         <p>Difficulty: <strong>{quiz.difficulty}</strong></p>
-        <p className="warning">⚠️ Tab switches detected: {tabViolations}</p>
+    
+           <div className={`tab-warning ${tabViolations > 0 ? 'active' : ''} ${tabViolations > maxTabSwitches ? 'critical' : ''}`}>
+        {tabViolations === 0 ? (
+          <p>✅ No tab switches detected</p>
+        ) : tabViolations > maxTabSwitches ? (
+          <p className="critical-text">
+            🚨 LIMIT EXCEEDED - Quiz auto-submitted
+          </p>
+        ) : (
+          <p className="warning-text">
+            ⚠️ Warning: {tabViolations} tab switch(es) detected. 
+            You have <strong>{violationsRemaining}</strong> remaining before auto-submit.
+          </p>
+        )}
+      </div>
       </header>
 
       <div className="quiz-questions">
@@ -164,17 +255,30 @@ const questions = quiz.quiz_content.split(/\n(?=\d+\.)/);
       >
         {loading ? "Submitting & Grading..." : "Submit Quiz"}
       </button>
-      <Link to="/student-dashboard" className="back-btn">← Back to Dashboard</Link>
+      <Link to="/" className="back-btn">← Back to Learning</Link>
     </div>
   );
 }
 
-// ✅ New Feedback Component
+// ✅ Feedback Component
 function QuizFeedback({ feedback, quiz, quizCode }) {
+  const wasAutoSubmitted = feedback.autoSubmitted || false;
+  const tabViolations = feedback.tabViolations || 0;
+  const tabLimit = quiz.tabLimit || 1;
+
   return (
     <div className="quiz-feedback-container">
       <header className="feedback-header">
         <h1>📊 Quiz Results</h1>
+
+        {wasAutoSubmitted && (
+          <div className="auto-submit-alert">
+            🚨 <strong>This quiz was automatically submitted</strong> due to exceeding 
+            the tab switch limit ({tabViolations}/{tabLimit} switches).
+            Your teacher has been notified.
+          </div>
+        )}
+
         <div className="score-display">
           <div className="score-circle">
             <span className="score-number">{feedback.score}%</span>
@@ -238,8 +342,8 @@ function QuizFeedback({ feedback, quiz, quizCode }) {
       </div>
 
       <div className="feedback-actions">
-        <Link to="/student-dashboard" className="btn-primary">
-          ← Back to Dashboard
+        <Link to="/" className="btn-primary">
+          ← Back To Learning
         </Link>
         <button 
           className="btn-secondary"

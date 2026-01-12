@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import Sidebar from "../../components/Sidebar";
 import { useTheme } from "../../hooks/useTheme";
-import { assets } from "../../assets/assets";
 import "./PaperSelector.css";
 
 export default function PaperSelector() {

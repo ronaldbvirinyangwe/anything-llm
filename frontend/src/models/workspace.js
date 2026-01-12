@@ -576,6 +576,19 @@ const Workspace = {
     return response;
   },
 
+   analyzeVisualContent: async function (slug, { name, mime, contentString }) {
+    return await fetch(`${API_BASE}/workspace/${slug}/analyze-visual`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ name, mime, contentString }),
+    })
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+  
   threads: WorkspaceThread,
 };
 

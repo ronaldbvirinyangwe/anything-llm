@@ -84,7 +84,7 @@ export default function Test({ readOnly = false, externalTest = null }) {
   const generateQuiz = async (params) => {
     useTestStore.setState({ isLoading: true, error: "" });
     try {
-      const res = await fetch("http://localhost:3001/api/quiz/generate", {
+      const res = await fetch("httpss://api.chikoro-ai.com/api/quiz/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -158,13 +158,14 @@ export default function Test({ readOnly = false, externalTest = null }) {
 
   // 🕒 Timer
   useEffect(() => {
-    if (!readOnly && !results) {
-      const tick = setInterval(() => {
-        useTestStore.setState((s) => ({ timer: s.timer + 1 }));
-      }, 1000);
-      return () => clearInterval(tick);
-    }
-  }, [readOnly, results]);
+  if (!readOnly && !results && !isLoading) { 
+    const tick = setInterval(() => {
+      useTestStore.setState((s) => ({ timer: s.timer + 1 }));
+    }, 1000);
+    return () => clearInterval(tick);
+  }
+}, [readOnly, results, isLoading]); 
+
 
   // 🧮 Submit quiz
   const submitTest = async () => {
@@ -176,7 +177,7 @@ export default function Test({ readOnly = false, externalTest = null }) {
 
     useTestStore.setState({ isLoading: true });
     try {
-      const res = await fetch("http://localhost:3001/api/quiz/mark", {
+      const res = await fetch("https://api.chikoro-ai.com/api/quiz/mark", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

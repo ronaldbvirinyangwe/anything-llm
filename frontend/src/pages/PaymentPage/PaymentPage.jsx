@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import "./PaymentPage.css";
 import { AUTH_USER } from "@/utils/constants";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 const api = axios.create({ baseURL: API_BASE });
 
 const MOBILE_METHOD = "ecocash";
@@ -245,16 +245,6 @@ export default function PaymentPage() {
 
         {/* Payment Method */}
         <div className="method-selector">
-          <label>
-            <input
-              type="radio"
-              name="method"
-              value="card"
-              checked={paymentMethod === "card"}
-              onChange={() => setPaymentMethod("card")}
-            />{" "}
-            Visa / Mastercard
-          </label>
           <label>
             <input
               type="radio"

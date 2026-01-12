@@ -7,7 +7,7 @@ import { useModal } from "@/hooks/useModal";
 import ModalWrapper from "@/components/ModalWrapper";
 
 const ModMap = {
-  admin: ["admin", "manager", "default"],
+  admin: ["admin", "manager", "teacher", "student", "parent", "default"],
   manager: ["manager", "default"],
   default: [],
   student: ["student", "default"],

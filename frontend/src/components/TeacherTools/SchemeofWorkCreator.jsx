@@ -52,7 +52,7 @@ const useSchemeStore = create((set, get) => ({
         Authorization: `Bearer ${localStorage.getItem("chikoroai_authToken")}`,
       };
       const response = await axios.post(
-        "http://localhost:3001/api/system/teacher-tools/generate-scheme-of-work",
+        "https://api.chikoro-ai.com/api/system/teacher-tools/generate-scheme-of-work",
         formData,
         { headers }
       );

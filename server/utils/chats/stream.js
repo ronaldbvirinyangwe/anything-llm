@@ -82,7 +82,7 @@ async function streamChatWithWorkspace(
         text: textResponse,
         sources: [],
         type: chatMode,
-        attachments,
+        attachments: [],
       },
       threadId: thread?.id || null,
       include: false,
@@ -106,6 +106,34 @@ async function streamChatWithWorkspace(
     messageLimit,
   });
 
+      const visionContext = [];
+  const processedAttachments = []; // ✅ Track which attachments to send
+  
+  if (attachments && attachments.length > 0) {
+    attachments.forEach((attachment) => {
+      if (attachment.analysis) {
+        // ✅ We have vision analysis - add to context
+        visionContext.push(`
+[Visual Content Analysis: ${attachment.name}]
+${attachment.analysis.content}
+---
+`);
+        
+        // ✅ DON'T send the raw image to chat model
+        // The analysis text is sufficient
+      } else {
+        // ✅ No analysis - keep attachment (might be a document, etc.)
+        processedAttachments.push(attachment);
+      }
+    });
+  }
+
+  // Add vision analysis to context texts
+  if (visionContext.length > 0) {
+    console.log(`👁️ Adding ${visionContext.length} vision analyses to context`);
+    contextTexts = [...visionContext, ...contextTexts];
+  }
+  
   // Look for pinned documents and see if the user decided to use this feature. We will also do a vector search
   // as pinning is a supplemental tool but it should be used with caution since it can easily blow up a context window.
   // However we limit the maximum of appended context to 80% of its overall size, mostly because if it expands beyond this
@@ -228,15 +256,20 @@ async function streamChatWithWorkspace(
 
   // Compress & Assemble message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
+
+  console.log("Final Context Count:", contextTexts.length);
+console.log("Vision analysis included?", contextTexts.some(t => t.includes("Visual Content Analysis")));
+
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt: await chatPrompt(workspace, user),
       userPrompt: updatedMessage,
       contextTexts,
       chatHistory,
-      attachments,
+    attachments: processedAttachments,
     },
-    rawHistory
+    rawHistory,
+    user
   );
 
   // If streaming is not explicitly enabled for connector
@@ -281,7 +314,7 @@ if (completeText?.length > 0) {
       text: completeText,
       sources,
       type: chatMode,
-      attachments,
+       attachments: attachments, 
       metrics,
     },
     threadId: thread?.id || null,

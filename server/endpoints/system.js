@@ -76,6 +76,8 @@ const Tesseract = require('tesseract.js');
 // const fs = require('fs').promises;
 const sharp = require('sharp');
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+const fetch = require('node-fetch');
+
 
 
 const {
@@ -90,7 +92,7 @@ function makePaynow() {
     PAYNOW_INTEGRATION_ID,
     PAYNOW_INTEGRATION_KEY
   );
-  paynow.resultUrl = "http://localhost:3000";
+  paynow.resultUrl = "https://chikoro-ai.com";
 paynow.returnUrl = "http://example.com/return?gateway=paynow&merchantReference=1234";
   return paynow;
 }
@@ -1696,12 +1698,12 @@ app.post("/quiz/submit", [validatedRequest], async (req, res) => {
 async function generateLessonPlanAI(prompt) {
   try {
     const ollamaUrl =
-      process.env.OLLAMA_API_URL || "http://localhost:11434/api/generate";
+      process.env.OLLAMA_API_URL || "http://192.168.12.187:11434/api/generate";
 
     // Enable streaming response
     const response = await axios.post(
       ollamaUrl,
-      { model: "gpt-oss:20b-cloud", prompt, stream: false },
+      { model: "gpt-oss:20b", prompt, stream: false },
       { responseType: "text" }
     );
 
@@ -1767,7 +1769,7 @@ You are a professional ${subject} teacher preparing a detailed lesson plan for $
 Topic: ${topic}
 Lesson Duration: ${duration || "30 minutes"}
 Objectives: 
-- Write 2–3 learning objectives using Bloom's Taxonomy verbs (e.g., describe, explain, apply, analyze, evaluate, create) to target a range of cognitive skills.
+- Write a maximum of 3 learning objectives using Bloom's Taxonomy verbs (e.g., describe, explain, apply, analyze, evaluate, create) to target a range of cognitive skills.
 
 Create a complete, structured lesson plan in Markdown format with:
 - Lesson Title
@@ -1836,6 +1838,31 @@ Return the scheme in Markdown format with clear sections.
   }
 });
 
+async function searchDuckDuckGo(query) {
+  const encodedQuery = encodeURIComponent(query);
+  // DuckDuckGo's Instant Answer API endpoint
+  const url = `http://api.duckduckgo.com/?q=${encodedQuery}&format=json&pretty=1&no_html=1&skip_disambig=1`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+
+    // The RelatedTopics array often contains web links (called FirstURL)
+    const results = data.RelatedTopics.filter(t => t.FirstURL).map(t => ({
+      title: t.Text.split(' - ')[0], // Simple extraction
+      url: t.FirstURL
+    }));
+
+    return results;
+  } catch (error) {
+    console.error("DuckDuckGo API search error:", error);
+    return []; // Return empty array on failure
+  }
+}
+
 app.post(
   "/system/teacher-tools/resource-finder",
   [validatedRequest],
@@ -1857,7 +1884,27 @@ app.post(
         });
       }
 
-      // 🧠 Build the AI prompt dynamically
+      // 🔍 1. Build an optimized search query
+      const searchQuery = `${subject} ${topic} teaching resources ${curriculum || 'ZIMSEC'} Grade ${grade || ''}`;
+      
+      // 🌐 2. Call the DuckDuckGo search function
+      const webSearchResults = await searchDuckDuckGo(searchQuery);
+
+      // 📝 3. Format results for the AI prompt
+      const formattedResults = webSearchResults.length > 0
+        ? webSearchResults.map(result => 
+            `- [${result.title}](${result.url})`
+          ).join('\n')
+        : "None found on the web for direct inclusion.";
+      
+      const externalResourcesBlock = `
+--- External Search Results (Use these as inspiration or direct resources) ---
+${formattedResults}
+-------------------------------------------------------------------------
+`;
+
+
+      // 🧠 4. Build the AI prompt dynamically, incorporating the web results
       const prompt = `
 You are Chikoro AI — a Zimbabwean bilingual AI teaching assistant.
 Find and list **teaching and learning resources** for the following topic.
@@ -1868,6 +1915,8 @@ Grade/Level: ${grade || "Not specified"}
 Curriculum: ${curriculum || "ZIMSEC"}
 Additional Notes: ${notes || "None"}
 
+${externalResourcesBlock}
+
 Please produce your answer in clean **Markdown** format with these sections:
 1. **Overview** – A 2–3 paragraph topic summary in simple terms.
 2. **Key Concepts** – List of main ideas and subtopics learners should know.
@@ -1876,6 +1925,9 @@ Please produce your answer in clean **Markdown** format with these sections:
    - Online articles or PDFs (mention type or credible platforms)
    - YouTube channels or educational videos
    - Local or Zimbabwean resources if relevant
+   
+   **IMPORTANT**: Look at the 'External Search Results' above and include the *most relevant* of those links in your final 'Recommended Resources' list, formatted as a proper Markdown link with a description.
+   
 4. **Suggested Use** – How a teacher might use these resources (e.g., group work, revision, enrichment).
 
 Ensure the output is formatted for readability and teaching use.
@@ -1887,7 +1939,7 @@ Ensure the output is formatted for readability and teaching use.
       // 🧾 Log & respond
       await EventLogs.logEvent(
         "resource_finder_used",
-        { subject, topic },
+        { subject, topic, webResultsCount: webSearchResults.length },
         sessionUser.id
       );
 
@@ -1953,7 +2005,7 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
     // ✅ Fetch XP logs - FIXED BOTH ISSUES
     const xpLogs = await prisma.event_logs.findMany({
       where: { 
-        userId: student.user_id,  // ✅ FIXED: student.user_id (not student.userId)
+        userId: student.user_id, 
         event: "xp_gain" 
       },
       select: { 
@@ -2028,6 +2080,7 @@ Only provide the summary text — no additional explanations or questions
       id: q.id,
       subject: q.subject,
       score: q.score,
+       correct_answers: q.correct_answers, 
       total: q.total_questions,
       createdAt: q.submitted_at,
     }));
@@ -2426,7 +2479,7 @@ await prisma.shared_quizzes.create({
   },
 });
 
-    const quizLink = `http://localhost:3000/student/quiz/${quizCode}`;
+    const quizLink = `https://chikoro-ai.com/student/quiz/${quizCode}`;
 
     res.json({ success: true, link: quizLink });
 
@@ -3157,7 +3210,7 @@ app.post("/system/teacher/create-class-link", [validatedRequest], async (req, re
       data: { teacherId: teacher.id, subject, classCode },
     });
 
-    const joinUrl = `http://localhost:3000/join/${classCode}`;
+    const joinUrl = `https://chikoro-ai.com/join/${classCode}`;
     res.json({ success: true, classLink: { ...classLink, joinUrl } });
   } catch (err) {
     console.error("Error creating class link:", err);
@@ -4628,152 +4681,6 @@ app.post("/request-token", async (request, response) => {
       }
     }
   );
-
-// ====================================================
-// 📊 STUDENT PERFORMANCE REPORTS + AI SUMMARY
-// ====================================================
-app.get("/system/reports/student/:id", [validatedRequest], async (request, response) => {
-  try {
-    const sessionUser = await userFromSession(request, response);
-    if (!sessionUser?.user_id) {
-      return response.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    const studentId = parseInt(request.params.id);
-    if (!studentId || isNaN(studentId)) {
-      return response.status(400).json({ success: false, error: "Invalid student ID" });
-    }
-
-    // 🧠 Fetch student data
-    const student = await prisma.students.findUnique({ 
-      where: { id: studentId } 
-    });
-    
-    if (!student) {
-      return response.status(404).json({ success: false, error: "Student not found" });
-    }
-
-    // 🔍 DEBUG: Log student data
-    console.log("Student record:", student);
-    console.log("Student user_id:", student.user_id);
-
-    if (!student.user_id) {
-      return response.status(400).json({ 
-        success: false, 
-        error: "Student record has no user_id. Cannot fetch reports." 
-      });
-    }
-
-    // ✅ Fetch quizzes
-    const quizzes = await prisma.quiz_results.findMany({
-      where: { user_id: student.user_id },
-      select: { 
-        id: true, 
-        subject: true, 
-        score: true, 
-        total_questions: true,
-        correct_answers: true,
-        submitted_at: true
-      },
-      orderBy: { submitted_at: 'desc' },
-    });
-
-    console.log(`Found ${quizzes.length} quizzes for user_id ${student.user_id}`);
-
-    // ✅ Fetch XP logs
-    const xpLogs = await prisma.event_logs.findMany({
-      where: { 
-        userId: student.user_id,
-        event: "xp_gain" 
-      },
-      select: { 
-        metadata: true, 
-        occurredAt: true
-      },
-    });
-
-    console.log(`Found ${xpLogs.length} XP logs for user_id ${student.user_id}`);
-
-    // 🧮 Calculate stats
-    const averageScore =
-      quizzes.length > 0
-        ? (quizzes.reduce((acc, q) => acc + (q.score / q.total_questions) * 100, 0) / quizzes.length).toFixed(1)
-        : "0.0";
-
-    const totalFlashcards = 0;
-    const mastered = 0;
-
-    const totalXP = xpLogs.reduce((sum, log) => {
-      const points = typeof log.metadata === 'object' 
-        ? log.metadata?.points || 0 
-        : 0;
-      return sum + points;
-    }, 0);
-
-    // 🧠 Generate AI summary
-    const summaryPrompt = `
-You are Chikoro AI, an educational data analyst for teachers.
-Analyze the following student's progress and write a professional, encouraging summary.
-
-Name: ${student.name}
-Grade: ${student.grade}
-Average Quiz Score: ${averageScore}%
-Total Quizzes Taken: ${quizzes.length}
-XP Points: ${totalXP}
-
-Recent Quizzes:
-${quizzes.length > 0 
-  ? quizzes
-      .slice(0, 5)
-      .map((q) => `- ${q.subject || 'General'}: ${((q.score / q.total_questions) * 100).toFixed(1)}% (${q.correct_answers}/${q.total_questions} correct)`)
-      .join("\n")
-  : "No quizzes taken yet."
-}
-
-Provide:
-1. A short paragraph summary of overall performance.
-2. Key strengths observed.
-3. Areas for improvement.
-4. Suggested next learning steps.
-
-Format neatly in Markdown with proper headers.
-    `;
-
-    const aiSummary = await generateLessonPlanAI(summaryPrompt);
-
-    // ✅ Transform quizzes
-    const formattedQuizzes = quizzes.map(q => ({
-      id: q.id,
-      subject: q.subject,
-      score: q.score,
-      total: q.total_questions,
-      createdAt: q.submitted_at,
-    }));
-
-    // ✅ Respond
-    response.status(200).json({
-      success: true,
-      student: {
-        id: student.id,
-        name: student.name,
-        grade: student.grade,
-      },
-      quizzes: formattedQuizzes,
-      summary: aiSummary,
-      averageScore: parseFloat(averageScore),
-      totalXP,
-      mastered,
-      totalFlashcards,
-    });
-  } catch (err) {
-    console.error("📉 Error generating report:", err);
-    console.error("Error stack:", err.stack);
-    response.status(500).json({
-      success: false,
-      error: "Internal server error while generating report.",
-    });
-  }
-});
 
 app.get("/system/teacher/my-students/:teacherId", [validatedRequest], async (req, res) => {
   try {

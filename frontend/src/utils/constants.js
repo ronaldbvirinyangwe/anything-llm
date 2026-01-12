@@ -1,4 +1,4 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+export const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 export const ONBOARDING_SURVEY_URL = "https://onboarding.anythingllm.com";
 
 export const AUTH_USER = "chikoroai_user";

@@ -14,7 +14,7 @@ export default function ParentDashboard() {
   const [showLinkForm, setShowLinkForm] = useState(false);
 
   const accessToken = localStorage.getItem("chikoroai_authToken");
-  const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3001/api";
+  const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 
   // 🧾 Fetch parent profile by user ID
   useEffect(() => {

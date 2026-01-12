@@ -32,7 +32,7 @@ export default function ExamPaperUpload() {
       const user = JSON.parse(localStorage.getItem("chikoroai_user"));
       
       const res = await axios.get(
-        `http://localhost:3001/api/system/teacher/my-students/${user.id}`,
+        `https://api.chikoro-ai.com/api/system/teacher/my-students/${user.id}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -77,7 +77,7 @@ export default function ExamPaperUpload() {
       formData.append("metadata", JSON.stringify(metadata));
 
       const res = await axios.post(
-        "http://localhost:3001/api/teacher/extract-exam-paper",
+        "https://api.chikoro-ai.com/api/teacher/extract-exam-paper",
         formData,
         {
           headers: {
@@ -360,7 +360,7 @@ const parseQuiz = (rawQuiz) => {
     try {
       const token = localStorage.getItem("chikoroai_authToken");
       const res = await axios.post(
-        "http://localhost:3001/api/system/teacher/share-quiz-with-class",
+        "https://api.chikoro-ai.com/api/system/teacher/share-quiz-with-class",
         {
           quiz: extractedQuiz.content,
           subject: metadata.subject,

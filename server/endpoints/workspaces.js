@@ -11,7 +11,7 @@ const { Workspace } = require("../models/workspace");
 const { Document } = require("../models/documents");
 const { DocumentVectors } = require("../models/vectors");
 const { WorkspaceChats } = require("../models/workspaceChats");
-const { getVectorDbClass } = require("../utils/helpers");
+const { getVectorDbClass, getLLMProvider } = require("../utils/helpers"); // Added getLLMProvider here
 const { handleFileUpload, handlePfpUpload } = require("../utils/files/multer");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { Telemetry } = require("../models/telemetry");
@@ -84,7 +84,7 @@ function workspaceEndpoints(app) {
 
   app.post(
     "/workspace/:slug/update",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.teacher, ROLES.student])],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
@@ -112,48 +112,54 @@ function workspaceEndpoints(app) {
     }
   );
 
-  app.post(
+app.post(
     "/workspace/:slug/upload",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       handleFileUpload,
     ],
     async function (request, response) {
       try {
+        const { slug } = request.params;
+        const user = await userFromSession(request, response);
+        const currWorkspace = multiUserMode(response)
+          ? await Workspace.getWithUser(user, { slug })
+          : await Workspace.get({ slug });
+
+        if (!currWorkspace) return response.sendStatus(400).end();
+
         const Collector = new CollectorApi();
         const { originalname } = request.file;
         const processingOnline = await Collector.online();
 
         if (!processingOnline) {
-          response
-            .status(500)
-            .json({
-              success: false,
-              error: `Document processing API is not online. Document ${originalname} will not be processed automatically.`,
-            })
-            .end();
-          return;
+          return response.status(500).json({
+            success: false,
+            error: `The school library assistant is currently offline.`,
+          });
         }
 
-        const { success, reason } =
-          await Collector.processDocument(originalname);
+        const { success, reason, documents = [] } = await Collector.processDocument(originalname);
         if (!success) {
-          response.status(500).json({ success: false, error: reason }).end();
-          return;
+          return response.status(500).json({ success: false, error: reason });
         }
 
-        Collector.log(
-          `Document ${originalname} uploaded processed and successfully. It is now available in documents.`
-        );
+        if (documents.length > 0) {
+          await Document.addDocuments(
+            currWorkspace,
+            documents.map((d) => d.location),
+            user?.id
+          );
+        }
+
         await Telemetry.sendTelemetry("document_uploaded");
         await EventLogs.logEvent(
           "document_uploaded",
-          {
-            documentName: originalname,
-          },
-          response.locals?.user?.id
+          { documentName: originalname, autoEmbedded: true },
+          user?.id
         );
+
         response.status(200).json({ success: true, error: null });
       } catch (e) {
         console.error(e.message, e);
@@ -164,7 +170,7 @@ function workspaceEndpoints(app) {
 
   app.post(
     "/workspace/:slug/upload-link",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
     async (request, response) => {
       try {
         const Collector = new CollectorApi();
@@ -207,7 +213,7 @@ function workspaceEndpoints(app) {
 
   app.post(
     "/workspace/:slug/update-embeddings",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.teacher, ROLES.student])],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
@@ -681,7 +687,7 @@ function workspaceEndpoints(app) {
     "/workspace/:slug/upload-pfp",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       handlePfpUpload,
     ],
     async function (request, response) {
@@ -876,7 +882,7 @@ function workspaceEndpoints(app) {
     "/workspace/:slug/upload-and-embed",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       handleFileUpload,
     ],
     async function (request, response) {
@@ -1058,6 +1064,48 @@ function workspaceEndpoints(app) {
       } catch (error) {
         console.error("Error searching for workspaces:", error);
         response.sendStatus(500).end();
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/analyze-visual",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const { name, mime, contentString } = reqBody(request);
+        const workspace = response.locals.workspace;
+
+        if (!contentString) {
+          return response.status(400).json({
+            success: false,
+            error: "No content provided",
+          });
+        }
+
+        // Get vision-capable LLM
+        const LLMConnector = getLLMProvider({
+          provider: workspace?.chatProvider,
+          model: workspace?.chatModel,
+        });
+
+        // Use vision model to analyze
+        const analysis = await LLMConnector.analyzeVisualContent({
+          name,
+          mime,
+          contentString,
+        });
+
+        return response.json({
+          success: true,
+          analysis,
+        });
+      } catch (error) {
+        console.error("Vision analysis error:", error);
+        return response.status(500).json({
+          success: false,
+          error: error.message,
+        });
       }
     }
   );

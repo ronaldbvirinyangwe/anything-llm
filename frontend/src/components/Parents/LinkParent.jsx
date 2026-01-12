@@ -32,7 +32,7 @@ export default function LinkChildForm({ parentId, onSuccess }) {
     
     console.log("📤 Sending payload:", payload); // Debug log
     
-    const res = await fetch("http://localhost:3001/api/system/parent/link-child", {
+    const res = await fetch("https://api.chikoro-ai.com/api/system/parent/link-child", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

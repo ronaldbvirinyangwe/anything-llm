@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import System from "../../models/system";
+import System from "../../models/system"; // Keep if needed elsewhere, but not for this fetch
 import { AUTH_TOKEN, AUTH_USER } from "../../utils/constants";
 
 export default function Enrol() {
@@ -11,7 +11,7 @@ export default function Enrol() {
   const chikoroai_authToken = localStorage.getItem(AUTH_TOKEN);
 
   // Point directly at your API (same as you did in ChatContainer)
-  const API_BASE = import.meta.env.VITE_API_BASE || "";
+  const API_BASE = import.meta.env.VITE_PUBLIC_API_BASE || "https://api.chikoro-ai.com/api";
 
   const [role, setRole] = useState("student");
   const [loading, setLoading] = useState(true);
@@ -100,11 +100,11 @@ export default function Enrol() {
 
     setSubmitting(true);
 
-    let endpoint = "";
+    let endpointPath = "";
     let payload = { name: form.name?.trim() };
 
     if (role === "student") {
-      endpoint = "/api/system/enrol/student";
+      endpointPath = "/system/enrol/student";
       payload = {
         ...payload,
         age: form.age,
@@ -113,14 +113,17 @@ export default function Enrol() {
         grade: form.grade,
       };
     } else if (role === "teacher") {
-      endpoint = "/api/system/enrol/teacher";
+      endpointPath = "/system/enrol/teacher";
       payload.school = form.school?.trim();
     } else if (role === "parent") {
-      endpoint = "/api/system/enrol/parent";
+      endpointPath = "/system/enrol/parent";
     }
 
+    // 🎯 Use the existing API_BASE constant for consistency
+    const finalEndpoint = `${API_BASE}${endpointPath}`;
+
     try {
-      const res = await System.authenticatedFetch(endpoint, {
+      const response = await fetch(finalEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -129,9 +132,38 @@ export default function Enrol() {
         body: JSON.stringify(payload),
       });
 
-      if (res.success) {
+      // --- Start of new error handling logic ---
+
+      let resData;
+      // 1. Check if response is successful (200-299)
+      if (response.ok) {
+        // Successful response is expected to be JSON
+        resData = await response.json();
+      } else {
+        // 2. Unsuccessful response (4xx or 5xx)
+        // Try to parse error as JSON first (standard API error format)
+        try {
+          resData = await response.json();
+        } catch (e) {
+          // 3. If parsing as JSON fails (Non-JSON response!), read as plain text
+          // This is the fix for the "Non-JSON response" error
+          const textError = await response.text();
+          console.error(`Non-JSON response error (Status ${response.status}):`, textError);
+          // Set a user-friendly error message
+          setError(
+            `Server error (${response.status}). If this continues, please contact support.`
+          );
+          setSubmitting(false);
+          return;
+        }
+      }
+      
+      // --- End of new error handling logic ---
+
+      // Now process the parsed JSON data (resData)
+      if (resData.success) {
         // If backend returns a refreshed token, store it
-        if (res.token) localStorage.setItem(AUTH_TOKEN, res.token);
+        if (resData.token) localStorage.setItem(AUTH_TOKEN, resData.token);
 
         // Persist role locally for UX routing consistency
         if (storedUser) {
@@ -149,11 +181,11 @@ export default function Enrol() {
 
         navigate(rolePath);
       } else {
-        setError(res.error || "Failed to enrol. Try again.");
+        setError(resData.error || "Failed to enrol. Try again.");
       }
     } catch (err) {
       console.error("Enrol error:", err);
-      setError("Unexpected error occurred. Please try again.");
+      setError("Network or unexpected error occurred. Please try again.");
     } finally {
       setSubmitting(false);
     }

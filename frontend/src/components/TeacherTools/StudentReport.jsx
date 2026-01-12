@@ -49,7 +49,7 @@ export default function EnhancedStudentReport() {
       try {
         const token = localStorage.getItem("chikoroai_authToken");
         const res = await axios.get(
-          `http://localhost:3001/api/system/reports/student/${id}`,
+          `https://api.chikoro-ai.com/api/system/reports/student/${id}`,
           {
             headers: { Authorization: `Bearer ${token}` },
           }
@@ -114,6 +114,10 @@ export default function EnhancedStudentReport() {
     subjectStats[subj].count += 1;
   });
 
+  const quizzesChrono = [...quizzes].sort(
+  (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+);
+
   const subjectAverages = Object.keys(subjectStats).map((subj) => ({
     subject: subj,
     average: (subjectStats[subj].total / subjectStats[subj].count).toFixed(1),
@@ -146,18 +150,22 @@ export default function EnhancedStudentReport() {
   });
 
   // Calculate improvement trend
-  const getImprovementTrend = () => {
-    if (quizzes.length < 2) return "neutral";
-    const recent = quizzes.slice(0, 3);
-    const older = quizzes.slice(-3);
-    const recentAvg =
-      recent.reduce((sum, q) => sum + parseFloat(q.score), 0) / recent.length;
-    const olderAvg =
-      older.reduce((sum, q) => sum + parseFloat(q.score), 0) / older.length;
-    if (recentAvg > olderAvg + 5) return "improving";
-    if (recentAvg < olderAvg - 5) return "declining";
-    return "stable";
-  };
+ const getImprovementTrend = () => {
+  if (quizzesChrono.length < 2) return "neutral";
+
+  const recent = quizzesChrono.slice(-3); 
+  const older = quizzesChrono.slice(0, 3);
+
+  const recentAvg =
+    recent.reduce((sum, q) => sum + parseFloat(q.score), 0) / recent.length;
+
+  const olderAvg =
+    older.reduce((sum, q) => sum + parseFloat(q.score), 0) / older.length;
+
+  if (recentAvg > olderAvg + 5) return "improving";
+  if (recentAvg < olderAvg - 5) return "declining";
+  return "stable";
+};
 
   const trend = getImprovementTrend();
 
@@ -189,15 +197,23 @@ export default function EnhancedStudentReport() {
      labels: quizzes.map((q) =>
     new Date(q.createdAt).toLocaleDateString("en-GB", {
       day: "2-digit",
-      month: "short", // e.g. "Nov"
+      month: "short", 
       year: "numeric",
     })
   ),
-    datasets: [
-      {
-        label: "Quiz Scores (%)",
-        data: quizzes.map((q) => parseFloat(q.score).toFixed(1)),
-        borderColor: "#2563eb",
+    labels: quizzesChrono.map(q =>
+  new Date(q.createdAt).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  })
+),
+
+datasets: [
+  {
+    label: "Quiz Scores (%)",
+    data: quizzesChrono.map(q => parseFloat(q.score)),
+     borderColor: "#2563eb",
         backgroundColor: "rgba(37, 99, 235, 0.1)",
         tension: 0.4,
         fill: true,
@@ -206,8 +222,8 @@ export default function EnhancedStudentReport() {
         pointBackgroundColor: "#2563eb",
         pointBorderColor: "#fff",
         pointBorderWidth: 2,
-      },
-    ],
+  }
+]
   };
 
   const subjectChartData = {

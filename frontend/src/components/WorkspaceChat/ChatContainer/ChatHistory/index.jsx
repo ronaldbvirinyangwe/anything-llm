@@ -21,7 +21,7 @@ import './notification.css'
 
 function NotificationMessage({ message }) {
   const navigate = useNavigate();
-  const API_BASE = import.meta.env.VITE_API_BASE;
+const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 
   const handleTakeQuiz = async () => {
     // Mark notification as read

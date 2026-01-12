@@ -21,7 +21,6 @@ import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 import Register from "@/pages/Auth/Register";
 import Enrol from "@/pages/Enrol/Enrol";
 import PaymentPage from "./pages/PaymentPage/PaymentPage";
-import PaperSelector from "./pages/PaperSelector/PaperSelector";
 import Test from "./pages/QuizPage/Test";
 import QuizPage from "./pages/QuizPage/QuizPage";
 import ViewTest from "./pages/QuizPage/ViewTest";
@@ -136,7 +135,6 @@ export default function App() {
                   <Route path="/register" element={<Register />} />
                   <Route path="/enrol" element={<Enrol />} />
                   <Route path="/payment" element={<PaymentPage />} />
-                  <Route path="/papers" element={<PaperSelector />} />
                   <Route path="/test" element={<Test />} />
                   <Route path="/quiz" element={<QuizPage />} />
                   <Route path="/reports/:id" element={<Reports />} />

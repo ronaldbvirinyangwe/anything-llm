@@ -837,7 +837,7 @@ const System = {
   promptVariables: SystemPromptVariable,
 };
 
-const API_BASE_URL = "http://localhost:3001";
+const API_BASE_URL = "https://api.chikoro-ai.com/api";
 System.authenticatedFetch = async function (endpoint, options = {}) {
   const token =
     localStorage.getItem("authToken") || localStorage.getItem("AUTH_TOKEN");

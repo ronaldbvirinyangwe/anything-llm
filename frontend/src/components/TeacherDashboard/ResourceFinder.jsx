@@ -46,7 +46,7 @@ const useResourceFinderStore = create((set, get) => ({
         Authorization: `Bearer ${localStorage.getItem("chikoroai_authToken")}`,
       };
       const response = await axios.post(
-        "http://localhost:3001/api/system/teacher-tools/resource-finder",
+        "https://localhost:3001/api/system/teacher-tools/resource-finder",
         formData,
         { headers }
       );

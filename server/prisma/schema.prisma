@@ -71,6 +71,8 @@ model quiz_results {
   shared_quiz     shared_quizzes?   @relation(fields: [shared_quiz_id], references: [id])
   feedbacks       quiz_feedback[]
   teacher_reviews teacher_reviews[]
+
+  @@unique([user_id, quiz_code])
 }
 
 model teacher_reviews {

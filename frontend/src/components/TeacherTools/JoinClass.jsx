@@ -22,7 +22,7 @@ export default function JoinClass() {
         }
 
         const res = await axios.post(
-          `http://localhost:3001/api/system/student/join-class/${classCode}`,
+          `https://api.chikoro-ai.com/api/system/student/join-class/${classCode}`,
           {},
           { headers: { Authorization: `Bearer ${token}` } }
         );

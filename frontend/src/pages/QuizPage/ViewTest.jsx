@@ -25,7 +25,7 @@ export default function ViewTest() {
     if (!id) return;
     setLoading(true);
 
-    fetch(`http://localhost:3001/api/quiz/result/${id}`, {
+    fetch(`http://api.chikoro-ai.com/api/quiz/result/${id}`, {
       headers: {
         Authorization: `Bearer ${localStorage.getItem("chikoroai_authToken")}`,
       },

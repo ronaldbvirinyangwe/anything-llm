@@ -67,6 +67,7 @@
     "multer": "^2.0.2",
     "mysql2": "^3.9.8",
     "node-cron": "^4.2.1",
+    "node-fetch": "^3.3.2",
     "ollama": "^0.5.10",
     "openai": "4.95.1",
     "paynow": "^2.2.2",

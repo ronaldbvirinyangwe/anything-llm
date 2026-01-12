@@ -29,7 +29,7 @@ export default function QuizGenerator() {
         const user = JSON.parse(localStorage.getItem("chikoroai_user"));
         
         const res = await axios.get(
-          `http://localhost:3001/api/system/teacher/my-students/${user.id}`,
+          `https://api.chikoro-ai.com/api/system/teacher/my-students/${user.id}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
@@ -128,7 +128,7 @@ const parseQuiz = (rawQuiz) => {
     try {
       const token = localStorage.getItem("chikoroai_authToken");
       const res = await axios.post(
-        "http://localhost:3001/api/system/teacher/generate-quiz",
+        "https://api.chikoro-ai.com/api/system/teacher/generate-quiz",
         form,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -227,7 +227,7 @@ const QuestionActions = ({ item, idx }) => (
             const token = localStorage.getItem("chikoroai_authToken");
             const prompt = `Regenerate this ${item.type} question: ${item.raw}`;
             const res = await axios.post(
-              "http://localhost:3001/api/system/teacher/redo-question",
+              "https://api.chikoro-ai.com/api/system/teacher/redo-question",
               { prompt },
               { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -579,7 +579,7 @@ const QuestionActions = ({ item, idx }) => (
                 try {
                   const token = localStorage.getItem("chikoroai_authToken");
                   const res = await axios.post(
-                    "http://localhost:3001/api/system/teacher/share-quiz-with-class",
+                    "https://api.chikoro-ai.com/api/system/teacher/share-quiz-with-class",
                     {
                       quiz,
                       subject: selectedClass.subject,
@@ -616,7 +616,7 @@ const QuestionActions = ({ item, idx }) => (
                 try {
                   const token = localStorage.getItem("chikoroai_authToken");
                   const res = await axios.post(
-                    "http://localhost:3001/api/system/teacher/create-quiz-link",
+                    "https://api.chikoro-ai.com/api/system/teacher/create-quiz-link",
                     { 
                       quiz,
                       subject: form.subject,

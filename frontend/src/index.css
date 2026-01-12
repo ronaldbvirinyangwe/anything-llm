@@ -1112,3 +1112,18 @@ does not extend the close button beyond the viewport. */
   -webkit-animation: fadein 0.3s linear forwards;
   animation: fadein 0.3s linear forwards;
 }
+.notification-card {
+  display: flex;
+  position: fixed;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid #dbeafe; /* light blue border */
+  background: #f0f7ff; /* soft blue background */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  animation: fadeIn 0.3s ease-out;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  max-width: 450px;
+  margin-left: 900px;
+}

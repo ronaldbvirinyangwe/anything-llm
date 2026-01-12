@@ -45,7 +45,7 @@ useEffect(() => {
   const fetchTeacherProfile = async () => {
     try {
       const res = await fetch(
-        `http://localhost:3001/api/system/profile/${user.id}`,
+        `https://api.chikoro-ai.com/api/system/profile/${user.id}`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -80,7 +80,7 @@ useEffect(() => {
     const fetchStats = async () => {
       try {
         const user = JSON.parse(localStorage.getItem("chikoroai_user"));
-        const res = await fetch(`http://localhost:3001/api/system/teacher-dashboard/stats/${user.id}`, {
+        const res = await fetch(`https://api.chikoro-ai.com/api/system/teacher-dashboard/stats/${user.id}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
@@ -161,11 +161,18 @@ useEffect(() => {
             <h3>AI Quiz Generator</h3>
             <p>Generate quizzes and tests with AI-driven difficulty control.</p>
           </Link>
-          <Link to="/upload-exam" className="tool-card">
+          {/* <Link to="/teacher-tools/resource-finder" className="tool-card">
+            <FiClipboard className="tool-icon" />
+            <h3>Resource Finder</h3>
+            <p>Find resources for interactive lessons</p>
+          </Link> */}
+
+            <Link to="/upload-exam" className="tool-card">
             <FiClipboard className="tool-icon" />
             <h3>Exam Paper Upload</h3>
             <p>Generate quizzes and tests from exam papers</p>
           </Link>
+
 
           <Link to="/teacher-tools/scheme-creator" className="tool-card">
             <FiFileText className="tool-icon" />

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AUTH_USER } from "@/utils/constants";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api"
 
 /**
  * Hook to protect routes that require an active subscription

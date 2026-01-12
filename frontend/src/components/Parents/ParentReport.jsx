@@ -46,7 +46,7 @@ export default function ParentReport() {
   const [report, setReport] = useState(null);
 
   const accessToken = localStorage.getItem("chikoroai_authToken");
-  const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3001/api";
+ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 
   useEffect(() => {
     if (!accessToken || !user?.id) {

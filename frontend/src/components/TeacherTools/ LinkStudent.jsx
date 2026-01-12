@@ -28,7 +28,7 @@ const fetchLinkedStudents = async () => {
     }
 
     const res = await axios.get(
-      `http://localhost:3001/api/system/teacher/my-students/${teacherId}`,
+      `https://api.chikoro-ai.com/api/system/teacher/my-students/${teacherId}`,
       {
         headers: { Authorization: `Bearer ${token}` },
       }
@@ -47,7 +47,7 @@ const fetchLinkedStudents = async () => {
       const token = localStorage.getItem("chikoroai_authToken");
       const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
       const teacherId = storedUser?.id;
-      const res = await axios.get( `http://localhost:3001/api/system/students`, {
+      const res = await axios.get( `https://api.chikoro-ai.com/api/system/students`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.data.success) setAvailableStudents(res.data.students);
@@ -78,7 +78,7 @@ const fetchLinkedStudents = async () => {
     const teacherId = storedUser?.id;   // ✅ reliable source of teacher ID
 
     const res = await axios.post(
-      `http://localhost:3001/api/system/link-student/${teacherId}`,
+      `https://api.chikoro-ai.com/api/system/link-student/${teacherId}`,
       { studentId: parseInt(form.studentId), subject: form.subject }, // ✅ clean body
       { headers: { Authorization: `Bearer ${token}` } }
     );
@@ -174,7 +174,7 @@ const fetchLinkedStudents = async () => {
           const teacherId = user?.id;
 
           const res = await axios.post(
-            `http://localhost:3001/api/system/teacher/create-class-link`,
+            `https://api.chikoro-ai.com/api/system/teacher/create-class-link`,
             { subject: subjectName },
             { headers: { Authorization: `Bearer ${token}` } }
           );

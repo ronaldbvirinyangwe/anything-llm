@@ -81,7 +81,9 @@ const RadialProgress = ({ percentage, label, color, size = 120 }) => {
 
 export default function EnhancedStudentReport() {
   const { id } = useParams();
+  // State for report data and student profile data
   const [report, setReport] = useState(null);
+  const [studentProfile, setStudentProfile] = useState(null); 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isMobile, setIsMobile] = useState(false);
@@ -96,24 +98,47 @@ export default function EnhancedStudentReport() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // Combined fetch logic: fetch profile first, then report
   useEffect(() => {
-    const fetchReport = async () => {
+    const fetchProfileAndReport = async () => {
       try {
-        const res = await fetch(`http://localhost:3001/api/system/reports/student/${id}`, {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("chikoroai_authToken")}`,
-          },
+        const authToken = localStorage.getItem("chikoroai_authToken");
+        const headers = { Authorization: `Bearer ${authToken}` };
+
+        // 1. Fetch Student Profile using the /system/profile/:userId route
+        const profileRes = await fetch(
+          `https://api.chikoro-ai.com/api/system/profile/${id}`,
+          { headers }
+        );
+        const profileData = await profileRes.json();
+        if (!profileData.success) {
+          throw new Error(profileData.error || "Failed to fetch student profile.");
+        }
+        
+        // **CORRECTED PROFILE DATA EXTRACTION**
+        setStudentProfile({
+          name: profileData.profile.name, // Use 'name' from profile object
+          grade: profileData.profile.grade, // Use 'grade' from profile object
         });
-        const data = await res.json();
-        if (!data.success) throw new Error(data.error);
-        setReport(data);
+
+        // 2. Fetch Report using the /system/reports/student/:id route
+        const reportRes = await fetch(
+          `https://api.chikoro-ai.com/api/system/reports/student/${id}`,
+          { headers }
+        );
+        const reportData = await reportRes.json();
+        if (!reportData.success) {
+          throw new Error(reportData.error || "Failed to fetch performance report.");
+        }
+        setReport(reportData);
       } catch (err) {
         setError(err.message);
       } finally {
         setLoading(false);
       }
     };
-    fetchReport();
+
+    fetchProfileAndReport();
   }, [id]);
 
   if (loading) {
@@ -140,8 +165,12 @@ export default function EnhancedStudentReport() {
     );
   }
 
+  // Use the fetched studentProfile for display details
+  // Note: We prioritize studentProfile, but keep report.student as a fallback
+  const student = studentProfile || (report && report.student) || { name: 'Student', grade: 'N/A' };
+  
+  // Destructure report data
   const {
-    student,
     quizzes,
     summary,
     averageScore,

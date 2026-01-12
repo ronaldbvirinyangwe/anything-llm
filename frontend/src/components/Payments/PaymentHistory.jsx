@@ -16,7 +16,7 @@ export default function PaymentHistory() {
  const fetchPaymentHistory = async () => {
   try {
     const token = localStorage.getItem("chikoroai_authToken");
-    const res = await axios.get("http://localhost:3001/api/payments/history", {
+    const res = await axios.get("https://api.chikoro-ai.com/api/payments/history", {
       headers: { Authorization: `Bearer ${token}` },  // ← Add this
     });
     if (res.data.success) {

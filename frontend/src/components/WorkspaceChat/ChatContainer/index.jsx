@@ -35,7 +35,8 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
   const [loadingResponse, setLoadingResponse] = useState(false);
   const [chatHistory, setChatHistory] = useState(knownHistory);
   const [socketId, setSocketId] = useState(null);
-  const [websocket, setWebsocket] = useState(null);
+  const [agentWebsocket, setAgentWebsocket] = useState(null); // ✅ Renamed for agent
+  const [notificationWebsocket, setNotificationWebsocket] = useState(null); // ✅ New for notifications
   const { files, parseAttachments } = useContext(DndUploaderContext);
 
   const [subject, setSubject] = useState("");
@@ -57,7 +58,7 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
     console.log("🔄 flashcardData:", flashcardData);
   }, [showFlashcards, flashcardData]);
 
-  const API_BASE = import.meta.env.VITE_API_BASE;
+const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
   
   // 🧠 Fetch user profile info (curriculum, grade, etc.)
   useEffect(() => {
@@ -174,37 +175,37 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
       .join(" ");
   };
 
- const handleSubmit = async (event) => {
-  event.preventDefault();
-  if (!message || message === "") return false;
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!message || message === "") return false;
 
-  const contextPrefix = buildContextPrefix();
-  const contextualMessage = `${contextPrefix} ${message}`.trim();
-  const displayMessage = message; // <-- what we show in chat
+    const contextPrefix = buildContextPrefix();
+    const contextualMessage = `${contextPrefix} ${message}`.trim();
+    const displayMessage = message; // <-- what we show in chat
 
-  const prevChatHistory = [
-    ...chatHistory,
-    {
-      content: displayMessage,       // shown in UI
-      userMessage: contextualMessage, // sent to model
-      role: "user",
-      attachments: parseAttachments(),
-    },
-    {
-      content: "", // assistant placeholder shown as pending
-      role: "assistant",
-      pending: true,
-      userMessage: contextualMessage,
-      animate: true,
-    },
-  ];
+    const prevChatHistory = [
+      ...chatHistory,
+      {
+        content: displayMessage,       // shown in UI
+        userMessage: contextualMessage, // sent to model
+        role: "user",
+        attachments: parseAttachments(),
+      },
+      {
+        content: "", // assistant placeholder shown as pending
+        role: "assistant",
+        pending: true,
+        userMessage: contextualMessage,
+        animate: true,
+      },
+    ];
 
-  if (listening) endSTTSession();
+    if (listening) endSTTSession();
 
-  setChatHistory(prevChatHistory);
-  setMessageEmit("");
-  setLoadingResponse(true);
-};
+    setChatHistory(prevChatHistory);
+    setMessageEmit("");
+    setLoadingResponse(true);
+  };
 
   function endSTTSession() {
     SpeechRecognition.stopListening();
@@ -246,50 +247,50 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
     if (!text || text === "") return false;
 
     const contextPrefix = buildContextPrefix();
-   const contextualText = `${contextPrefix} ${text}`.trim();
-const displayText = text;
+    const contextualText = `${contextPrefix} ${text}`.trim();
+    const displayText = text;
 
-let prevChatHistory;
-if (history.length > 0) {
-  prevChatHistory = [
-    ...history,
-    {
-      content: displayText,
-      userMessage: contextualText,
-      role: "user",
-      attachments: attachments,
-    },
-    {
-      content: "",
-      role: "assistant",
-      pending: true,
-      userMessage: contextualText,
-      attachments,
-      animate: true,
-    },
-  ];
-} else {
-  prevChatHistory = [
-    ...chatHistory,
-    {
-      content: displayText,
-      userMessage: contextualText,
-      role: "user",
-      attachments,
-    },
-    {
-      content: "",
-      role: "assistant",
-      pending: true,
-      userMessage: contextualText,
-      attachments,
-      animate: true,
-    },
-  ];
-}
-setChatHistory(prevChatHistory);
-setMessageEmit("");
-setLoadingResponse(true);
+    let prevChatHistory;
+    if (history.length > 0) {
+      prevChatHistory = [
+        ...history,
+        {
+          content: displayText,
+          userMessage: contextualText,
+          role: "user",
+          attachments: attachments,
+        },
+        {
+          content: "",
+          role: "assistant",
+          pending: true,
+          userMessage: contextualText,
+          attachments,
+          animate: true,
+        },
+      ];
+    } else {
+      prevChatHistory = [
+        ...chatHistory,
+        {
+          content: displayText,
+          userMessage: contextualText,
+          role: "user",
+          attachments,
+        },
+        {
+          content: "",
+          role: "assistant",
+          pending: true,
+          userMessage: contextualText,
+          attachments,
+          animate: true,
+        },
+      ];
+    }
+    setChatHistory(prevChatHistory);
+    setMessageEmit("");
+    setLoadingResponse(true);
   };
 
   useEffect(() => {
@@ -299,10 +300,11 @@ setLoadingResponse(true);
       const remHistory = chatHistory.length > 0 ? chatHistory.slice(0, -1) : [];
       var _chatHistory = [...remHistory];
 
-      if (!!websocket) {
+      // ✅ Check agentWebsocket instead of websocket
+      if (!!agentWebsocket) {
         if (!promptMessage || !promptMessage?.userMessage) return false;
         window.dispatchEvent(new CustomEvent(CLEAR_ATTACHMENTS_EVENT));
-        websocket.send(
+        agentWebsocket.send(
           JSON.stringify({
             type: "awaitingFeedback",
             feedback: promptMessage?.userMessage,
@@ -336,10 +338,11 @@ setLoadingResponse(true);
     loadingResponse === true && fetchReply();
   }, [loadingResponse, chatHistory, workspace]);
 
+  // ✅ Agent WebSocket useEffect
   useEffect(() => {
     function handleWSS() {
       try {
-        if (!socketId || !!websocket) return;
+        if (!socketId || !!agentWebsocket) return; // ✅ Check agentWebsocket
         const socket = new WebSocket(
           `${websocketURI()}/api/agent-invocation/${socketId}`
         );
@@ -347,34 +350,32 @@ setLoadingResponse(true);
 
         window.addEventListener(ABORT_STREAM_EVENT, () => {
           window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
-          websocket.close();
+          if (agentWebsocket) agentWebsocket.close(); // ✅ Use agentWebsocket
         });
 
         socket.addEventListener("message", (event) => {
-  setLoadingResponse(true);
-  try {
-    const parsed = JSON.parse(event.data);
+          setLoadingResponse(true);
+          try {
+            const parsed = JSON.parse(event.data);
 
-    // 🧠 Detect tool calls and enrich them
-    if (parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0) {
-      openQuizPanel(parsed.quiz);
+            // 🧠 Detect tool calls and enrich them
+            if (parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0) {
+              openQuizPanel(parsed.quiz);
+              parsed.display_message = `✅ Quiz generated successfully on **${parsed.parameters?.subject || "a subject"}** for **${parsed.parameters?.grade || "students"}** (${parsed.quiz.questions.length} questions).`;
+            }
 
-      // ✅ Add a human-friendly message
-      parsed.display_message = `✅ Quiz generated successfully on **${parsed.parameters?.subject || "a subject"}** for **${parsed.parameters?.grade || "students"}** (${parsed.quiz.questions.length} questions).`;
-    }
+            if (parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0) {
+              parsed.display_message = `🎴 Flashcards created successfully — ${parsed.flashcards.cards.length} cards ready for study.`;
+            }
 
-    if (parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0) {
-      parsed.display_message = `🎴 Flashcards created successfully — ${parsed.flashcards.cards.length} cards ready for study.`;
-    }
-
-    handleSocketResponse(socket, event, setChatHistory, parsed);
-  } catch (e) {
-    console.error("Failed to parse data");
-    window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
-    socket.close();
-  }
-  setLoadingResponse(false);
-});
+            handleSocketResponse(socket, event, setChatHistory, parsed);
+          } catch (e) {
+            console.error("Failed to parse data");
+            window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
+            socket.close();
+          }
+          setLoadingResponse(false);
+        });
 
         socket.addEventListener("close", (_event) => {
           window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
@@ -393,10 +394,10 @@ setLoadingResponse(true);
             },
           ]);
           setLoadingResponse(false);
-          setWebsocket(null);
+          setAgentWebsocket(null); // ✅ Clear agentWebsocket
           setSocketId(null);
         });
-        setWebsocket(socket);
+        setAgentWebsocket(socket); // ✅ Set agentWebsocket
         window.dispatchEvent(new CustomEvent(AGENT_SESSION_START));
         window.dispatchEvent(new CustomEvent(CLEAR_ATTACHMENTS_EVENT));
       } catch (e) {
@@ -415,259 +416,192 @@ setLoadingResponse(true);
           },
         ]);
         setLoadingResponse(false);
-        setWebsocket(null);
+        setAgentWebsocket(null); // ✅ Clear agentWebsocket
         setSocketId(null);
       }
     }
     handleWSS();
   }, [socketId]);
 
-  // Add this near your other useEffects
-useEffect(() => {
-  console.log("🔍 WebSocket useEffect triggered");
-  console.log("🔍 User object:", user);
-  console.log("🔍 User ID:", user?.id);
-  
-  if (!user?.id) {
-    console.log("❌ No user ID, skipping WebSocket connection");
-    return;
-  }
+  // ✅ Notification WebSocket useEffect
+  useEffect(() => {
+    console.log("🔍 Notification WebSocket useEffect triggered");
+    console.log("🔍 User ID:", user?.id);
+    
+    if (!user?.id) {
+      console.log("❌ No user ID, skipping WebSocket connection");
+      return;
+    }
 
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const host = window.location.host.includes("localhost") 
-    ? "localhost:3001" 
-    : window.location.host;
-  const wsUrl = `${protocol}//${host}/ws/notifications`;
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const host = window.location.host.includes("localhost") 
+      ? "localhost:3001" 
+      : window.location.host;
+    const wsUrl = `${protocol}//${host}/ws/notifications`;
 
-  console.log("🔌 Attempting to connect to:", wsUrl);
-  
-  let ws;
-  try {
-    ws = new WebSocket(wsUrl);
-    console.log("🔌 WebSocket object created:", ws);
-  } catch (error) {
-    console.error("❌ Failed to create WebSocket:", error);
-    return;
-  }
+    console.log("🔌 Connecting to notifications WebSocket:", wsUrl);
+    
+    let ws;
+    try {
+      ws = new WebSocket(wsUrl);
+      setNotificationWebsocket(ws); // ✅ Use notificationWebsocket
+      console.log("🔌 Notification WebSocket object created");
+    } catch (error) {
+      console.error("❌ Failed to create notification WebSocket:", error);
+      return;
+    }
 
-  ws.onopen = () => {
-    console.log("✅ Connected to Notifications WebSocket");
-    console.log("✅ WebSocket readyState:", ws.readyState);
-    // Register with user ID
-    const registerMsg = JSON.stringify({ 
-      type: "register", 
-      userId: user.id 
-    });
-    console.log("📝 Sending registration:", registerMsg);
-    ws.send(registerMsg);
-    console.log("📝 Registered user ID:", user.id);
-  };
+    ws.onopen = () => {
+      console.log("✅ Connected to Notifications WebSocket");
+      const registerMsg = JSON.stringify({ 
+        type: "register", 
+        userId: user.id 
+      });
+      console.log("📝 Sending registration:", registerMsg);
+      ws.send(registerMsg);
+    };
 
- ws.onmessage = (event) => {
-  try {
-    const notif = JSON.parse(event.data);
-    console.log("📢 Notification received:", notif);
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("📢 Notification received:", data);
 
-    if (notif.type === "quiz_assigned") {
-      // Show notification in chat history with action button
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          uuid: v4(),
-          content: notif.message,
-          role: "notification",
-          type: "quiz_assigned",
-          link: notif.link,
-          pending: false,
-          animate: true,
-          actionLabel: "Take Quiz", // Add action button text
-        },
-      ]);
+        // Handle quiz assignments
+        if (data.type === "quiz_assigned") {
+          setChatHistory((prev) => [
+            ...prev,
+            {
+              uuid: v4(),
+              content: data.message,
+              role: "notification",
+              type: "quiz_assigned",
+              link: data.link,
+              pending: false,
+              animate: true,
+              actionLabel: "Take Quiz",
+            },
+          ]);
 
-      // Browser notification
-      if ("Notification" in window && Notification.permission === "granted") {
-        const browserNotif = new Notification("New Quiz Assigned", {
-          body: notif.message,
-          icon: "/logo.png",
-          tag: "quiz-notification", // Prevent duplicates
+          if ("Notification" in window && Notification.permission === "granted") {
+            const browserNotif = new Notification("New Quiz Assigned", {
+              body: data.message,
+              icon: "/logo.png",
+              tag: "quiz-notification",
+            });
+
+            browserNotif.onclick = () => {
+              window.focus();
+              window.location.href = data.link;
+              browserNotif.close();
+            };
+          }
+        }
+
+        // Handle subscription status updates
+        if (data.type === "subscription_status") {
+          console.log("📢 Subscription status received:", data);
+
+          setChatHistory((prev) => [
+            ...prev,
+            {
+              uuid: v4(),
+              content: data.message,
+              role: "notification",
+              type: "subscription_status",
+              status: data.status,
+              redirect: data.redirect || null,
+              pending: false,
+              animate: true,
+            },
+          ]);
+
+          if (data.redirect) {
+            window.location.href = data.redirect;
+          }
+
+          if ("Notification" in window && Notification.permission === "granted") {
+            const notif = new Notification("Subscription Update", {
+              body: data.message,
+              icon: "/logo.png",
+              tag: `subscription-${data.status}`,
+            });
+            notif.onclick = () => {
+              window.focus();
+              if (data.redirect) window.location.href = data.redirect;
+            };
+          }
+        }
+      } catch (e) {
+        console.error("❌ Failed to parse notification:", event.data, e);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("❌ Notification WebSocket error:", error);
+    };
+
+    ws.onclose = (event) => {
+      console.log("🔌 Notification WebSocket closed", event.code, event.reason);
+    };
+
+    // Request notification permission on mount
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().then((permission) => {
+        console.log("🔔 Notification permission:", permission);
+      });
+    }
+
+    return () => {
+      console.log("🧹 Cleaning up notification WebSocket");
+      if (ws) ws.close();
+    };
+  }, [user?.id]);
+
+  // Fetch unread notifications on mount
+  useEffect(() => {
+    const fetchUnreadNotifications = async () => {
+      if (!user?.id) return;
+
+      try {
+        const token = localStorage.getItem("chikoroai_authToken");
+        const res = await fetch(`${API_BASE}/system/notifications/unread`, {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
         });
 
-        // Make browser notification clickable
-        browserNotif.onclick = () => {
-          window.focus();
-          window.location.href = notif.link; // Navigate to quiz
-          browserNotif.close();
-        };
-      }
-    }
-  } catch (e) {
-    console.error("❌ Failed to parse notification:", event.data, e);
-  }
-};
-  ws.onerror = (error) => {
-    console.error("❌ WebSocket error:", error);
-    console.error("❌ WebSocket state:", ws.readyState);
-  };
-
-  ws.onclose = (event) => {
-    console.log("🔌 WebSocket closed");
-    console.log("🔌 Close code:", event.code);
-    console.log("🔌 Close reason:", event.reason);
-    console.log("🔌 Was clean:", event.wasClean);
-  };
-
-  // Request notification permission on mount
-  if ("Notification" in window && Notification.permission === "default") {
-    Notification.requestPermission().then((permission) => {
-      console.log("🔔 Notification permission:", permission);
-    });
-  }
-
-  return () => {
-    console.log("🧹 Cleaning up WebSocket connection");
-    if (ws) {
-      ws.close();
-    }
-  };
-}, [user?.id]);
-
-useEffect(() => {
-  if (!user?.id) return; // Don't connect without a user
-
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const host = window.location.host.includes("localhost") 
-    ? "localhost:3001" 
-    : window.location.host;
-  const wsUrl = `${protocol}//${host}/ws/notifications`;
-
-  console.log("🔌 Connecting to WebSocket for subscription updates:", wsUrl);
-  const socket = new WebSocket(wsUrl);
-  setWebsocket(socket); // optional if you want to store it
-
-  socket.onopen = () => {
-    console.log("✅ WebSocket connected for subscription updates");
-
-    // Register user with backend
-    const registerMsg = JSON.stringify({
-      type: "register",
-      userId: user.id,
-    });
-    socket.send(registerMsg);
-  };
-
-  socket.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-
-      // Only handle subscription status updates here
-      if (data.type === "subscription_status") {
-        console.log("📢 Subscription status received:", data);
-
-        // Add the message to chatHistory
-        setChatHistory((prev) => [
-          ...prev,
-          {
-            uuid: v4(),
-            content: data.message,
-            role: "notification",
-            type: "subscription_status",
-            status: data.status,
-            redirect: data.redirect || null,
-            pending: false,
-            animate: true,
-          },
-        ]);
-
-        // Optional: redirect if backend sends redirect URL
-        if (data.redirect) {
-          window.location.href = data.redirect;
+        if (!res.ok) {
+          console.log("⚠️ Failed to fetch notifications:", res.status);
+          return;
         }
 
-        // Optional: show browser notification
-        if ("Notification" in window && Notification.permission === "granted") {
-          const notif = new Notification("Subscription Update", {
-            body: data.message,
-            icon: "/logo.png",
-            tag: `subscription-${data.status}`,
-          });
-          notif.onclick = () => {
-            window.focus();
-            if (data.redirect) window.location.href = data.redirect;
-          };
-        }
-      }
-    } catch (err) {
-      console.error("❌ Failed to parse subscription WS message:", event.data, err);
-    }
-  };
-
-  socket.onerror = (err) => {
-    console.error("❌ Subscription WebSocket error:", err);
-  };
-
-  socket.onclose = (event) => {
-    console.log("🔌 Subscription WebSocket closed", event.code, event.reason);
-  };
-
-  // Request notification permission if default
-  if ("Notification" in window && Notification.permission === "default") {
-    Notification.requestPermission().then((permission) => {
-      console.log("🔔 Notification permission:", permission);
-    });
-  }
-
-  return () => {
-    console.log("🧹 Cleaning up Subscription WebSocket");
-    if (socket) socket.close();
-  };
-}, [user?.id]);
-
-useEffect(() => {
-  const fetchUnreadNotifications = async () => {
-    if (!user?.id) return;
-
-    try {
-      const token = localStorage.getItem("chikoroai_authToken");
-      const res = await fetch(`${API_BASE}/system/notifications/unread`, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        console.log("⚠️ Failed to fetch notifications:", res.status);
-        return;
-      }
-
-      const { success, notifications } = await res.json();
-      
-      if (success && notifications.length > 0) {
-        console.log("📬 Loaded", notifications.length, "unread notifications");
+        const { success, notifications } = await res.json();
         
-        // Add notifications to chat history
-        const notificationMessages = notifications.map(notif => ({
-          uuid: v4(),
-          content: notif.message,
-          role: "notification",
-          type: notif.type,
-          link: notif.link,
-          pending: false,
-          animate: false,
-          notificationId: notif.id,
-          createdAt: notif.createdAt,
-        }));
+        if (success && notifications.length > 0) {
+          console.log("📬 Loaded", notifications.length, "unread notifications");
+          
+          const notificationMessages = notifications.map(notif => ({
+            uuid: v4(),
+            content: notif.message,
+            role: "notification",
+            type: notif.type,
+            link: notif.link,
+            pending: false,
+            animate: false,
+            notificationId: notif.id,
+            createdAt: notif.createdAt,
+          }));
 
-        // Prepend notifications to chat history
-        setChatHistory(prev => [...notificationMessages, ...prev]);
+          setChatHistory(prev => [...notificationMessages, ...prev]);
+        }
+      } catch (err) {
+        console.error("❌ Failed to fetch notifications:", err);
       }
-    } catch (err) {
-      console.error("❌ Failed to fetch notifications:", err);
-    }
-  };
+    };
 
-  fetchUnreadNotifications();
-}, [user?.id, API_BASE]);
+    fetchUnreadNotifications();
+  }, [user?.id, API_BASE]);
 
   console.log("🎨 Rendering ChatContainer:", { showQuiz, showFlashcards, hasFlashcardData: !!flashcardData });
   console.log("📊 Profile state:", { curriculum, grade, age, academicLevel });
@@ -683,17 +617,13 @@ useEffect(() => {
     );
   }
 
-  // 🔒 IF NO ACCESS, SHOW NOTHING (user will be redirected by the hook)
   if (!hasAccess) {
     return null;
   }
-  
 
   return (
     <div className={`chat-layout ${showQuiz ? "with-quiz" : ""} ${showFlashcards ? "with-flashcards" : ""}`}>
-      {/* 💬 Main Chat Section */}
-
-       {subscriptionExpiry && 
+      {subscriptionExpiry && 
        new Date(subscriptionExpiry.getTime() - 3 * 24 * 60 * 60 * 1000) < new Date() && (
         <div className="bg-yellow-500/20 text-yellow-300 px-4 py-2 text-sm border-b border-yellow-500/30">
           ⚠️ Your subscription expires on {subscriptionExpiry.toLocaleDateString()}. 
@@ -736,7 +666,6 @@ useEffect(() => {
         <ChatTooltips />
       </div>
 
-      {/* 🧠 Anthropic-style Right Panel (Quiz/Test) */}
       {showQuiz && (
         <aside className="quiz-panel">
           <Test externalTest={quizData} />
@@ -745,7 +674,7 @@ useEffect(() => {
           </button>
         </aside>
       )}
-      {/* Flashcards Panel */}
+
       {showFlashcards && flashcardData && (
         <aside className="quiz-panel flashcard-panel">
           <button className="close-quiz" onClick={() => {

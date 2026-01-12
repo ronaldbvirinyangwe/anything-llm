@@ -53,24 +53,30 @@ export default function FileUploadWarningModal({
         </div>
 
         <div className="py-7 px-9 space-y-4">
-          <p className="text-theme-text-primary text-sm">
-            Your workspace is using {numberWithCommas(tokenCount)} of{" "}
-            {numberWithCommas(maxTokens)} available tokens. We recommend keeping
-            usage below {(Workspace.maxContextWindowLimit * 100).toFixed(0)}% to
-            ensure the best chat experience. Adding {fileCount} more{" "}
-            {pluralize("file", fileCount)} would exceed this limit.{" "}
-            <Link
-              target="_blank"
-              to={Paths.documentation.contextWindows()}
-              className="text-theme-text-secondary text-sm underline"
-            >
-              Learn more about context windows &rarr;
-            </Link>
-          </p>
-          <p className="text-theme-text-primary text-sm">
-            Choose how you would like to proceed with these uploads.
-          </p>
-        </div>
+  <p className="text-theme-text-primary text-sm leading-relaxed">
+    <span className="font-bold text-white block mb-2">Memory Limit Warning 🧠</span>
+    This workspace is currently holding <b>{numberWithCommas(tokenCount)}</b> units of information. 
+    Think of it like a study guide: if the guide gets too long, it's harder for the AI to find 
+    the right answers. 
+    <br /><br />
+    Adding <b>{fileCount}</b> more {pluralize("file", fileCount)} will make this guide 
+    too big to read at once. To keep the AI smart and fast, we recommend 
+    <b> "Embedding" </b> these files instead.
+  </p>
+  
+  <p className="text-theme-text-secondary text-xs italic bg-white/5 p-3 rounded-md">
+    <b>Student Tip:</b> Embedding turns your files into a searchable library. 
+    The AI will only look at the pages it needs instead of trying to memorize the whole book!
+  </p>
+
+  <Link
+    target="_blank"
+    to={Paths.documentation.contextWindows()}
+    className="text-theme-text-secondary text-sm underline block mt-2"
+  >
+    How does AI memory work? &rarr;
+  </Link>
+</div>
 
         <div className="flex w-full justify-between items-center p-6 space-x-2 border-t border-theme-modal-border rounded-b">
           <button

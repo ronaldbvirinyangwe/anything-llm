@@ -7,6 +7,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const path = require("path");
+const http = require("http"); // Fixed import
 const { reqBody } = require("./utils/http");
 const { systemEndpoints } = require("./endpoints/system");
 const { workspaceEndpoints } = require("./endpoints/workspaces");
@@ -30,12 +31,16 @@ const { agentFlowEndpoints } = require("./endpoints/agentFlows");
 const { mcpServersEndpoints } = require("./endpoints/mcpServers");
 const { mobileEndpoints } = require("./endpoints/mobile");
 const { httpLogger } = require("./middleware/httpLogger");
+
 const app = express();
 const apiRouter = express.Router();
 const FILE_LIMIT = "3GB";
 const { connectedClients } = require("./utils/websocket");
 
-// Only log HTTP requests in development mode and if the ENABLE_HTTP_LOGGER environment variable is set to true
+// Create the HTTP server instance
+const server = http.createServer(app);
+
+// Only log HTTP requests in development mode
 if (
   process.env.NODE_ENV === "development" &&
   !!process.env.ENABLE_HTTP_LOGGER
@@ -46,6 +51,7 @@ if (
     })
   );
 }
+
 app.use(cors({ origin: true }));
 app.use(bodyParser.text({ limit: FILE_LIMIT }));
 app.use(bodyParser.json({ limit: FILE_LIMIT }));
@@ -56,32 +62,31 @@ app.use(
   })
 );
 
+// SSL vs Non-SSL Booting
 if (!!process.env.ENABLE_HTTPS) {
   bootSSL(app, process.env.SERVER_PORT || 3001);
 } else {
-  require("@mintplex-labs/express-ws").default(app); // load WebSockets in non-SSL mode.
+  // Use the WebSocket library with the app instance
+  require("@mintplex-labs/express-ws").default(app); 
 }
 
-// WebSocket endpoint
+// WebSocket endpoint for notifications
 app.ws("/ws/notifications", (ws, req) => {
-  console.log("Client connected");
+  console.log("Client connected to notifications");
 
-  // Listen for messages from client
   ws.on("message", (msg) => {
     try {
       const data = JSON.parse(msg);
       if (data.type === "register") {
-        // Store client connection by userId
         connectedClients.set(data.userId, ws);
         console.log("User registered for notifications:", data.userId);
       }
     } catch (err) {
-      console.error("Invalid message:", msg);
+      console.error("Invalid WS message format");
     }
   });
 
   ws.on("close", () => {
-    // Remove closed connections
     for (let [userId, clientWs] of connectedClients.entries()) {
       if (clientWs === ws) connectedClients.delete(userId);
     }
@@ -90,6 +95,8 @@ app.ws("/ws/notifications", (ws, req) => {
 });
 
 app.use("/api", apiRouter);
+
+// Register Endpoints
 systemEndpoints(apiRouter);
 extensionEndpoints(apiRouter);
 workspaceEndpoints(apiRouter);
@@ -107,13 +114,10 @@ communityHubEndpoints(apiRouter);
 agentFlowEndpoints(apiRouter);
 mcpServersEndpoints(apiRouter);
 mobileEndpoints(apiRouter);
-
-// Externally facing embedder endpoints
 embeddedEndpoints(apiRouter);
-
-// Externally facing browser extension endpoints
 browserExtensionEndpoints(apiRouter);
 
+// Serve Frontend in Production
 if (process.env.NODE_ENV !== "development") {
   const { MetaGenerator } = require("./utils/boot/MetaGenerator");
   const IndexPage = new MetaGenerator();
@@ -122,7 +126,6 @@ if (process.env.NODE_ENV !== "development") {
     express.static(path.resolve(__dirname, "public"), {
       extensions: ["js"],
       setHeaders: (res) => {
-        // Disable I-framing of entire site UI
         res.removeHeader("X-Powered-By");
         res.setHeader("X-Frame-Options", "DENY");
       },
@@ -139,40 +142,39 @@ if (process.env.NODE_ENV !== "development") {
     response.send("User-agent: *\nDisallow: /").end();
   });
 } else {
-  // Debug route for development connections to vectorDBs
+  // Debug route for Vector DB command testing
   apiRouter.post("/v/:command", async (request, response) => {
     try {
       const VectorDb = getVectorDbClass();
       const { command } = request.params;
       if (!Object.getOwnPropertyNames(VectorDb).includes(command)) {
-        response.status(500).json({
+        return response.status(500).json({
           message: "invalid interface command",
           commands: Object.getOwnPropertyNames(VectorDb),
         });
-        return;
       }
 
-      try {
-        const body = reqBody(request);
-        const resBody = await VectorDb[command](body);
-        response.status(200).json({ ...resBody });
-      } catch (e) {
-        // console.error(e)
-        console.error(JSON.stringify(e));
-        response.status(500).json({ error: e.message });
-      }
-      return;
+      const body = reqBody(request);
+      const resBody = await VectorDb[command](body);
+      response.status(200).json({ ...resBody });
     } catch (e) {
-      console.error(e.message, e);
-      response.sendStatus(500).end();
+      console.error("Vector Debug Error:", e.message);
+      response.status(500).json({ error: e.message });
     }
   });
 }
 
+// Catch-all 404
 app.all("*", function (_, response) {
   response.sendStatus(404);
 });
 
-// In non-https mode we need to boot at the end since the server has not yet
-// started and is `.listen`ing.
-if (!process.env.ENABLE_HTTPS) bootHTTP(app, process.env.SERVER_PORT || 3001);
+/** * Server performance tuning for school environments 
+ * Increased timeouts to 10 minutes to support large PDF processing
+ */
+server.timeout = 600000; 
+server.keepAliveTimeout = 600000;
+
+if (!process.env.ENABLE_HTTPS) {
+  bootHTTP(app, process.env.SERVER_PORT || 3001);
+}
