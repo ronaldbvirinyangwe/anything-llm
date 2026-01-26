@@ -67,7 +67,7 @@ class MetaGenerator {
       { tag: "meta", props: { property: "og:type", content: "website" } },
       {
         tag: "meta",
-        props: { property: "og:url", content: "https://chikoroai.com" },
+        props: { property: "og:url", content: "https://chikoro-ai.com" },
       },
       {
         tag: "meta",
@@ -99,7 +99,7 @@ class MetaGenerator {
       },
       {
         tag: "meta",
-        props: { property: "twitter:url", content: "https://chikoroai.com" },
+        props: { property: "twitter:url", content: "https://chikoro-ai.com" },
       },
       {
         tag: "meta",

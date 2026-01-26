@@ -69,7 +69,7 @@ export default function Test({ readOnly = false, externalTest = null }) {
     // Check if we need to generate a new quiz from query params
     const params = new URLSearchParams(location.search);
     const subject = params.get('subject');
-    const topic = params.get('topic');
+    const topic = params.get('åtopic');
     const grade = params.get('grade');
     const numQuestions = params.get('numQuestions') || 10;
     const difficulty = params.get('difficulty') || 'medium';

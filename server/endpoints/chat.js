@@ -210,7 +210,81 @@ if (result?.tool_call === "flashcard_create") {
   }
 }
 
-// ✅ ADD: Helper function to extract subject from message
+// 🔍 Detect web search tool call
+if (result?.tool_call === "web_search") {
+  console.log("⚙️ Tool call detected: web_search");
+
+  writeResponseChunk(response, {
+    id: uuidv4(),
+    type: "data",
+    role: "assistant",
+    tool_call: "web_search",
+    textResponse: "Searching the web...",
+    close: false,
+  });
+
+  try {
+    const params = result.parameters || {};
+    
+    const searchParams = {
+      query: params.query || message, // Use the original message if no specific query
+      provider: params.provider || "duckduckgo",
+      numResults: params.numResults || 10,
+    };
+
+    console.log("🔍 Web search params:", searchParams);
+    
+    const apiBase = process.env.API_BASE || "http://localhost:3001";
+    
+    const searchRes = await fetch(`${apiBase}/api/agent-flows/web-search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: request.headers.authorization || "",
+      },
+      body: JSON.stringify(searchParams),
+    });
+
+    if (!searchRes.ok) {
+      throw new Error(`Web search API failed: ${searchRes.status}`);
+    }
+
+    const searchData = await searchRes.json();
+    console.log("✅ Web search tool executed:", searchData);
+
+    // Format the results into a readable response
+    let formattedResults = `I found ${searchData.results?.length || 0} results for "${searchParams.query}":\n\n`;
+    
+    searchData.results?.slice(0, 5).forEach((result, i) => {
+      formattedResults += `${i + 1}. **${result.title}**\n`;
+      formattedResults += `   ${result.snippet}\n`;
+      formattedResults += `   ${result.url}\n\n`;
+    });
+
+    writeResponseChunk(response, {
+      id: uuidv4(),
+      type: "data",
+      textResponse: formattedResults,
+      role: "assistant",
+      tool_call: "web_search",
+      searchResults: searchData.results || [],
+      close: false,
+    });
+  } catch (error) {
+    console.error("❌ Web search failed:", error);
+    writeResponseChunk(response, {
+      id: uuidv4(),
+      type: "abort",
+      textResponse: null,
+      sources: [],
+      close: true,
+      error: `Web search failed: ${error.message}`,
+    });
+  }
+}
+
+
+//  Helper function to extract subject from message
 function extractSubjectFromMessage(message) {
   const lowerMsg = message.toLowerCase();
   
@@ -248,7 +322,7 @@ function extractSubjectFromMessage(message) {
         "sent_chat",
         {
           workspaceName: workspace?.name,
-          chatModel: workspace?.chatModel || "System Default",
+          chatModel: workspace?.chatModel || "gpt-oss:20b",
         },
         user?.id
       );
@@ -355,7 +429,7 @@ function extractSubjectFromMessage(message) {
           {
             workspaceName: workspace.name,
             thread: thread.name,
-            chatModel: workspace?.chatModel || "System Default",
+            chatModel: workspace?.chatModel || "gpt-oss:20b",
           },
           user?.id
         );

@@ -38,40 +38,40 @@ const TeacherDashboard = () => {
     setAccessToken(storedToken);
   }, [navigate]);
 
-// 🧾 Fetch teacher profile by user ID
-useEffect(() => {
-  if (!accessToken || !user?.id) return;
+  // 🧾 Fetch teacher profile by user ID
+  useEffect(() => {
+    if (!accessToken || !user?.id) return;
 
-  const fetchTeacherProfile = async () => {
-    try {
-      const res = await fetch(
-        `https://api.chikoro-ai.com/api/system/profile/${user.id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
+    const fetchTeacherProfile = async () => {
+      try {
+        const res = await fetch(
+          `https://api.chikoro-ai.com/api/system/profile/${user.id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        if (!res.ok) {
+          console.error("Profile fetch failed:", res.status);
+          return;
         }
-      );
 
-      if (!res.ok) {
-        console.error("Profile fetch failed:", res.status);
-        return;
+        const data = await res.json();
+        if (data.success && data.profile?.name) {
+          setTeacherProfile(data.profile);
+        } else {
+          console.warn("Unexpected profile response:", data);
+        }
+      } catch (err) {
+        console.error("Error fetching teacher profile:", err);
       }
+    };
 
-      const data = await res.json();
-      if (data.success && data.profile?.name) {
-        setTeacherProfile(data.profile);
-      } else {
-        console.warn("Unexpected profile response:", data);
-      }
-    } catch (err) {
-      console.error("Error fetching teacher profile:", err);
-    }
-  };
-
-  fetchTeacherProfile();
-}, [accessToken, user]);
+    fetchTeacherProfile();
+  }, [accessToken, user]);
 
   // 📊 Fetch teacher statistics
   useEffect(() => {
@@ -108,32 +108,32 @@ useEffect(() => {
   return (
     <div className="teacher-dashboard">
       <header className="dashboard-header">
-      <h1>
-  Welcome back,{" "}
-  {teacherProfile?.name ? (
-    (() => {
-      const name = teacherProfile.name.trim();
-      // Regex checks for typical respectful prefixes
-      const hasPrefix = /^(Mr\.|Mrs\.|Ms\.|Miss|Dr\.)/i.test(name);
+        <h1>
+          Welcome back,{" "}
+          {teacherProfile?.name ? (
+            (() => {
+              const name = teacherProfile.name.trim();
+              // Regex checks for typical respectful prefixes
+              const hasPrefix = /^(Mr\.|Mrs\.|Ms\.|Miss|Dr\.)/i.test(name);
 
-      if (hasPrefix) {
-        // If already has prefix, display as-is
-        return name;
-      }
+              if (hasPrefix) {
+                // If already has prefix, display as-is
+                return name;
+              }
 
-      // If not, display first name + last name
-      const parts = name.split(/\s+/); // Split on whitespace
-      if (parts.length === 1) {
-        // Only one name part
-        return parts[0];
-      }
-      // Otherwise, display first + last name only
-      return `${parts[0]} ${parts[parts.length - 1]}`;
-    })()
-  ) : (
-    user?.username || "Teacher"
-  )}
-</h1>
+              // If not, display first name + last name
+              const parts = name.split(/\s+/); // Split on whitespace
+              if (parts.length === 1) {
+                // Only one name part
+                return parts[0];
+              }
+              // Otherwise, display first + last name only
+              return `${parts[0]} ${parts[parts.length - 1]}`;
+            })()
+          ) : (
+            user?.username || "Teacher"
+          )}
+        </h1>
 
         <p>Manage your classes, create content, and review student progress.</p>
       </header>
@@ -158,8 +158,8 @@ useEffect(() => {
 
           <Link to="/teacher-tools/quiz-generator" className="tool-card">
             <FiClipboard className="tool-icon" />
-            <h3>AI Quiz Generator</h3>
-            <p>Generate quizzes and tests with AI-driven difficulty control.</p>
+            <h3>Smart Quiz & Homework Builder</h3>
+            <p>Save hours of prep time. Generate tailored assessments that automatically adjust to your students' learning levels.</p>
           </Link>
           {/* <Link to="/teacher-tools/resource-finder" className="tool-card">
             <FiClipboard className="tool-icon" />
@@ -167,7 +167,7 @@ useEffect(() => {
             <p>Find resources for interactive lessons</p>
           </Link> */}
 
-            <Link to="/upload-exam" className="tool-card">
+          <Link to="/upload-exam" className="tool-card">
             <FiClipboard className="tool-icon" />
             <h3>Exam Paper Upload</h3>
             <p>Generate quizzes and tests from exam papers</p>
@@ -185,6 +185,11 @@ useEffect(() => {
             <h3>Link to Students</h3>
             <p>Connect students to their respective classes and resources.</p>
           </Link>
+         <Link to="/teacher/quizzes" className="tool-card">
+  <FiBarChart2 className="tool-icon" />
+  <h3>Quiz and Homework Results</h3>
+  <p>View detailed results of quizzes and homework.</p>
+</Link>
 
           <Link to="/teacher/reports" className="tool-card">
             <FiBarChart2 className="tool-icon" />

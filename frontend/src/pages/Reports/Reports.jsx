@@ -23,6 +23,7 @@ import {
 } from "chart.js";
 import Sidebar from "@/components/Sidebar";
 import { useSidebarToggle } from "../../components/Sidebar/SidebarToggle/index";
+import axios from "axios";
 
 ChartJS.register(
   LineElement,
@@ -81,7 +82,6 @@ const RadialProgress = ({ percentage, label, color, size = 120 }) => {
 
 export default function EnhancedStudentReport() {
   const { id } = useParams();
-  // State for report data and student profile data
   const [report, setReport] = useState(null);
   const [studentProfile, setStudentProfile] = useState(null); 
   const [loading, setLoading] = useState(true);
@@ -98,47 +98,57 @@ export default function EnhancedStudentReport() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Combined fetch logic: fetch profile first, then report
+  // ✅ Fetch both report AND student profile
   useEffect(() => {
-    const fetchProfileAndReport = async () => {
+    const fetchData = async () => {
       try {
-        const authToken = localStorage.getItem("chikoroai_authToken");
-        const headers = { Authorization: `Bearer ${authToken}` };
+        const token = localStorage.getItem("chikoroai_authToken");
+        const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
 
-        // 1. Fetch Student Profile using the /system/profile/:userId route
-        const profileRes = await fetch(
-          `https://api.chikoro-ai.com/api/system/profile/${id}`,
-          { headers }
-        );
-        const profileData = await profileRes.json();
-        if (!profileData.success) {
-          throw new Error(profileData.error || "Failed to fetch student profile.");
-        }
-        
-        // **CORRECTED PROFILE DATA EXTRACTION**
-        setStudentProfile({
-          name: profileData.profile.name, // Use 'name' from profile object
-          grade: profileData.profile.grade, // Use 'grade' from profile object
-        });
-
-        // 2. Fetch Report using the /system/reports/student/:id route
-        const reportRes = await fetch(
+        // Fetch report
+        const reportRes = await axios.get(
           `https://api.chikoro-ai.com/api/system/reports/student/${id}`,
-          { headers }
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
         );
-        const reportData = await reportRes.json();
-        if (!reportData.success) {
-          throw new Error(reportData.error || "Failed to fetch performance report.");
+
+        if (!reportRes.data.success) {
+          setError(reportRes.data.error || "Failed to fetch report");
+          setLoading(false);
+          return;
         }
-        setReport(reportData);
+
+        setReport(reportRes.data);
+
+        // ✅ If the logged-in user is a student viewing their own report, fetch their profile
+        if (storedUser?.role === "student") {
+          try {
+            const profileRes = await axios.get(
+              `https://api.chikoro-ai.com/api/system/student/my-profile`,
+              {
+                headers: { Authorization: `Bearer ${token}` },
+              }
+            );
+
+            if (profileRes.data.success) {
+              setStudentProfile(profileRes.data.student);
+            }
+          } catch (err) {
+            console.warn("Could not fetch student profile:", err);
+            // Non-critical, continue with report data
+          }
+        }
+
       } catch (err) {
-        setError(err.message);
+        console.error("Error fetching report:", err);
+        setError("Error fetching student performance report.");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProfileAndReport();
+    fetchData();
   }, [id]);
 
   if (loading) {
@@ -165,11 +175,9 @@ export default function EnhancedStudentReport() {
     );
   }
 
-  // Use the fetched studentProfile for display details
-  // Note: We prioritize studentProfile, but keep report.student as a fallback
+  // Use studentProfile if available, otherwise fall back to report.student
   const student = studentProfile || (report && report.student) || { name: 'Student', grade: 'N/A' };
   
-  // Destructure report data
   const {
     quizzes,
     summary,
@@ -390,7 +398,7 @@ export default function EnhancedStudentReport() {
                   📊 Your Performance Report
                 </h1>
                 <p className="text-xl text-gray-600">
-                  {student.name} • Level | {student.grade}
+                  {student.name} • Grade {student.grade}
                 </p>
               </div>
               <div className="text-right">

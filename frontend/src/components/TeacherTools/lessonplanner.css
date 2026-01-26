@@ -341,7 +341,7 @@
   margin-bottom: 0.75rem;
   padding-left: 1.5rem;
   position: relative;
-  color: #ffffff;
+  color: #000;
   counter-increment: item;
   line-height: 1.7;
 }
@@ -446,6 +446,15 @@
   height: 2px;
   background: #fff;
   margin: 2rem 0;
+}
+
+.generate-btn.powerpoint {
+  background: linear-gradient(135deg, #d97706 0%, #ea580c 100%);
+  box-shadow: 0 4px 15px rgba(217, 119, 6, 0.3);
+}
+
+.generate-btn.powerpoint:hover {
+  box-shadow: 0 6px 20px rgba(217, 119, 6, 0.4);
 }
 
 /* ================================

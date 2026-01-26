@@ -52,7 +52,23 @@ if (
   );
 }
 
-app.use(cors({ origin: true }));
+app.use(
+  cors({
+    origin: [
+      "https://chikoro-ai.com",
+      "https://www.chikoro-ai.com",
+    ],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+    ],
+    credentials: true,
+  })
+);
+app.options("*", cors());
+app.set("trust proxy", 1);
 app.use(bodyParser.text({ limit: FILE_LIMIT }));
 app.use(bodyParser.json({ limit: FILE_LIMIT }));
 app.use(
@@ -172,8 +188,8 @@ app.all("*", function (_, response) {
 /** * Server performance tuning for school environments 
  * Increased timeouts to 10 minutes to support large PDF processing
  */
-server.timeout = 600000; 
-server.keepAliveTimeout = 600000;
+server.timeout = 900000; 
+server.keepAliveTimeout = 900000;
 
 if (!process.env.ENABLE_HTTPS) {
   bootHTTP(app, process.env.SERVER_PORT || 3001);

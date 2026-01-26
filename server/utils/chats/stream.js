@@ -82,7 +82,7 @@ async function streamChatWithWorkspace(
         text: textResponse,
         sources: [],
         type: chatMode,
-        attachments: [],
+        attachments,
       },
       threadId: thread?.id || null,
       include: false,
@@ -106,24 +106,16 @@ async function streamChatWithWorkspace(
     messageLimit,
   });
 
-      const visionContext = [];
-  const processedAttachments = []; // ✅ Track which attachments to send
+     const visionContext = [];
   
   if (attachments && attachments.length > 0) {
     attachments.forEach((attachment) => {
       if (attachment.analysis) {
-        // ✅ We have vision analysis - add to context
         visionContext.push(`
 [Visual Content Analysis: ${attachment.name}]
 ${attachment.analysis.content}
 ---
 `);
-        
-        // ✅ DON'T send the raw image to chat model
-        // The analysis text is sufficient
-      } else {
-        // ✅ No analysis - keep attachment (might be a document, etc.)
-        processedAttachments.push(attachment);
       }
     });
   }
@@ -256,20 +248,15 @@ ${attachment.analysis.content}
 
   // Compress & Assemble message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
-
-  console.log("Final Context Count:", contextTexts.length);
-console.log("Vision analysis included?", contextTexts.some(t => t.includes("Visual Content Analysis")));
-
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt: await chatPrompt(workspace, user),
       userPrompt: updatedMessage,
       contextTexts,
       chatHistory,
-    attachments: processedAttachments,
+      attachments,
     },
     rawHistory,
-    user
   );
 
   // If streaming is not explicitly enabled for connector
@@ -314,7 +301,7 @@ if (completeText?.length > 0) {
       text: completeText,
       sources,
       type: chatMode,
-       attachments: attachments, 
+      attachments,
       metrics,
     },
     threadId: thread?.id || null,

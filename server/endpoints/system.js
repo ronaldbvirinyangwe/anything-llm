@@ -77,7 +77,7 @@ const Tesseract = require('tesseract.js');
 const sharp = require('sharp');
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 const fetch = require('node-fetch');
-
+const OpenAI = require("openai");
 
 
 const {
@@ -176,81 +176,211 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
-// Extract text from PDF
-async function extractTextFromPDF(filePath) {
-  try {
-    const dataBuffer = await fsPromises.readFile(filePath);
-    
-    // Load PDF document - simplified for v5.x
-    const loadingTask = pdfjsLib.getDocument({
-      data: new Uint8Array(dataBuffer),
-      verbosity: 0,
-      isEvalSupported: false,
+const textClient = new OpenAI({
+  baseURL: process.env.VLLM_BASE_PATH || "http://localhost:11434/v1",
+  apiKey: "EMPTY"
+});
+
+const visionClient = new OpenAI({
+  baseURL: process.env.VLLM_VISION_BASE_PATH || "http://localhost:11435/v1",
+  apiKey: "EMPTY"
+});
+
+// ==========================================
+// VALIDATION FUNCTIONS
+// ==========================================
+
+function validateExtractedQuestions(content, options = {}) {
+  const {
+    minQuestions = 1,
+    minCharsPerQuestion = 20,
+    requireMarkSchemes = true,
+    strictNumbering = true
+  } = options;
+
+  const result = {
+    valid: true,
+    questionCount: 0,
+    issues: [],
+    warnings: [],
+    questions: [],
+    fixedContent: content
+  };
+
+  const questionBlocks = content.split(/\n\n+(?=\d+\.)/);
+  
+  if (questionBlocks.length === 0) {
+    result.valid = false;
+    result.issues.push({
+      type: 'STRUCTURE',
+      severity: 'CRITICAL',
+      message: 'No questions found in extracted content'
     });
-    
-    const pdfDocument = await loadingTask.promise;
-    const numPages = pdfDocument.numPages;
-    
-    console.log(`📄 Processing ${numPages} pages...`);
-    
-    let fullText = '';
-    
-    // Extract text from each page
-    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-      const page = await pdfDocument.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      
-      // Sort items by Y position (top to bottom) then X position (left to right)
-      const items = textContent.items.sort((a, b) => {
-        const yDiff = Math.abs(b.transform[5] - a.transform[5]);
-        if (yDiff > 5) {
-          return b.transform[5] - a.transform[5]; // Sort by Y (top to bottom)
-        }
-        return a.transform[4] - b.transform[4]; // Sort by X (left to right)
-      });
-      
-      let pageText = '';
-      let lastY = null;
-      
-      items.forEach(item => {
-        const currentY = item.transform[5];
-        
-        // Add newline if Y position changed significantly (new line)
-        if (lastY !== null && Math.abs(lastY - currentY) > 5) {
-          pageText += '\n';
-        }
-        
-        pageText += item.str + ' ';
-        lastY = currentY;
-      });
-      
-      fullText += pageText + '\n\n';
-      console.log(`✓ Page ${pageNum}/${numPages} extracted`);
-    }
-    
-    // Clean extracted text
-    const cleanedText = fullText
-      // Remove Cambridge exam headers/footers
-      .replace(/0970\/31\/M\/J\/25.*?UCLES 2025/g, '')
-      .replace(/\[Turn over\]/g, '')
-      .replace(/DO NOT WRITE IN THIS MARGIN/g, '')
-      .replace(/\* \d+ \*/g, '') // Remove barcode patterns
-      .replace(/Ĭ[^\n]+/g, '') // Remove unicode artifacts
-      .replace(/ĥ[^\n]+/g, '')
-      .replace(/¥[^\n]+/g, '')
-      .replace(/Ġ[^\n]+/g, '')
-      // Normalize spacing
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-    
-    return cleanedText;
-  } catch (error) {
-    console.error('PDF.js extraction error:', error);
-    throw new Error('Failed to extract text from PDF: ' + error.message);
+    return result;
   }
+
+  result.questionCount = questionBlocks.length;
+
+  if (result.questionCount < minQuestions) {
+    result.valid = false;
+    result.issues.push({
+      type: 'COUNT',
+      severity: 'CRITICAL',
+      message: `Only ${result.questionCount} question(s) found. Expected at least ${minQuestions}.`
+    });
+  }
+
+  questionBlocks.forEach((block, idx) => {
+    const questionNum = idx + 1;
+    const questionData = validateSingleQuestion(block, questionNum, {
+      minCharsPerQuestion,
+      requireMarkSchemes,
+      strictNumbering
+    });
+
+    result.questions.push(questionData);
+
+    if (questionData.issues.length > 0) {
+      result.valid = false;
+      result.issues.push(...questionData.issues);
+    }
+
+    if (questionData.warnings.length > 0) {
+      result.warnings.push(...questionData.warnings);
+    }
+  });
+
+  if (strictNumbering) {
+    const numberingIssues = validateQuestionNumbering(result.questions);
+    if (numberingIssues.length > 0) {
+      result.valid = false;
+      result.issues.push(...numberingIssues);
+    }
+  }
+
+  if (result.issues.some(i => i.fixable)) {
+    result.fixedContent = generateFixedContent(result.questions);
+  }
+
+  return result;
 }
 
+function validateSingleQuestion(block, expectedNumber, options) {
+  const {
+    minCharsPerQuestion,
+    requireMarkSchemes
+  } = options;
+
+  const question = {
+    number: expectedNumber,
+    content: block.trim(),
+    issues: [],
+    warnings: [],
+    type: null,
+    hasMarkScheme: false,
+    hasAnswer: false,
+    extractedNumber: null,
+    marks: null
+  };
+
+  const numberMatch = block.match(/^(\d+)\.\s/);
+  if (numberMatch) {
+    question.extractedNumber = parseInt(numberMatch[1]);
+  } else {
+    question.issues.push({
+      type: 'NUMBERING',
+      severity: 'CRITICAL',
+      questionNum: expectedNumber,
+      message: `Question ${expectedNumber}: Missing or malformed question number`,
+      fixable: true
+    });
+  }
+
+  if (block.trim().length < minCharsPerQuestion) {
+    question.issues.push({
+      type: 'LENGTH',
+      severity: 'ERROR',
+      questionNum: expectedNumber,
+      message: `Question ${expectedNumber}: Too short (${block.trim().length} chars). May be incomplete.`,
+      fixable: false
+    });
+  }
+
+  if (block.includes('A)') || block.includes('B)') || block.includes('C)')) {
+    question.type = 'multiple_choice';
+    
+    if (block.includes('**Answer:')) {
+      question.hasAnswer = true;
+    } else {
+      question.issues.push({
+        type: 'ANSWER',
+        severity: 'CRITICAL',
+        questionNum: expectedNumber,
+        message: `Question ${expectedNumber}: Multiple choice question missing **Answer:** field`,
+        fixable: false
+      });
+    }
+  } else {
+    question.type = 'structured';
+    
+    if (block.includes('Mark Scheme:')) {
+      question.hasMarkScheme = true;
+    } else if (requireMarkSchemes) {
+      question.issues.push({
+        type: 'MARK_SCHEME',
+        severity: 'CRITICAL',
+        questionNum: expectedNumber,
+        message: `Question ${expectedNumber}: Structured question missing "Mark Scheme:" section`,
+        fixable: false
+      });
+    }
+  }
+
+  const subQuestionPatterns = [
+    /\(a\)/g, /\(b\)/g, /\(c\)/g, /\(d\)/g,
+    /\(i\)/g, /\(ii\)/g, /\(iii\)/g
+  ];
+  
+  const hasSubQuestions = subQuestionPatterns.some(p => block.match(p));
+  
+  if (hasSubQuestions) {
+    question.type = 'structured_multi_part';
+  }
+
+  return question;
+}
+
+function validateQuestionNumbering(questions) {
+  const issues = [];
+  
+  for (let i = 0; i < questions.length; i++) {
+    const expected = i + 1;
+    const actual = questions[i].extractedNumber;
+    
+    if (actual && actual !== expected) {
+      issues.push({
+        type: 'NUMBERING',
+        severity: 'ERROR',
+        questionNum: expected,
+        message: `Non-sequential numbering: Expected ${expected}, got ${actual}`,
+        fixable: true
+      });
+    }
+  }
+  
+  return issues;
+}
+
+function generateFixedContent(questions) {
+  return questions.map((q, idx) => {
+    const correctNumber = idx + 1;
+    return q.content.replace(/^\d+\./, `${correctNumber}.`);
+  }).join('\n\n');
+}
+
+// ==========================================
+// IMAGE PREPROCESSING
+// ==========================================
 
 async function preprocessImageForOCR(filePath) {
   try {
@@ -258,21 +388,31 @@ async function preprocessImageForOCR(filePath) {
     
     console.log("🎨 Preprocessing image for OCR...");
     
-    await sharp(filePath)
-      // Convert to grayscale
-      .grayscale()
-      // Enhance contrast
-      .normalize()
-      // Increase sharpness for better text recognition
-      .sharpen()
-      // Apply threshold to create clean black and white
-      .threshold(128)
-      // Ensure sufficient resolution (scale up if needed)
-      .resize({
-        width: 2480, // A4 at 300 DPI width
+    const metadata = await sharp(filePath).metadata();
+    console.log(`Image: ${metadata.width}x${metadata.height}, format: ${metadata.format}`);
+    
+    let pipeline = sharp(filePath);
+    
+    if (metadata.orientation) {
+      pipeline = pipeline.rotate();
+    }
+    
+    const targetWidth = 2480;
+    if (metadata.width < targetWidth) {
+      pipeline = pipeline.resize({
+        width: targetWidth,
         fit: 'inside',
-        withoutEnlargement: true
-      })
+        kernel: 'lanczos3'
+      });
+    }
+    
+    await pipeline
+      .grayscale()
+      .normalize()
+      .sharpen({ sigma: 1.5, m1: 1.0, m2: 0.7 })
+      .linear(1.5, 0)
+      .threshold(140)
+      .png({ compressionLevel: 6 })
       .toFile(outputPath);
     
     console.log("✓ Image preprocessed");
@@ -282,45 +422,54 @@ async function preprocessImageForOCR(filePath) {
     throw new Error('Failed to preprocess image: ' + error.message);
   }
 }
+
+// ==========================================
+// VISION MODEL OCR (REPLACES TESSERACT)
+// ==========================================
+
 async function extractTextFromImage(filePath) {
   let processedPath = null;
   
   try {
-    // Preprocess image first
     processedPath = await preprocessImageForOCR(filePath);
     
-    console.log("🔍 Running OCR on preprocessed image...");
+    console.log("🔍 Running OCR with vision model...");
     
-    // Use enhanced OCR settings
-    const { data: { text } } = await Tesseract.recognize(
-      processedPath, 
-      'eng', 
-      {
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
+    const imageBuffer = await fsPromises.readFile(processedPath);
+    const base64Image = imageBuffer.toString('base64');
+    
+    const response = await visionClient.chat.completions.create({
+      model: process.env.OLLAMA_VISION_MODEL || "lightonai/LightOnOCR-2-1B",
+      messages: [{
+        role: "user",
+        content: [
+          { 
+            type: "text", 
+            text: "Extract ALL text from this exam paper. Preserve formatting, question numbers, sub-questions, and structure exactly as shown. Include all text visible in the image." 
+          },
+          { 
+            type: "image_url", 
+            image_url: { url: `data:image/png;base64,${base64Image}` }
           }
-        },
-        // Optimize for document text
-        tessedit_pageseg_mode: Tesseract.PSM.AUTO,
-        // Whitelist common exam characters
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,?!()[]{}/-:;"\' \n',
-        preserve_interword_spaces: '1',
-      }
-    );
+        ]
+      }],
+      max_tokens: 4000,
+      temperature: 0.1
+    });
     
-    console.log("✓ OCR completed");
+    const extractedText = response.choices[0].message.content;
+    console.log(`✓ OCR completed (${extractedText.length} characters)`);
     
-    // Delete processed image
+    // Cleanup
     try {
       await fsPromises.unlink(processedPath);
     } catch (e) {
       console.warn('Could not delete processed image:', e);
     }
     
-    // Apply same cleaning as PDF
-    const cleanedText = text
-      .replace(/0970\/31\/M\/J\/25.*?UCLES 2025/g, '')
+    // Apply cleaning
+    const cleanedText = extractedText
+      .replace(/\d{4}\/\d{2}\/[A-Z]\/[A-Z]\/\d{2}.*?UCLES \d{4}/g, '')
       .replace(/\[Turn over\]/g, '')
       .replace(/DO NOT WRITE IN THIS MARGIN/g, '')
       .replace(/\n{3,}/g, '\n\n')
@@ -329,22 +478,223 @@ async function extractTextFromImage(filePath) {
     
     return cleanedText;
   } catch (error) {
-    // Clean up processed file on error
     if (processedPath) {
       try {
         await fsPromises.unlink(processedPath);
-      } catch (e) {
-        // Ignore cleanup errors
-      }
+      } catch (e) {}
     }
     
-    console.error('Enhanced OCR extraction error:', error);
+    console.error('Vision model OCR error:', error);
     throw new Error('Failed to extract text from image: ' + error.message);
   }
 }
+
 // ==========================================
-// MAIN EXTRACTION ROUTE (UPDATED)
+// PDF TEXT EXTRACTION (KEEP YOUR EXISTING)
 // ==========================================
+
+async function extractTextFromPDF(filePath) {
+  // Your existing pdfjs-dist implementation
+  const pdfjs = require('pdfjs-dist/legacy/build/pdf');
+  
+  const data = new Uint8Array(await fsPromises.readFile(filePath));
+  const pdf = await pdfjs.getDocument({ data }).promise;
+  
+  console.log(`📄 Processing ${pdf.numPages} pages...`);
+  
+  let fullText = '';
+  
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items.map(item => item.str).join(' ');
+    fullText += pageText + '\n';
+    console.log(`✓ Page ${i}/${pdf.numPages} extracted`);
+  }
+  
+  // Clean
+  const cleanedText = fullText
+    .replace(/\d{4}\/\d{2}\/[A-Z]\/[A-Z]\/\d{2}.*?UCLES \d{4}/g, '')
+    .replace(/\[Turn over\]/g, '')
+    .replace(/DO NOT WRITE IN THIS MARGIN/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  
+  return cleanedText;
+}
+
+// ==========================================
+// AI EXTRACTION WITH PROPER ERROR HANDLING
+// ==========================================
+
+async function generateExamExtraction(prompt) {
+  try {
+    const response = await textClient.chat.completions.create({
+      model: process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b",
+      messages: [
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.1,
+      max_tokens: 8000
+    });
+    
+    return response.choices[0].message.content;
+  } catch (error) {
+    console.error('AI generation error:', error);
+    throw new Error('Failed to generate exam extraction: ' + error.message);
+  }
+}
+
+function chunkTextByQuestions(text, maxCharsPerChunk = 12000) {
+  // Match main question numbers: "1 ", "2 ", etc. (with space after number)
+  const mainQuestionPattern = /(?=^\d+\s+[A-Z(])/gm;
+  const potentialQuestions = text.split(mainQuestionPattern).filter(q => q.trim());
+  
+  const chunks = [];
+  let currentChunk = '';
+  
+  for (const question of potentialQuestions) {
+    // If adding this question exceeds limit AND we have content, push chunk
+    if ((currentChunk + question).length > maxCharsPerChunk && currentChunk) {
+      chunks.push(currentChunk.trim());
+      currentChunk = question;
+    } else {
+      currentChunk += question;
+    }
+  }
+  
+  if (currentChunk) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  // Fallback if no questions detected
+  if (chunks.length === 0) {
+    for (let i = 0; i < text.length; i += maxCharsPerChunk) {
+      chunks.push(text.substring(i, i + maxCharsPerChunk));
+    }
+  }
+  
+  return chunks;
+}
+
+// ==========================================
+// MODIFIED AI EXTRACTION WITH CHUNKING
+// ==========================================
+
+async function generateExamExtractionChunked(examText, markSchemeText, metadata) {
+  const maxInputChars = 12000; // Increased
+  const examChunks = chunkTextByQuestions(examText, maxInputChars);
+  
+  console.log(`📦 Split exam into ${examChunks.length} chunks`);
+  
+  let allExtractedQuestions = [];
+  let questionOffset = 0;
+  
+  for (let i = 0; i < examChunks.length; i++) {
+    console.log(`🧠 Processing chunk ${i + 1}/${examChunks.length}...`);
+    
+    // Extract question numbers from this chunk
+    const questionNumbers = extractQuestionNumbers(examChunks[i]);
+    
+    // Get relevant mark scheme sections
+    let relevantMarkScheme = '';
+    if (markSchemeText && questionNumbers.length > 0) {
+      relevantMarkScheme = extractRelevantMarkScheme(
+        markSchemeText, 
+        questionNumbers[0], 
+        questionNumbers[questionNumbers.length - 1]
+      );
+    }
+    
+    const prompt = `You are extracting questions from a Cambridge IGCSE Biology exam paper.
+
+EXAM PAPER TEXT (CHUNK ${i + 1}/${examChunks.length}):
+${examChunks[i]}
+
+${relevantMarkScheme ? `MARK SCHEME:\n${relevantMarkScheme}\n` : ''}
+
+CRITICAL INSTRUCTIONS:
+1. Extract EVERY complete question from this chunk
+2. Preserve ALL sub-questions: (a), (b), (i), (ii), etc.
+3. For structured questions, include mark schemes in this format:
+
+Mark Scheme:
+- Point 1 (1 mark)
+- Point 2 (1 mark)
+
+4. For multiple choice, use:
+**Answer: [letter]**
+
+5. Start numbering from ${questionOffset + 1}
+6. DO NOT add preamble - start immediately with the first question number
+7. Include ALL parts - if a question has parts (a) through (d), extract ALL of them
+
+Extract questions now:`;
+
+    try {
+      const response = await textClient.chat.completions.create({
+        model: process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1, // Lower for more accuracy
+        max_tokens: 6000  // Increased
+      });
+      
+      let extracted = response.choices[0].message.content;
+      
+      // Clean response
+      extracted = extracted
+        .replace(/^[\s\S]*?(?=\d+[\.\s])/m, '')
+        .replace(/^(Here's|Here is|Sure|Certainly).*?[:.\n]/im, '')
+        .replace(/```[a-z]*\n?/gi, '')
+        .trim();
+      
+      const questionMatches = extracted.match(/^\d+[\.\s]/gm);
+      const questionsInChunk = questionMatches ? questionMatches.length : 0;
+      
+      console.log(`✓ Extracted ${questionsInChunk} questions from chunk ${i + 1}`);
+      
+      allExtractedQuestions.push(extracted);
+      questionOffset += questionsInChunk;
+      
+    } catch (error) {
+      console.error(`Error processing chunk ${i + 1}:`, error.message);
+      throw error;
+    }
+  }
+  
+  // Combine and renumber
+  let combined = allExtractedQuestions
+    .filter(q => q.trim())
+    .join('\n\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  
+  return combined;
+}
+
+// Helper functions
+function extractQuestionNumbers(text) {
+  const matches = text.matchAll(/^(\d+)\s+/gm);
+  return [...new Set([...matches].map(m => parseInt(m[1])))].sort((a, b) => a - b);
+}
+
+function extractRelevantMarkScheme(markSchemeText, startQ, endQ) {
+  // Find sections for questions startQ through endQ
+  const questionPattern = new RegExp(
+    `Question Answer Marks.*?\\b${startQ}\\b[\\s\\S]*?(?=\\bQuestion Answer Marks.*?\\b${endQ + 1}\\b|$)`,
+    'i'
+  );
+  
+  const match = markSchemeText.match(questionPattern);
+  return match ? match[0].substring(0, 4000) : ''; // Limit to 4000 chars
+}
+
+
+// ==========================================
+// MAIN EXTRACTION ROUTE
+// ==========================================
+
 app.post("/teacher/extract-exam-paper", 
   [validatedRequest, upload.fields([
     { name: 'examPaper', maxCount: 1 },
@@ -390,7 +740,7 @@ app.post("/teacher/extract-exam-paper",
         console.log("📖 Processing PDF with pdfjs-dist...");
         examText = await extractTextFromPDF(examFilePath);
       } else if (examFile.mimetype.startsWith('image/')) {
-        console.log("🖼️ Processing image with Sharp + Tesseract OCR...");
+        console.log("🖼️ Processing image with Vision Model OCR...");
         examText = await extractTextFromImage(examFilePath);
       } else {
         return res.status(400).json({ 
@@ -420,51 +770,7 @@ app.post("/teacher/extract-exam-paper",
         console.log(`📝 Extracted ${markSchemeText.length} characters from mark scheme`);
       }
 
-      // STEP 3: First AI call - Structure identification (Optional - for logging)
-      const structurePrompt = `You are analyzing a Cambridge IGCSE exam paper for the Zimbabwean curriculum.
-
-EXAM PAPER TEXT:
-${examText.substring(0, 8000)}
-
-Your task: Identify and extract ONLY the question structure.
-
-Output ONLY valid JSON with no other text:
-{
-  "questions": [
-    {
-      "number": "1",
-      "hasSubQuestions": true,
-      "subQuestions": ["a", "b", "c", "d"],
-      "totalMarks": 11
-    }
-  ]
-}
-
-JSON output:`;
-
-      console.log("🧠 Step 1: Analyzing paper structure...");
-      const structureResponse = await generateLessonPlanAI(structurePrompt);
-      
-      // Parse structure
-      let structure;
-      try {
-        const cleanStructure = structureResponse
-          .replace(/```json\n?/g, '')
-          .replace(/```\n?/g, '')
-          .replace(/^[^{]*/, '') // Remove everything before first {
-          .replace(/[^}]*$/, '}') // Remove everything after last }
-          .trim();
-        structure = JSON.parse(cleanStructure);
-      } catch (parseError) {
-        console.error("Failed to parse structure:", parseError);
-        console.log("Structure response:", structureResponse.substring(0, 200));
-        // Fallback: continue without structure
-        structure = { questions: [] };
-      }
-
-      console.log(`✓ Identified ${structure.questions.length} questions`);
-
-      // STEP 4: Second AI call - Extract questions in StudentQuiz-compatible format
+      // STEP 3: Single AI call - Extract questions directly (NO structure analysis)
       const extractionPrompt = `You are extracting questions from a Cambridge IGCSE Biology exam paper.
 
 EXAM PAPER TEXT:
@@ -494,75 +800,86 @@ Mark Scheme:
 - Second point (1 mark)
 
 CRITICAL RULES:
-1. Start IMMEDIATELY with "1." - NO introduction or preamble
+1. Start IMMEDIATELY with "1." - NO introduction, preamble, or explanation
 2. Each question starts on a new line with its number: "1.", "2.", "3."
 3. Put ONE blank line between questions
 4. For multiple choice: list options A) B) C) D) then **Answer: X**
 5. For structured: include sub-questions in the question text, then add "Mark Scheme:" section
-6. Keep everything simple - this will be parsed by students
+6. Extract ALL questions from the exam paper
+7. DO NOT output JSON or any other format - just plain numbered questions
 
-EXAMPLE OUTPUT:
+NOW EXTRACT ALL QUESTIONS (start with "1." immediately):`;
 
-1. Fig. 1.1 shows some specialised cells. State the letters that identify: (a) contain an acrosome (b) contain haemoglobin (c) are found in plants (d) are found in the peripheral nervous system [4 marks]
+      console.log("🧠 Extracting questions with AI...");
+     const extractedContent = await generateExamExtractionChunked(
+  examText,           // Pass the extracted text
+  markSchemeText,     // Pass the mark scheme text  
+  parsedMetadata      // Pass the metadata object
+);
 
-Mark Scheme:
-- (a) D - 1 mark
-- (b) A - 1 mark  
-- (c) C and E - 1 mark each
-- (d) B - 1 mark
-
-2. What is the function of chlorophyll in plants?
-A) To store glucose
-B) To absorb light for photosynthesis
-C) To transport water
-D) To produce oxygen
-**Answer: B**
-
-3. A student investigated photosynthesis in an aquatic plant. (a) State the gas produced (b) Explain why the rate increased then leveled off [5 marks]
-
-Mark Scheme:
-- (a) Oxygen - 1 mark
-- (b) Rate increases with more CO2 available - 2 marks
-- (b) Levels off when another factor becomes limiting - 2 marks
-
-NOW EXTRACT ALL QUESTIONS (start with "1." immediately, no preamble):`;
-
-      console.log("🧠 Step 2: Extracting questions and mark schemes...");
-      const extractedContent = await generateLessonPlanAI(extractionPrompt);
       
-      // Clean the response - be aggressive
+      // Clean the response aggressively
       let cleanedContent = extractedContent
-        .replace(/^(Here's|Here is|Here are|Sure|Certainly|Okay|I'll|Let me|Below|Following).*?[:.\n]/im, '')
-        .replace(/^(the|all)?\s*(extracted|formatted|complete)?\s*(questions?|exam|paper).*?[:.\n]/im, '')
+        .replace(/^[\s\S]*?(?=1\.\s)/m, '') // Remove everything before first "1. "
+        .replace(/^(Here's|Here is|Sure|Certainly|Okay|I'll|Let me|Below).*?[:.\n]/im, '')
         .replace(/```[a-z]*\n?/gi, '')
         .replace(/```/g, '')
         .trim();
 
-      // Find where the actual questions start (look for "1." at the beginning of a line)
+      // Find where questions actually start
       const firstQuestionMatch = cleanedContent.match(/^1\.\s/m);
       if (firstQuestionMatch) {
         cleanedContent = cleanedContent.substring(firstQuestionMatch.index);
       }
 
-      // Ensure proper spacing between questions (StudentQuiz format)
+      // Ensure proper spacing
       cleanedContent = cleanedContent
-        .replace(/\n(\d+\.)/g, '\n\n$1') // Add blank line before each question number
-        .replace(/\n{3,}/g, '\n\n') // Remove excessive blank lines
+        .replace(/\n(\d+\.)/g, '\n\n$1')
+        .replace(/\n{3,}/g, '\n\n')
         .trim();
 
-      // Count questions - look for numbered patterns
-      const questionMatches = cleanedContent.match(/^\d+\.\s/gm);
-      const questionCount = questionMatches ? questionMatches.length : 0;
+      console.log("✅ AI extraction complete");
+      console.log("First 500 chars:", cleanedContent.substring(0, 500));
 
-      console.log(`Found ${questionCount} questions in extracted content`);
+      // VALIDATION
+      const validationResult = validateExtractedQuestions(cleanedContent, {
+        minQuestions: 1,
+        minCharsPerQuestion: 20,
+        requireMarkSchemes: false, // Set to true if you want strict validation
+        strictNumbering: true
+      });
 
-      if (questionCount === 0) {
-        // Debug logging
-        console.log("First 500 chars of cleaned content:", cleanedContent.substring(0, 500));
-        throw new Error("No questions could be extracted. The AI response may not be properly formatted.");
+      console.log(`📊 Validation: ${validationResult.valid ? '✓ PASSED' : '✗ FAILED'}`);
+      console.log(`📝 Found ${validationResult.questionCount} questions`);
+      console.log(`⚠️  Issues: ${validationResult.issues.length}, Warnings: ${validationResult.warnings.length}`);
+
+      // If critical validation failure
+      const criticalIssues = validationResult.issues.filter(i => i.severity === 'CRITICAL');
+      if (criticalIssues.length > 0 && validationResult.questionCount === 0) {
+        console.error('❌ Critical validation errors:', criticalIssues);
+        
+        // Clean up files
+        if (examFilePath) await fsPromises.unlink(examFilePath);
+        if (markSchemeFilePath) await fsPromises.unlink(markSchemeFilePath);
+        
+        return res.status(422).json({
+          success: false,
+          error: 'AI extraction failed validation - no valid questions found',
+          details: {
+            issues: criticalIssues,
+            extractedSample: cleanedContent.substring(0, 1000)
+          },
+          message: 'The AI could not properly extract questions. This may be due to poor image quality or unexpected document format. Please try again with a clearer document.'
+        });
       }
 
-      console.log(`✅ Successfully extracted ${questionCount} questions from exam paper`);
+      // Apply auto-fixes
+      if (validationResult.issues.some(i => i.fixable)) {
+        console.log('🔧 Applying automatic fixes...');
+        cleanedContent = validationResult.fixedContent;
+      }
+
+      console.log(`✅ Successfully extracted ${validationResult.questionCount} questions`);
 
       // Clean up uploaded files
       try {
@@ -576,12 +893,21 @@ NOW EXTRACT ALL QUESTIONS (start with "1." immediately, no preamble):`;
         success: true,
         extractedQuiz: {
           content: cleanedContent,
-          questionCount: questionCount,
+          questionCount: validationResult.questionCount,
           metadata: parsedMetadata,
           hasMarkScheme: !!markSchemeText,
-          extractionMethod: examFile.mimetype === 'application/pdf' ? 'pdfjs-dist' : 'sharp+tesseract'
+          extractionMethod: examFile.mimetype === 'application/pdf' ? 'pdfjs-dist' : 'vision-model-ocr'
         },
-        message: `Successfully extracted ${questionCount} questions from the exam paper.`
+        validation: {
+          passed: validationResult.valid,
+          questionCount: validationResult.questionCount,
+          criticalIssues: criticalIssues.length,
+          errors: validationResult.issues.filter(i => i.severity === 'ERROR').length,
+          warnings: validationResult.warnings.length,
+          issues: validationResult.issues,
+          warnings: validationResult.warnings
+        },
+        message: `Successfully extracted ${validationResult.questionCount} questions from the exam paper.`
       });
 
     } catch (err) {
@@ -712,28 +1038,37 @@ app.post("/system/enrol/parent", [validatedRequest], async (request, response) =
   }
 });
 
-    app.get("/system/student/:userId", [validatedRequest], async (request, response) => {
-    try {
-      const { userId } = request.params;
-      const student = await prisma.students.findFirst({
-        where: { user_id: Number(userId) },
-        include: { user: true },
-      });
+app.get("/system/student/:userId", [validatedRequest], async (request, response) => {
+  try {
+    const userId = Number(request.params.userId);
 
-    if (student?.subscription_expiration_date && new Date() > student.subscription_expiration_date) {
-      // Expired — mark status back to "none"
-      await prisma.students.updateMany({
-        where: {
-          user_id: Number(student.user_id),
-        },
-        data: {
-          subscription_status: "none",
-        },
+    if (!Number.isInteger(userId)) {
+      return response.status(400).json({
+        success: false,
+        error: "Invalid userId",
       });
     }
 
+    const student = await prisma.students.findFirst({
+      where: { user_id: userId },
+      include: { user: true },
+    });
+
     if (!student) {
-      return response.status(404).json({ success: false, error: "Student not found" });
+      return response.status(404).json({
+        success: false,
+        error: "Student not found",
+      });
+    }
+
+    if (
+      student.subscription_expiration_date &&
+      new Date() > student.subscription_expiration_date
+    ) {
+      await prisma.students.update({
+        where: { id: student.id }, // 👈 safer than updateMany
+        data: { subscription_status: "none" },
+      });
     }
 
     response.status(200).json({ success: true, student });
@@ -743,6 +1078,56 @@ app.post("/system/enrol/parent", [validatedRequest], async (request, response) =
   }
 });
 
+app.get("/system/teacher/my-quizzes", async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ success: false, error: "Unauthorized" });
+
+    // 1. Get User ID
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.userId || decoded.id || decoded.user_id || decoded.sub;
+
+    // 2. Find Teacher Profile
+    const teacher = await prisma.teachers.findFirst({
+      where: { user_id: parseInt(userId) }
+    });
+
+    if (!teacher) {
+      return res.status(403).json({ success: false, error: "Teacher profile not found" });
+    }
+
+    // 3. Find ALL quizzes by this teacher
+    const quizzes = await prisma.shared_quizzes.findMany({
+      where: { teacher_id: teacher.id },
+      orderBy: { created_at: 'desc' },
+      include: {
+        _count: {
+          select: { quiz_results: true } // Optional: Count how many students submitted
+        }
+      }
+    });
+
+    // 4. Format for frontend
+    const formattedQuizzes = quizzes.map(q => ({
+      id: q.id,
+      topic: q.topic,
+      subject: q.subject,
+      difficulty: q.difficulty,
+      quiz_code: q.quiz_code,
+      createdAt: q.created_at,
+      submissionCount: q._count?.quiz_results || 0
+    }));
+
+    res.json({
+      success: true,
+      quizzes: formattedQuizzes
+    });
+
+  } catch (err) {
+    console.error("Error fetching teacher quizzes:", err);
+    res.status(500).json({ success: false, error: "Failed to fetch quizzes" });
+  }
+});
 app.get("/system/teacher/:userId", [validatedRequest], async (request, response) => {
   try {
     const { userId } = request.params;
@@ -1271,19 +1656,31 @@ app.get("/quiz/result/:id", [validatedRequest], async (req, res) => {
 
 app.post("/quiz/generate", [validatedRequest], async (req, res) => {
   try {
-    const { subject, grade, topic, numQuestions = 10, difficulty = "medium", questionType = "mixed" } = req.body;
+    const { subject, grade, topic, numQuestions = 10, difficulty = "medium", questionType = "mixed", age, curriculum } = req.body;
 
     if (!subject || !grade) {
       return res.status(400).json({ success: false, error: "Subject and grade are required." });
     }
 
+    
     // Use topic if provided, otherwise use subject as the topic
     const quizTopic = topic || subject;
 
     // Build comprehensive prompt similar to teacher/generate-quiz
-    let prompt = `You are a quiz generator for the Zimbabwean curriculum. Generate ONLY the quiz questions with NO introductory text.
+    let prompt = `Generate a Grade ${grade} quiz for Zimbabwean students.
 
-Create a ${difficulty} difficulty quiz with ${numQuestions} questions about ${quizTopic} for ${subject}, grade ${grade}.
+GRADE LEVEL: ${grade} (${age} years old)
+SUBJECT: ${subject}
+TOPIC: ${quizTopic}
+CURRICULUM: ${curriculum || 'ZIMSEC'}
+DIFFICULTY: ${difficulty} (within Grade ${grade} scope)
+NUMBER OF QUESTIONS: ${numQuestions}
+
+CRITICAL REQUIREMENTS:
+- Questions MUST be appropriate for ${grade} cognitive level
+- Use ${grade}-level vocabulary and concepts only
+- Follow ${curriculum || 'ZIMSEC'} ${grade} ${subject} curriculum standards
+- All questions should be ${difficulty} difficulty FOR ${grade} students
 
 CRITICAL: Start immediately with question 1. No preamble, no explanations, just questions.
 `;
@@ -1697,50 +2094,30 @@ app.post("/quiz/submit", [validatedRequest], async (req, res) => {
 
 async function generateLessonPlanAI(prompt) {
   try {
-    const ollamaUrl =
-      process.env.OLLAMA_API_URL || "http://192.168.12.187:11434/api/generate";
+    const ollamaUrl = "http://192.168.1.86:11434/v1/completions";
 
-    // Enable streaming response
-    const response = await axios.post(
-      ollamaUrl,
-      { model: "gpt-oss:20b", prompt, stream: false },
-      { responseType: "text" }
-    );
+    const response = await axios.post(ollamaUrl, {
+      model: "openai/gpt-oss-20b",
+      prompt,
+      max_tokens: 4096,   // 🔥 IMPORTANT
+      temperature: 0.7,
+      stream: false
+    });
 
-    // 🔹 If stream:false, Ollama will return a complete text block
-    if (response.data && typeof response.data === "string") {
-      try {
-        const parsed = JSON.parse(response.data);
-        return parsed.response || parsed.output || JSON.stringify(parsed);
-      } catch {
-        // Sometimes Ollama returns newline-delimited JSON, combine them
-        const lines = response.data
-          .split("\n")
-          .filter((line) => line.trim().startsWith("{"))
-          .map((line) => {
-            try {
-              return JSON.parse(line).response || "";
-            } catch {
-              return "";
-            }
-          })
-          .join("");
-        return lines.trim();
-      }
+    // OpenAI-style completion
+    if (response.data?.choices?.length) {
+      return response.data.choices
+        .map(c => c.text || "")
+        .join("")
+        .trim();
     }
 
-    // ✅ Handle when Axios parsed it already
-    if (response.data?.response) return response.data.response;
-    if (Array.isArray(response.data))
-      return response.data.map((c) => c.response || c.output || "").join("");
-
-    return JSON.stringify(response.data);
+    throw new Error("Unexpected Ollama response shape");
   } catch (err) {
-    console.error("AI generation failed:", err.message);
+    console.error("AI generation failed:", err.response?.data || err.message);
     throw new Error("AI model is unavailable or misconfigured.");
   }
 }
-
 app.post(
   "/system/teacher-tools/generate-lesson-plan",
   [validatedRequest],
@@ -1768,20 +2145,38 @@ You are a professional ${subject} teacher preparing a detailed lesson plan for $
 
 Topic: ${topic}
 Lesson Duration: ${duration || "30 minutes"}
-Objectives: 
-- Write a maximum of 3 learning objectives using Bloom's Taxonomy verbs (e.g., describe, explain, apply, analyze, evaluate, create) to target a range of cognitive skills.
 
-Create a complete, structured lesson plan in Markdown format with:
-- Lesson Title
-- Objectives (organized by Bloom's Taxonomy, from Remember to Create)
-- Introduction (engage students using a Bloom's-level question or activity)
-- Lesson Development (activities and examples that progress through Bloom’s levels; use verbs and question stems from Bloom's Taxonomy to scaffold learning)
-- Assessment ideas (include tasks/questions for different Bloom's levels)
-- Homework or reflection task (encourage higher-level thinking, e.g., design, critique, invent)
+⚠️ CRITICAL: Do NOT include ANY planning notes, thinking process, or meta-commentary. 
+⚠️ Output ONLY the final lesson plan in proper markdown format.
+⚠️ Start IMMEDIATELY with "## Lesson Title: [Your Title]"
+
+Create a lesson plan with EXACTLY these sections in this order:
+
+## Lesson Title: [Create an engaging title]
+
+## Objectives
+[Write maximum 3 learning objectives using Bloom's Taxonomy verbs: describe, explain, apply, analyze, evaluate, create]
+
+## Introduction
+[Engage students with a Bloom's-level question or activity]
+
+## Lesson Development
+[Activities and examples that progress through Bloom's levels with verbs and question stems]
+
+## Assessment Ideas
+[Tasks/questions for different Bloom's levels]
+
+## Homework / Reflection Task
+[Encourage higher-level thinking: design, critique, invent]
+
+BEGIN YOUR RESPONSE WITH "## Lesson Title:" - NO OTHER TEXT BEFORE THIS.
 `;
 
       // 🧩 Generate the AI lesson plan
-      const aiResponse = await generateLessonPlanAI(prompt);
+      const rawResponse = await generateLessonPlanAI(prompt);
+      
+      // ✅ Clean thinking model output
+      const cleanedLessonPlan = cleanThinkingModelOutput(rawResponse);
 
       // 🧾 Log & respond
       await EventLogs.logEvent(
@@ -1792,7 +2187,7 @@ Create a complete, structured lesson plan in Markdown format with:
 
       response.status(200).json({
         success: true,
-        lessonPlan: aiResponse,
+        lessonPlan: cleanedLessonPlan,
       });
     } catch (err) {
       console.error("Error generating lesson plan:", err);
@@ -1803,6 +2198,51 @@ Create a complete, structured lesson plan in Markdown format with:
     }
   }
 );
+
+// // ✅ ADD THIS HELPER FUNCTION (if not already added from the quiz route)
+// function cleanThinkingModelOutput(rawText) {
+//   // Remove thinking blocks with various markers
+//   let cleaned = rawText
+//     // Remove explicit thinking tags
+//     .replace(/<think>[\s\S]*?<\/think>/gi, '')
+//     .replace(/\[THINKING\][\s\S]*?\[\/THINKING\]/gi, '')
+    
+//     // Remove markdown code blocks
+//     .replace(/```(?:markdown|md)?[\s\S]*?```/g, '')
+    
+//     // Remove meta-commentary
+//     .replace(/^.*?(?:let me|i'll|i will|i should|first|okay|alright|sure|certainly).*?(?:create|generate|make|produce|prepare).*?(?:lesson plan|plan).*$/gim, '')
+//     .replace(/^.*?(?:here'?s?|here is|here are).*?(?:lesson plan|plan).*?:?$/gim, '')
+    
+//     // Remove thinking indicators
+//     .replace(/^(?:thinking|analysis|approach|strategy|plan|note|observation)[:.].*$/gim, '')
+    
+//     // Remove step-by-step reasoning that isn't content
+//     .replace(/^(?:step|phase|stage)\s+\d+[:.].*$/gim, '')
+    
+//     // Clean up multiple newlines
+//     .replace(/\n{3,}/g, '\n\n')
+    
+//     .trim();
+  
+//   // Extract content after delimiter if present
+//   const delimiterMatch = cleaned.match(/===LESSON PLAN===\s*([\s\S]+)/);
+//   if (delimiterMatch) {
+//     cleaned = delimiterMatch[1].trim();
+//   }
+  
+//   // Find where actual lesson plan starts (typically with # or ## for title)
+//   const lessonStartMatch = cleaned.match(/(^#+\s+[\s\S]+)/m);
+//   if (lessonStartMatch) {
+//     const startIndex = lessonStartMatch.index;
+//     cleaned = cleaned.substring(startIndex);
+//   }
+  
+//   // Remove any remaining preamble before first markdown heading
+//   cleaned = cleaned.replace(/^[^#]*?(#+\s+)/, '$1');
+  
+//   return cleaned;
+// }
 
 app.post("/system/teacher-tools/generate-scheme-of-work", [validatedRequest], async (request, response) => {
   try {
@@ -1961,7 +2401,7 @@ Ensure the output is formatted for readability and teaching use.
 app.get("/system/reports/student/:id", [validatedRequest], async (request, response) => {
   try {
     const sessionUser = await userFromSession(request, response);
-    if (!sessionUser?.user_id) {
+    if (!sessionUser?.id) {
       return response.status(401).json({ success: false, error: "Unauthorized" });
     }
 
@@ -2002,7 +2442,7 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
       orderBy: { submitted_at: 'desc' },
     });
 
-    // ✅ Fetch XP logs - FIXED BOTH ISSUES
+    // ✅ Fetch XP logs
     const xpLogs = await prisma.event_logs.findMany({
       where: { 
         userId: student.user_id, 
@@ -2010,28 +2450,28 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
       },
       select: { 
         metadata: true, 
-        occurredAt: true  // ✅ FIXED: occurredAt (not createdAt)
+        occurredAt: true
       },
     });
 
     // 🧮 Calculate stats
     const difficultyWeights = { Easy: 1, Medium: 1.5, Hard: 2 };
 
-let totalWeightedScore = 0;
-let totalWeight = 0;
+    let totalWeightedScore = 0;
+    let totalWeight = 0;
 
-for (const q of quizzes) {
-  const percentage = q.score; 
-  const difficulty = q.shared_quizzes?.difficulty || "Medium";
-  const difficultyWeight = difficultyWeights[difficulty] || 1;
-  const weight = q.total_questions * difficultyWeight;
+    for (const q of quizzes) {
+      const percentage = q.score; 
+      const difficulty = q.shared_quizzes?.difficulty || "Medium";
+      const difficultyWeight = difficultyWeights[difficulty] || 1;
+      const weight = q.total_questions * difficultyWeight;
 
-  totalWeightedScore += percentage * weight;
-  totalWeight += weight;
-}
+      totalWeightedScore += percentage * weight;
+      totalWeight += weight;
+    }
 
-const averageScore =
-  totalWeight > 0 ? (totalWeightedScore / totalWeight).toFixed(1) : "0.0";
+    const averageScore =
+      totalWeight > 0 ? (totalWeightedScore / totalWeight).toFixed(1) : "0.0";
 
     const totalFlashcards = 0;
     const mastered = 0;
@@ -2058,10 +2498,15 @@ Recent Quizzes:
 ${quizzes.length > 0 
   ? quizzes
       .slice(0, 5)
-     .map((q) => `- ${q.subject || 'General'}: ${q.score}% (${q.correct_answers}/${q.total_questions} correct)`)
+      .map((q) => `- ${q.subject || 'General'}: ${q.score}% (${q.correct_answers}/${q.total_questions} correct)`)
       .join("\n")
   : "No quizzes taken yet."
 }
+
+CRITICAL INSTRUCTIONS:
+- Do NOT include any planning notes, meta-commentary, or thinking process
+- Start IMMEDIATELY with the markdown heading "## Overall Performance"
+- Output ONLY the final report content, nothing else
 
 Provide:
 1. A short paragraph summary of overall performance.
@@ -2069,18 +2514,22 @@ Provide:
 3. Areas for improvement.
 4. Suggested next learning steps.
 
-Format neatly in Markdown with proper headers.
-Only provide the summary text — no additional explanations or questions
-    `;
+Format neatly in Markdown with proper headers (##).
 
-    const aiSummary = await generateLessonPlanAI(summaryPrompt);
+===STUDENT REPORT===
+`;
+
+    const rawSummary = await generateLessonPlanAI(summaryPrompt);
+    
+    // ✅ CLEAN THINKING MODEL OUTPUT
+    const aiSummary = cleanThinkingModelOutput(rawSummary, 'report');
 
     // ✅ Transform quizzes
     const formattedQuizzes = quizzes.map(q => ({
       id: q.id,
       subject: q.subject,
       score: q.score,
-       correct_answers: q.correct_answers, 
+      correct_answers: q.correct_answers, 
       total: q.total_questions,
       createdAt: q.submitted_at,
     }));
@@ -2143,15 +2592,15 @@ app.post("/system/teacher/generate-quiz", [validatedRequest], async (req, res) =
   try {
     const { subject, topic, grade, difficulty, numQuestions, questionType } = req.body;
 
-  let prompt = `You are a quiz generator. Generate ONLY the quiz questions with NO introductory text.
+    let prompt = `You are a quiz generator. Generate ONLY the quiz questions with NO introductory text.
 
 Create a ${difficulty} difficulty quiz with ${numQuestions} questions about ${topic} for ${subject}, grade ${grade}.
 
 CRITICAL: Start immediately with question 1. No preamble, no explanations, just questions.
 `;
 
-if (questionType === 'multiple-choice') {
-  prompt += `
+    if (questionType === 'multiple-choice') {
+      prompt += `
 Format each question EXACTLY like this:
 
 1. What is photosynthesis?
@@ -2175,9 +2624,9 @@ RULES:
 - NO introductory text
 - NO explanations between questions
 `;
-} 
-else if (questionType === 'structured') {
-  prompt += `
+    } 
+    else if (questionType === 'structured') {
+      prompt += `
 Format each question EXACTLY like this:
 
 1. Explain the process of photosynthesis. [4 marks]
@@ -2199,9 +2648,9 @@ RULES:
 - Provide detailed mark scheme immediately after
 - NO introductory text
 `;
-}
-else if (questionType === 'mixed') {
-  prompt += `
+    }
+    else if (questionType === 'mixed') {
+      prompt += `
 Alternate between multiple choice and structured questions in EQUAL proportion.
 
 Example format:
@@ -2240,19 +2689,15 @@ RULES:
 - For MCQ: Include **Answer: X** after options
 - For Structured: Include Mark Scheme after question
 `;
-}
+    }
 
-prompt += `\n\nREMEMBER: Start with "1." immediately. No preamble or introduction!`;
+    prompt += `\n\nREMEMBER: Start with "1." immediately. No preamble or introduction!`;
 
-    // ✅ Use the same function you use for lesson plans
-    const quiz = await generateLessonPlanAI(prompt);
+    // Generate quiz with AI
+    const rawResponse = await generateLessonPlanAI(prompt);
     
-    // Clean the response
-    const cleanedQuiz = quiz
-      .replace(/^.*?(?:here'?s?|here is).*?quiz.*?:/i, '')
-      .replace(/^(sure|certainly|okay|alright)[!,.\s]*/i, '')
-      .replace(/```.*?```/gs, '')
-      .trim();
+    // ✅ CLEAN THINKING MODEL OUTPUT - PASS 'quiz' as contentType
+    const cleanedQuiz = cleanThinkingModelOutput(rawResponse, 'quiz');
 
     res.json({ success: true, quiz: cleanedQuiz });
   } catch (err) {
@@ -2261,6 +2706,110 @@ prompt += `\n\nREMEMBER: Start with "1." immediately. No preamble or introductio
   }
 });
 
+// ✅ UPDATED CLEANING FUNCTION
+function cleanThinkingModelOutput(rawText, contentType = 'general') {
+  let cleaned = rawText;
+  
+  // Remove explicit thinking tags
+  cleaned = cleaned
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/\[THINKING\][\s\S]*?\[\/THINKING\]/gi, '')
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, '');
+  
+  // Remove markdown code blocks
+  cleaned = cleaned.replace(/```(?:markdown|md)?[\s\S]*?```/g, '');
+  
+  // Remove everything before "assistantfinal" marker
+  const assistantFinalMatch = cleaned.match(/(?:assistant\s*final|assistantfinal)([\s\S]+)/i);
+  if (assistantFinalMatch) {
+    cleaned = assistantFinalMatch[1].trim();
+  }
+  
+  // Content-specific cleaning
+  if (contentType === 'quiz') {
+    // For quizzes, extract from first numbered question
+    const quizMatch = cleaned.match(/(^1\.\s+[\s\S]+)/m);
+    if (quizMatch) {
+      cleaned = quizMatch[1].trim();
+    }
+    
+    // Remove any thinking text
+    cleaned = cleaned
+      .split('\n')
+      .filter(line => {
+        const trimmed = line.trim().toLowerCase();
+        return !(
+          trimmed.startsWith('ok,') ||
+          trimmed.startsWith('let\'s') ||
+          trimmed.startsWith('we need') ||
+          trimmed.startsWith('we can') ||
+          trimmed.startsWith('we should') ||
+          trimmed.startsWith('we\'ll') ||
+          trimmed.startsWith('then ') ||
+          trimmed.startsWith('assistantfinal') ||
+          trimmed === 'assistant' ||
+          trimmed === 'final'
+        );
+      })
+      .join('\n');
+  }
+  
+  if (contentType === 'lessonPlan' || contentType === 'report') {
+    // Look for delimiter first
+    if (contentType === 'lessonPlan') {
+      const delimiterMatch = cleaned.match(/===LESSON PLAN===\s*([\s\S]+)/);
+      if (delimiterMatch) {
+        cleaned = delimiterMatch[1].trim();
+      }
+    } else if (contentType === 'report') {
+      const delimiterMatch = cleaned.match(/===STUDENT REPORT===\s*([\s\S]+)/);
+      if (delimiterMatch) {
+        cleaned = delimiterMatch[1].trim();
+      }
+    }
+    
+    // For lesson plans and reports, extract from first markdown heading
+    const firstHeadingMatch = cleaned.match(/(^##?\s+[A-Z][^\n]+[\s\S]+)/m);
+    if (firstHeadingMatch) {
+      cleaned = firstHeadingMatch[1];
+    }
+    
+    // Remove thinking lines
+    cleaned = cleaned
+      .split('\n')
+      .filter(line => {
+        const trimmed = line.trim().toLowerCase();
+        return !(
+          trimmed.startsWith('lesson title :') ||
+          trimmed.startsWith('* lesson title') ||
+          trimmed.startsWith('* objectives') ||
+          trimmed.startsWith('* overall performance') ||
+          trimmed.startsWith('* key strengths') ||
+          trimmed.startsWith('* areas') ||
+          trimmed.startsWith('* suggested') ||
+          trimmed.startsWith('provide:') ||
+          trimmed.startsWith('then list') ||
+          trimmed.startsWith('then use') ||
+          trimmed.startsWith('ok,') ||
+          trimmed.startsWith('let\'s write') ||
+          trimmed.startsWith('let\'s analyze') ||
+          trimmed.startsWith('assistantfinal') ||
+          trimmed.startsWith('we need') ||
+          trimmed.startsWith('we can') ||
+          trimmed.startsWith('use "##') ||
+          trimmed === 'assistant' ||
+          trimmed === 'final'
+        );
+      })
+      .join('\n');
+  }
+  
+  // Clean up multiple newlines
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+  
+  return cleaned;
+}
+
 app.post("/system/teacher/share-quiz-with-class", [validatedRequest], async (req, res) => {
   try {
     const sessionUser = await userFromSession(req, res);
@@ -2268,7 +2817,7 @@ app.post("/system/teacher/share-quiz-with-class", [validatedRequest], async (req
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
-    const { quiz, subject, topic, difficulty, studentIds } = req.body;
+    const { quiz, subject, topic, difficulty, studentIds,timeLimit,tabLimit } = req.body;
 
     // Generate unique quiz code
     const crypto = await import("crypto");
@@ -2292,6 +2841,8 @@ app.post("/system/teacher/share-quiz-with-class", [validatedRequest], async (req
         difficulty,
         quiz_content: quiz,
         is_class_specific: true,
+       time_limit: parseInt(timeLimit) || 0,
+        tab_limit: parseInt(tabLimit) || 1,
         created_at: new Date()
       }
     });
@@ -2454,30 +3005,34 @@ app.post("/system/teacher/create-quiz-link", [validatedRequest], async (req, res
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
-    const { quiz, subject, topic, difficulty } = req.body;
+    // ✅ FIX: Destructure timeLimit and tabLimit from req.body
+    const { quiz, subject, topic, difficulty, timeLimit, tabLimit } = req.body;
 
     const crypto = await import("crypto");
     const quizCode = crypto.randomBytes(6).toString("hex").toUpperCase();
-const teacher = await prisma.teachers.findFirst({
-  where: { user_id: sessionUser.user_id },
-});
+    
+    const teacher = await prisma.teachers.findFirst({
+      where: { user_id: sessionUser.user_id },
+    });
 
-if (!teacher) {
-  return res.status(404).json({ success: false, error: "Teacher not found" });
-}
+    if (!teacher) {
+      return res.status(404).json({ success: false, error: "Teacher not found" });
+    }
 
-await prisma.shared_quizzes.create({
-  data: {
-    teacher_id: teacher.id,
-    quiz_code: quizCode,
-    subject,
-    topic,
-    difficulty,
-    quiz_content: quiz,
-    is_class_specific: false,
-    created_at: new Date(),
-  },
-});
+    await prisma.shared_quizzes.create({
+      data: {
+        teacher_id: teacher.id,
+        quiz_code: quizCode,
+        subject,
+        topic,
+        difficulty,
+        quiz_content: quiz,
+        is_class_specific: false,
+        time_limit: parseInt(timeLimit) || 0,
+        tab_limit: parseInt(tabLimit) || 1,
+        created_at: new Date(),
+      },
+    });
 
     const quizLink = `https://chikoro-ai.com/student/quiz/${quizCode}`;
 
@@ -2489,18 +3044,40 @@ await prisma.shared_quizzes.create({
   }
 });
 
+
 // Get quiz by code
 app.get("/system/quiz/:code", async (req, res) => {
   try {
     const quiz = await prisma.shared_quizzes.findUnique({
       where: { quiz_code: req.params.code },
+      include: {
+        teacher: {
+          include: {
+            user: {
+              select: { username: true }
+            }
+          }
+        }
+      }
     });
 
     if (!quiz) {
       return res.status(404).json({ success: false, error: "Quiz not found" });
     }
 
-    res.json({ success: true, quiz });
+    res.json({
+      success: true,
+      quiz: {
+        subject: quiz.subject,
+        topic: quiz.topic,
+        difficulty: quiz.difficulty,
+        content: quiz.quiz_content,
+        timeLimit: quiz.time_limit,
+        tabLimit: quiz.tab_limit,
+        teacherName: quiz.teacher.user.username
+      }
+    });
+
   } catch (err) {
     console.error("Error fetching quiz:", err);
     res.status(500).json({ success: false, error: "Failed to load quiz" });
@@ -2510,7 +3087,14 @@ app.get("/system/quiz/:code", async (req, res) => {
 // Submit student quiz
 app.post("/system/student/submit-quiz", async (req, res) => {
   try {
-    const { quizCode, answers, studentId } = req.body;
+    const { 
+      quizCode, 
+      answers, 
+      studentId, 
+      tabViolations, 
+      tabLimitExceeded, 
+      autoSubmitted 
+    } = req.body;
 
     const quiz = await prisma.shared_quizzes.findUnique({
       where: { quiz_code: quizCode },
@@ -2518,6 +3102,22 @@ app.post("/system/student/submit-quiz", async (req, res) => {
 
     if (!quiz) {
       return res.status(404).json({ success: false, error: "Quiz not found" });
+    }
+
+    // ✅ FIX: Check if student already submitted this quiz
+    const existingSubmission = await prisma.quiz_results.findFirst({
+      where: {
+        user_id: studentId,
+        quiz_code: quizCode,
+      },
+    });
+
+    if (existingSubmission) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "You have already submitted this quiz. Multiple submissions are not allowed.",
+        alreadySubmitted: true
+      });
     }
 
     // 🧹 Clean and parse quiz
@@ -2663,31 +3263,47 @@ FEEDBACK: [Your detailed feedback]
       ? Math.round((earnedPoints / totalPoints) * 100) 
       : 0;
 
-    // 🗂️ Save quiz results with detailed feedback
-    const result = await prisma.quiz_results.create({
-      data: {
-        user_id: studentId,
-        subject: quiz.subject,
-        quiz_code: quiz.quiz_code,
-        shared_quiz_id: quiz.id,
-        total_questions: answers.length,
-        correct_answers: correctCount,
-        score: finalScore,
-        detailed_feedback: JSON.stringify(detailedFeedback),
-        submitted_at: new Date(),
-      },
-    });
+    // 🗂️ Save quiz results - wrapped in try-catch for unique constraint
+    try {
+      const result = await prisma.quiz_results.create({
+        data: {
+          user_id: studentId,
+          subject: quiz.subject,
+          quiz_code: quiz.quiz_code,
+          shared_quiz_id: quiz.id,
+          total_questions: answers.length,
+          correct_answers: correctCount,
+          score: finalScore,
+          detailed_feedback: JSON.stringify(detailedFeedback),
+          submitted_at: new Date(),
+        },
+      });
 
-    // ✅ Return comprehensive feedback
-    res.json({
-      success: true,
-      resultId: result.id,
-      score: finalScore,
-      earnedPoints,
-      totalPoints,
-      feedback: detailedFeedback,
-      summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`,
-    });
+      // ✅ Return comprehensive feedback
+      res.json({
+        success: true,
+        resultId: result.id,
+        score: finalScore,
+        earnedPoints,
+        totalPoints,
+        feedback: detailedFeedback,
+        summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`,
+        tabViolations: parseInt(tabViolations) || 0,
+        tabLimitExceeded: tabLimitExceeded || false,
+        autoSubmitted: autoSubmitted || false,
+      });
+
+    } catch (dbError) {
+      // ✅ FIX: Catch duplicate submission error and return friendly message
+      if (dbError.code === 'P2002') {
+        return res.status(400).json({ 
+          success: false, 
+          error: "You have already submitted this quiz. Multiple submissions are not allowed.",
+          alreadySubmitted: true
+        });
+      }
+      throw dbError; // Re-throw if it's a different error
+    }
 
   } catch (err) {
     console.error("Error submitting quiz:", err);
@@ -2695,14 +3311,423 @@ FEEDBACK: [Your detailed feedback]
   }
 });
 
-app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
-  const results = await prisma.quiz_results.findMany({
-    where: { shared_quiz_id: parseInt(req.params.quizId) },
-    include: { user: true },
-  });
+// Get student's own quiz results
+app.get("/system/student/my-results/:studentId", async (req, res) => {
+  try {
+    const { studentId } = req.params;
 
-  res.json({ success: true, results });
+    const results = await prisma.quiz_results.findMany({
+      where: { user_id: parseInt(studentId) },
+      include: {
+        shared_quiz: {
+          select: {
+            topic: true,           // ✅ Changed from quiz_name
+            subject: true,
+            difficulty: true,
+            teacher_id: true,
+            teacher: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { submitted_at: 'desc' },
+    });
+
+    // Parse detailed feedback from JSON
+    const formattedResults = results.map(result => ({
+      id: result.id,
+      quizName: result.shared_quiz?.topic || "Quiz",  // ✅ Using topic
+      subject: result.subject,
+      difficulty: result.shared_quiz?.difficulty || null,
+      teacherName: result.shared_quiz?.teacher?.name || "Unknown",
+      score: result.score,
+      totalQuestions: result.total_questions,
+      correctAnswers: result.correct_answers,
+      submittedAt: result.submitted_at,
+      detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
+    }));
+
+    res.json({
+      success: true,
+      results: formattedResults,
+    });
+
+  } catch (err) {
+    console.error("Error fetching student results:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Failed to fetch results" 
+    });
+  }
 });
+
+// Get detailed result for a specific quiz
+app.get("/system/student/result-detail/:resultId", async (req, res) => {
+  try {
+    const { resultId } = req.params;
+
+    const result = await prisma.quiz_results.findUnique({
+      where: { id: parseInt(resultId) },
+      include: {
+        shared_quiz: {
+          select: {
+            topic: true,           // ✅ Changed from quiz_name
+            subject: true,
+            difficulty: true,
+            teacher: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!result) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "Result not found" 
+      });
+    }
+
+    res.json({
+      success: true,
+      result: {
+        id: result.id,
+        quizName: result.shared_quiz?.topic || "Quiz",  // ✅ Using topic
+        subject: result.subject,
+        difficulty: result.shared_quiz?.difficulty || null,
+        teacherName: result.shared_quiz?.teacher?.name || "Unknown",
+        score: result.score,
+        totalQuestions: result.total_questions,
+        correctAnswers: result.correct_answers,
+        submittedAt: result.submitted_at,
+        detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
+      },
+    });
+
+  } catch (err) {
+    console.error("Error fetching result detail:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Failed to fetch result" 
+    });
+  }
+});
+
+// Get all quiz results for a specific student (for teachers)
+
+
+// Get detailed result for a specific quiz (for teachers)
+// Get detailed result for a specific quiz (for teachers)
+app.get("/system/teacher/result-detail/:resultId", async (req, res) => {
+  try {
+    const { resultId } = req.params;
+    const token = req.headers.authorization?.split(" ")[1];
+    
+    if (!token) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    // 1. Get User ID
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.userId || decoded.id || decoded.user_id || decoded.sub;
+
+    // 2. ✅ FIX: Find the Teacher Profile first (Ownership Check Fix)
+    const teacherProfile = await prisma.teachers.findFirst({
+      where: { user_id: parseInt(userId) }
+    });
+
+    if (!teacherProfile) {
+      return res.status(403).json({ success: false, error: "Teacher profile not found" });
+    }
+
+    // 3. Fetch Result with ✅ FIXED Database Query
+    const result = await prisma.quiz_results.findUnique({
+      where: { id: parseInt(resultId) },
+      include: {
+        shared_quiz: {
+          select: {
+            topic: true,
+            subject: true,
+            difficulty: true,
+            quiz_code: true,
+            teacher_id: true,
+            created_at: true,
+          },
+        },
+        user: {
+          select: {
+            // ✅ FIX: 'users' table has 'username', not 'name'
+            username: true,
+            // ✅ FIX: Fetch linked Student Profile for Name & Grade
+            students: {
+              select: {
+                name: true,
+                grade: true
+              }
+            }
+          },
+        },
+      },
+    });
+
+    if (!result) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "Result not found" 
+      });
+    }
+
+    // 4. ✅ FIX: Verify ownership using Teacher ID (not User ID)
+    if (result.shared_quiz.teacher_id !== teacherProfile.id) {
+      return res.status(403).json({ 
+        success: false, 
+        error: "You don't have permission to view this result" 
+      });
+    }
+
+    // 5. Extract student info
+    const studentProfile = result.user?.students?.[0];
+
+    res.json({
+      success: true,
+      result: {
+        id: result.id,
+        quizName: result.shared_quiz?.topic || "Quiz",
+        subject: result.subject,
+        difficulty: result.shared_quiz?.difficulty || null,
+        quizCode: result.shared_quiz?.quiz_code,
+        score: result.score,
+        totalQuestions: result.total_questions,
+        correctAnswers: result.correct_answers,
+        submittedAt: result.submitted_at,
+        // ✅ FIX: Use real name from student profile
+        studentName: studentProfile?.name || result.user?.username || "Unknown",
+        studentGrade: studentProfile?.grade || null,
+        detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
+      },
+    });
+
+  } catch (err) {
+    console.error("Error fetching result detail:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Failed to fetch result" 
+    });
+  }
+});
+
+// Get overview of all results for a specific quiz (for teachers)
+
+app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    const token = req.headers.authorization?.split(" ")[1];
+    
+    if (!token) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    // 1. Get User ID from Token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Handle different token formats
+    const userId = decoded.userId || decoded.id || decoded.user_id || decoded.sub;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, error: "Invalid Token" });
+    }
+
+    // 2. Find the Teacher Profile
+    const teacherProfile = await prisma.teachers.findFirst({
+      where: { user_id: parseInt(userId) }
+    });
+
+    if (!teacherProfile) {
+      return res.status(403).json({ success: false, error: "Teacher profile not found" });
+    }
+
+    // 3. Fetch the Quiz
+    const quiz = await prisma.shared_quizzes.findUnique({
+      where: { id: parseInt(quizId) },
+      select: {
+        id: true,
+        topic: true,
+        subject: true,
+        difficulty: true,
+        quiz_code: true,
+        teacher_id: true,
+        created_at: true,
+      },
+    });
+
+    if (!quiz) {
+      return res.status(404).json({ success: false, error: "Quiz not found" });
+    }
+
+    // 4. Verify Ownership
+    if (String(quiz.teacher_id) !== String(teacherProfile.id)) {
+      return res.status(403).json({ 
+        success: false, 
+        error: "You don't have permission to view this quiz's results" 
+      });
+    }
+
+    // 5. Get results (FIXED: Correctly queries Student Profile)
+    const results = await prisma.quiz_results.findMany({
+      where: { 
+        shared_quiz_id: parseInt(quizId)
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            students: {
+              select: {
+                name: true,
+                grade: true
+              }
+            }
+          },
+        },
+      },
+      orderBy: { submitted_at: 'desc' },
+    });
+
+    // 6. Format the results
+    const formattedResults = results.map(result => {
+      const studentProfile = result.user?.students?.[0];
+      return {
+        id: result.id,
+        studentId: result.user?.id,
+        studentName: studentProfile?.name || result.user?.username || "Unknown",
+        studentGrade: studentProfile?.grade || "N/A",
+        studentEmail: null,
+        score: result.score,
+        totalQuestions: result.total_questions,
+        correctAnswers: result.correct_answers,
+        submittedAt: result.submitted_at,
+        detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
+      };
+    });
+
+    // 7. Calculate statistics
+    const totalSubmissions = results.length;
+    const averageScore = totalSubmissions > 0 
+      ? results.reduce((sum, r) => sum + r.score, 0) / totalSubmissions 
+      : 0;
+    const highestScore = totalSubmissions > 0 
+      ? Math.max(...results.map(r => r.score)) 
+      : 0;
+    const lowestScore = totalSubmissions > 0 
+      ? Math.min(...results.map(r => r.score)) 
+      : 0;
+
+    // 8. Send Final Response
+    res.json({
+      success: true,
+      quiz: {
+        id: quiz.id,
+        topic: quiz.topic,
+        subject: quiz.subject,
+        difficulty: quiz.difficulty,
+        quizCode: quiz.quiz_code,
+        createdAt: quiz.created_at,
+      },
+      statistics: {
+        totalSubmissions,
+        averageScore: Math.round(averageScore * 100) / 100,
+        highestScore,
+        lowestScore,
+      },
+      results: formattedResults, // This array must exist!
+    });
+
+  } catch (err) {
+    console.error("Error fetching quiz results:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Failed to fetch quiz results" 
+    });
+  }
+});
+app.get("/system/teacher/student-results/:studentId", async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const token = req.headers.authorization?.split(" ")[1];
+    
+    if (!token) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const teacherId = decoded.userId;
+
+    // Get all quiz results for this student from this teacher's quizzes
+    const results = await prisma.quiz_results.findMany({
+      where: { 
+        user_id: parseInt(studentId),
+        shared_quiz: {
+          teacher_id: teacherId  // Only show results from this teacher's quizzes
+        }
+      },
+      include: {
+        shared_quiz: {
+          select: {
+            topic: true,
+            subject: true,
+            difficulty: true,
+            quiz_code: true,
+            created_at: true,
+          },
+        },
+        user: {
+          select: {
+            name: true,
+            grade: true,
+          },
+        },
+      },
+      orderBy: { submitted_at: 'desc' },
+    });
+
+    // Parse detailed feedback from JSON
+    const formattedResults = results.map(result => ({
+      id: result.id,
+      quizName: result.shared_quiz?.topic || "Quiz",
+      subject: result.subject,
+      difficulty: result.shared_quiz?.difficulty || null,
+      quizCode: result.shared_quiz?.quiz_code,
+      score: result.score,
+      totalQuestions: result.total_questions,
+      correctAnswers: result.correct_answers,
+      submittedAt: result.submitted_at,
+      studentName: result.user?.name || "Unknown",
+      studentGrade: result.user?.grade || null,
+      detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
+    }));
+
+    res.json({
+      success: true,
+      results: formattedResults,
+      studentName: formattedResults[0]?.studentName || "Unknown Student",
+      studentGrade: formattedResults[0]?.studentGrade || null,
+    });
+
+  } catch (err) {
+    console.error("Error fetching student results:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Failed to fetch results" 
+    });
+  }
+});
+
 // Endpoint for students to access quiz
 app.get("/system/quiz/:quizCode", async (req, res) => {
   try {
@@ -2732,6 +3757,8 @@ app.get("/system/quiz/:quizCode", async (req, res) => {
         topic: quiz.topic,
         difficulty: quiz.difficulty,
         content: quiz.quiz_content,
+        timeLimit: quiz.time_limit, // Passed to frontend for the countdown
+        tabLimit: quiz.tab_limit,   // Passed to frontend for the anti-cheat
         teacherName: quiz.teacher.user.username
       }
     });
@@ -4682,31 +5709,31 @@ app.post("/request-token", async (request, response) => {
     }
   );
 
-app.get("/system/teacher/my-students/:teacherId", [validatedRequest], async (req, res) => {
-  try {
-    const { teacherId } = req.params;
+// app.get("/system/teacher/my-students/:teacherId", [validatedRequest], async (req, res) => {
+//   try {
+//     const { teacherId } = req.params;
     
-    const links = await prisma.teacher_students.findMany({
-      where: { teacherId: Number(teacherId) },
-      include: {
-        student: true,  // Include the actual student record
-      },
-    });
+//     const links = await prisma.teacher_students.findMany({
+//       where: { teacherId: Number(teacherId) },
+//       include: {
+//         student: true,  // Include the actual student record
+//       },
+//     });
 
-    const students = links.map((link) => ({
-      id: link.student.id,           // ✅ Use student ID, not relationship ID
-      name: link.student.name,
-      grade: link.student.grade,
-      subject: link.subject,
-      linkId: link.id,               // Include relationship ID separately if needed
-    }));
+//     const students = links.map((link) => ({
+//       id: link.student.id,           // ✅ Use student ID, not relationship ID
+//       name: link.student.name,
+//       grade: link.student.grade,
+//       subject: link.subject,
+//       linkId: link.id,               // Include relationship ID separately if needed
+//     }));
 
-    res.json({ success: true, students });
-  } catch (err) {
-    console.error("Error fetching students:", err);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
+//     res.json({ success: true, students });
+//   } catch (err) {
+//     console.error("Error fetching students:", err);
+//     res.status(500).json({ success: false, error: "Internal server error" });
+//   }
+// });
 
 app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, res) => {
   try {

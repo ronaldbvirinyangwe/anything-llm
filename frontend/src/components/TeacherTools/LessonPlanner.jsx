@@ -8,6 +8,8 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import "./lessonplanner.css";
 import { useTheme } from "@/hooks/useTheme";
+import pptxgen from "pptxgenjs";
+
 
 const cleanMarkdown = (text) => {
   if (!text) return "";
@@ -143,6 +145,64 @@ export default function LessonPlanner() {
     );
   };
 
+  const saveAsPowerPoint = () => {
+  const pptx = new pptxgen();
+  
+  // Create title slide
+  let slide1 = pptx.addSlide();
+  slide1.addText(`${formData.subject} - ${formData.topic}`, {
+    x: 0.5,
+    y: 1.0,
+    w: 9,
+    h: 1.5,
+    fontSize: 32,
+    bold: true,
+    align: "center",
+  });
+  slide1.addText(`Grade: ${formData.grade} | Duration: ${formData.duration}`, {
+    x: 0.5,
+    y: 2.5,
+    w: 9,
+    fontSize: 18,
+    align: "center",
+  });
+
+  // Parse the markdown content and create slides
+  const sections = lessonPlan.split(/^##\s/m).filter(Boolean);
+  
+  sections.forEach((section) => {
+    let slide = pptx.addSlide();
+    const lines = section.trim().split('\n');
+    const title = lines[0].replace(/^#\s/, '');
+    const content = lines.slice(1).join('\n').trim();
+    
+    slide.addText(title, {
+      x: 0.5,
+      y: 0.5,
+      w: 9,
+      h: 0.75,
+      fontSize: 24,
+      bold: true,
+      color: "363636",
+    });
+    
+    slide.addText(content, {
+      x: 0.5,
+      y: 1.5,
+      w: 9,
+      h: 4.5,
+      fontSize: 14,
+      valign: "top",
+    });
+  });
+
+  pptx.writeFile({
+    fileName: `${formData.subject}_${formData.topic}_${new Date()
+      .toISOString()
+      .slice(0, 10)}.pptx`,
+  });
+};
+
   return (
     <div className={`tool-container ${theme}`}>
       <nav className="tool-nav">
@@ -258,6 +318,24 @@ export default function LessonPlanner() {
                   Save as PDF
                 </button>
               )}
+              {lessonPlan && !isLoading && (
+  <>
+    <button
+      type="button"
+      onClick={saveAsPdf}
+      className="generate-btn secondary"
+    >
+      Save as PDF
+    </button>
+    <button
+      type="button"
+      onClick={saveAsPowerPoint}
+      className="generate-btn secondary"
+    >
+      Save as PowerPoint
+    </button>
+  </>
+)}
             </div>
           </form>
         </div>

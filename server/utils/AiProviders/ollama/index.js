@@ -3,303 +3,139 @@ const {
   clientAbortedHandler,
   formatChatHistory,
 } = require("../../helpers/chat/responses");
+
 const { NativeEmbedder } = require("../../EmbeddingEngines/native");
 const {
   LLMPerformanceMonitor,
 } = require("../../helpers/chat/LLMPerformanceMonitor");
-const { Ollama } = require("ollama");
+
+const OpenAI = require("openai");
 const { v4: uuidv4 } = require("uuid");
 
-// Docs: https://github.com/jmorganca/ollama/blob/main/docs/api.md
+/**
+ * ⚠️ CLASS NAME UNCHANGED ON PURPOSE
+ * This is now vLLM-backed but preserves the Ollama interface
+ * Now supports separate ports for text and vision models
+ */
 class OllamaAILLM {
-
-  async analyzeVisualContent({ name, mime, contentString }) {
-    // Use vision model (or fall back to main model if it supports vision)
-    const model = this.visionModel || this.model;
-
-    // Extract base64 data
-    const base64Data = contentString.split(",")[1];
-
-    const systemPrompt = `You are a visual content analyzer. Analyze this image/document and provide:
-
-1. **Main Content**: What is shown in the image/document?
-2. **Text Content**: Extract any visible text
-3. **Key Elements**: Important objects, diagrams, charts, tables
-4. **Context**: What might this be used for?
-
-Be detailed and thorough. Your analysis will be used to help answer questions about this content.`;
-
-    const messages = [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: `Analyze this file: ${name}`,
-        images: [base64Data],
-      },
-    ];
-
-    try {
-      const response = await fetch(
-        `${this.basePath}/api/chat`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model,
-            messages,
-            stream: false,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Vision analysis failed: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const analysis = data.message.content;
-
-      console.log(`👁️ Vision analysis complete for ${name}:`, analysis.substring(0, 200) + "...");
-
-      return {
-        content: analysis,
-        model: model,
-        timestamp: new Date().toISOString(),
-        filename: name,
-      };
-    } catch (error) {
-      console.error("Vision analysis error:", error);
-      throw error;
-    }
-  }
-  /** @see OllamaAILLM.cacheContextWindows */
   static modelContextWindows = {};
 
   constructor(embedder = null, modelPreference = null) {
-  if (!process.env.OLLAMA_BASE_PATH)
-    throw new Error("No Ollama Base Path was set.");
+    if (!process.env.VLLM_BASE_PATH)
+      throw new Error("VLLM_BASE_PATH is not set");
 
-  this.authToken = process.env.OLLAMA_AUTH_TOKEN;
-  this.basePath = process.env.OLLAMA_BASE_PATH;
-  this.model = process.env.OLLAMA_MODEL_PREF || modelPreference;
-  this.visionModel = process.env.OLLAMA_VISION_MODEL || "qwen-vl:8b";
-  this.performanceMode = process.env.OLLAMA_PERFORMANCE_MODE || "base";
-  this.keepAlive = process.env.OLLAMA_KEEP_ALIVE_TIMEOUT
-    ? Number(process.env.OLLAMA_KEEP_ALIVE_TIMEOUT)
-    : 300;
+    this.basePath = process.env.VLLM_BASE_PATH; // http://host:port/v1
+    this.model =
+      process.env.OLLAMA_MODEL_PREF || modelPreference;
 
-  const headers = this.authToken
-    ? { Authorization: `Bearer ${this.authToken}` }
-    : {};
-  this.client = new Ollama({
-    host: this.basePath,
-    headers: headers,
-    fetch: this.#applyFetch(),
-  });
-  this.embedder = embedder ?? new NativeEmbedder();
-  this.defaultTemp = 0.3;
+    this.visionModel =
+      process.env.OLLAMA_VISION_MODEL || this.model;
 
-  // ✅ FIX: Initialize limits synchronously with defaults first
-  this.limits = {
-    history: this.promptWindowLimit() * 0.15,
-    system: this.promptWindowLimit() * 0.15,
-    user: this.promptWindowLimit() * 0.7,
-  };
+    // NEW: Support separate vision model base path
+    this.visionBasePath = 
+      process.env.VLLM_VISION_BASE_PATH || this.basePath;
 
-  // Then update asynchronously if needed
-  OllamaAILLM.cacheContextWindows(true).then(() => {
-    // Recalculate limits after context windows are cached
+    this.keepAlive = Number(process.env.OLLAMA_KEEP_ALIVE_TIMEOUT || 300);
+    this.defaultTemp = 0.3;
+
+    this.contextWindow =
+      Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT) || 8192;
+
+    // Main client for text model
+    this.client = new OpenAI({
+      baseURL: this.basePath,
+      apiKey: process.env.OPENAI_API_KEY || "EMPTY",
+    });
+
+    // NEW: Separate client for vision model
+    this.visionClient = new OpenAI({
+      baseURL: this.visionBasePath,
+      apiKey: process.env.OPENAI_API_KEY || "EMPTY",
+    });
+
+    this.embedder = embedder ?? new NativeEmbedder();
+
+    // keep same limits behavior
     this.limits = {
-      history: this.promptWindowLimit() * 0.15,
-      system: this.promptWindowLimit() * 0.15,
-      user: this.promptWindowLimit() * 0.7,
+      history: this.contextWindow * 0.15,
+      system: this.contextWindow * 0.15,
+      user: this.contextWindow * 0.7,
     };
-    this.#log(
-      `initialized with\nmodel: ${this.model}\nperf: ${this.performanceMode}\nn_ctx: ${this.promptWindowLimit()}`
-    );
-  });
-}
-
-  #log(text, ...args) {
-    console.log(`\x1b[32m[Ollama]\x1b[0m ${text}`, ...args);
-  }
-
-  static #slog(text, ...args) {
-    console.log(`\x1b[32m[Ollama]\x1b[0m ${text}`, ...args);
   }
 
   /**
-   * Cache the context windows for the Ollama models.
-   * This is done once and then cached for the lifetime of the server. This is absolutely necessary to ensure that the context windows are correct.
-   *
-   * This is a convenience to ensure that the context windows are correct and that the user
-   * does not have to manually set the context window for each model.
-   * @param {boolean} force - Force the cache to be refreshed.
-   * @returns {Promise<void>} - A promise that resolves when the cache is refreshed.
+   * vLLM-compatible stub.
+   * Preserves Ollama interface so boot code does not break.
    */
-static async cacheContextWindows(force = false) {
-  try {
-    // Skip if we already have cached context windows and we're not forcing a refresh
-    if (Object.keys(OllamaAILLM.modelContextWindows).length > 0 && !force)
+  static async cacheContextWindows(force = false) {
+    if (
+      Object.keys(OllamaAILLM.modelContextWindows).length > 0 &&
+      !force
+    ) {
       return;
-
-    const authToken = process.env.OLLAMA_AUTH_TOKEN;
-    const basePath = process.env.OLLAMA_BASE_PATH;
-    const client = new Ollama({
-      host: basePath,
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-    });
-
-    const { models } = await client.list().catch(() => ({ models: [] }));
-    if (!models.length) return;
-
-    const infoPromises = models.map((model) =>
-      client
-        .show({ model: model.name })
-        .then((info) => ({ name: model.name, ...info }))
-    );
-    const infos = await Promise.all(infoPromises);
-    infos.forEach((showInfo) => {
-      // Add null checks for showInfo and model_info
-      if (!showInfo || !showInfo.model_info) {
-        OllamaAILLM.#slog(`Skipping model ${showInfo?.name || 'unknown'} - no model_info available`);
-        return;
-      }
-      
-      if (showInfo.capabilities?.includes("embedding")) return;
-      
-      const contextWindowKey = Object.keys(showInfo.model_info).find((key) =>
-        key.endsWith(".context_length")
-      );
-      
-      if (!contextWindowKey) {
-        OllamaAILLM.modelContextWindows[showInfo.name] = 4096;
-        return;
-      }
-      
-      OllamaAILLM.modelContextWindows[showInfo.name] =
-        showInfo.model_info[contextWindowKey];
-    });
-    OllamaAILLM.#slog(`Context windows cached for all models!`);
-  } catch (e) {
-    OllamaAILLM.#slog(`Error caching context windows`, e);
-    return;
-  }
-}
-
-  #appendContext(contextTexts = []) {
-    if (!contextTexts || !contextTexts.length) return "";
-    return (
-      "\nContext:\n" +
-      contextTexts
-        .map((text, i) => {
-          return `[CONTEXT ${i}]:\n${text}\n[END CONTEXT ${i}]\n\n`;
-        })
-        .join("")
-    );
-  }
-
-  /**
-   * Apply a custom fetch function to the Ollama client.
-   * This is useful when we want to bypass the default 5m timeout for global fetch
-   * for machines which run responses very slowly.
-   * @returns {Function} The custom fetch function.
-   */
-  #applyFetch() {
-    try {
-      if (!("OLLAMA_RESPONSE_TIMEOUT" in process.env)) return fetch;
-      const { Agent } = require("undici");
-      const moment = require("moment");
-      let timeout = process.env.OLLAMA_RESPONSE_TIMEOUT;
-
-      if (!timeout || isNaN(Number(timeout)) || Number(timeout) <= 5 * 60_000) {
-        this.#log(
-          "Timeout option was not set, is not a number, or is less than 5 minutes in ms - falling back to default",
-          { timeout }
-        );
-        return fetch;
-      } else timeout = Number(timeout);
-
-      const noTimeoutFetch = (input, init = {}) => {
-        return fetch(input, {
-          ...init,
-          dispatcher: new Agent({ headersTimeout: timeout }),
-        });
-      };
-
-      const humanDiff = moment.duration(timeout).humanize();
-      this.#log(`Applying custom fetch w/timeout of ${humanDiff}.`);
-      return noTimeoutFetch;
-    } catch (error) {
-      this.#log("Error applying custom fetch - using default fetch", error);
-      return fetch;
     }
+
+    const defaultCtx =
+      Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT) || 8192;
+
+    const model = process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b";
+
+    const visionModel =
+      process.env.OLLAMA_VISION_MODEL || model;
+
+    // Populate expected cache
+    OllamaAILLM.modelContextWindows[model] = defaultCtx;
+    OllamaAILLM.modelContextWindows[visionModel] = defaultCtx;
+
+    console.log(
+      `\x1b[32m[vLLM]\x1b[0m Context windows cached (stub):`,
+      OllamaAILLM.modelContextWindows
+    );
   }
 
   streamingEnabled() {
-    return "streamGetChatCompletion" in this;
-  }
-
-  static promptWindowLimit(modelName) {
-    let userDefinedLimit = null;
-    const systemDefinedLimit =
-      Number(this.modelContextWindows[modelName]) || 4096;
-
-    if (
-      process.env.OLLAMA_MODEL_TOKEN_LIMIT &&
-      !isNaN(Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT)) &&
-      Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT) > 0
-    )
-      userDefinedLimit = Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT);
-
-    // The user defined limit is always higher priority than the context window limit, but it cannot be higher than the context window limit
-    // so we return the minimum of the two, if there is no user defined limit, we return the system defined limit as-is.
-    if (userDefinedLimit !== null)
-      return Math.min(userDefinedLimit, systemDefinedLimit);
-    return systemDefinedLimit;
-  }
-
-  promptWindowLimit() {
-    return this.constructor.promptWindowLimit(this.model);
-  }
-
-  async isValidChatCompletionModel(_ = "") {
     return true;
   }
 
-  /**
-   * Generates appropriate content array for a message + attachments.
-   * @param {{userPrompt:string, attachments: import("../../helpers").Attachment[]}}
-   * @returns {{content: string, images: string[]}}
-   */
-  #generateContent({ userPrompt, attachments = [] }) {
-    if (!attachments.length) return { content: userPrompt };
-    const images = attachments.map(
-      (attachment) => attachment.contentString.split("base64,").slice(-1)[0]
+  promptWindowLimit() {
+    return this.contextWindow;
+  }
+
+  async isValidChatCompletionModel() {
+    return true;
+  }
+
+  #appendContext(contextTexts = []) {
+    if (!contextTexts.length) return "";
+    return (
+      "\nContext:\n" +
+      contextTexts
+        .map(
+          (t, i) =>
+            `[CONTEXT ${i}]\n${t}\n[END CONTEXT ${i}]\n`
+        )
+        .join("\n")
     );
-    return { content: userPrompt, images };
   }
 
-  /**
-   * Handles errors from the Ollama API to make them more user friendly.
-   * @param {Error} e
-   */
-  #errorHandler(e) {
-    switch (e.message) {
-      case "fetch failed":
-        throw new Error(
-          "Your Ollama instance could not be reached or is not responding. Please make sure it is running the API server and your connection information is correct in AnythingLLM."
-        );
-      default:
-        return e;
+  #generateContent({ userPrompt, attachments = [] }) {
+    if (!attachments.length)
+      return userPrompt;
+
+    const content = [{ type: "text", text: userPrompt }];
+
+    for (const a of attachments) {
+      content.push({
+        type: "image_url",
+        image_url: {
+          url: a.contentString,
+        },
+      });
     }
+
+    return content;
   }
 
-  /**
-   * Construct the user prompt for this model.
-   * @param {{attachments: import("../../helpers").Attachment[]}} param0
-   * @returns
-   */
   constructPrompt({
     systemPrompt = "",
     contextTexts = [],
@@ -307,191 +143,162 @@ static async cacheContextWindows(force = false) {
     userPrompt = "",
     attachments = [],
   }) {
-    const prompt = {
-      role: "system",
-      content: `${systemPrompt}${this.#appendContext(contextTexts)}`,
-    };
     return [
-      prompt,
+      {
+        role: "system",
+        content: `${systemPrompt}${this.#appendContext(contextTexts)}`,
+      },
       ...formatChatHistory(chatHistory, this.#generateContent, "spread"),
       {
         role: "user",
-        ...this.#generateContent({ userPrompt, attachments }),
+        content: this.#generateContent({ userPrompt, attachments }),
       },
     ];
   }
 
-  async getChatCompletion(messages = null, { temperature = 0.7 }) {
-    const result = await LLMPerformanceMonitor.measureAsyncFunction(
-      this.client
-        .chat({
-          model: this.model,
-          stream: false,
-          messages,
-          keep_alive: this.keepAlive,
-          options: {
-            temperature,
-            use_mlock: true,
-            // There are currently only two performance settings so if its not "base" - its max context.
-            ...(this.performanceMode === "base"
-              ? {} // TODO: if in base mode, maybe we just use half the context window when below <10K?
-              : { num_ctx: this.promptWindowLimit() }),
+  async analyzeVisualContent({ name, contentString }) {
+    const messages = [
+      {
+        role: "system",
+        content:
+          "You are a visual content analyzer. Extract text, structure, and meaning.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `Analyze this file: ${name}` },
+          {
+            type: "image_url",
+            image_url: { url: contentString },
           },
-        })
-        .then((res) => {
-          return {
-            content: res.message.content,
-            usage: {
-              prompt_tokens: res.prompt_eval_count,
-              completion_tokens: res.eval_count,
-              total_tokens: res.prompt_eval_count + res.eval_count,
-            },
-          };
-        })
-        .catch((e) => {
-          throw new Error(
-            `Ollama::getChatCompletion failed to communicate with Ollama. ${this.#errorHandler(e).message}`
-          );
-        })
-    );
+        ],
+      },
+    ];
 
-    if (!result.output.content || !result.output.content.length)
-      throw new Error(`Ollama::getChatCompletion text response was empty.`);
+    // CHANGED: Use visionClient instead of client
+    const res = await this.visionClient.chat.completions.create({
+      model: this.visionModel,
+      messages,
+    });
 
     return {
-      textResponse: result.output.content,
+      content: res.choices[0].message.content,
+      model: this.visionModel,
+      timestamp: new Date().toISOString(),
+      filename: name,
+    };
+  }
+
+  async getChatCompletion(messages, { temperature = 0.7 }) {
+    const measured =
+      await LLMPerformanceMonitor.measureAsyncFunction(
+        this.client.chat.completions.create({
+          model: this.model,
+          messages,
+          temperature,
+        })
+      );
+
+    const msg = measured.output.choices[0].message.content;
+
+    return {
+      textResponse: msg,
       metrics: {
-        prompt_tokens: result.output.usage.prompt_tokens,
-        completion_tokens: result.output.usage.completion_tokens,
-        total_tokens: result.output.usage.total_tokens,
-        outputTps: result.output.usage.completion_tokens / result.duration,
-        duration: result.duration,
+        prompt_tokens: measured.output.usage.prompt_tokens,
+        completion_tokens: measured.output.usage.completion_tokens,
+        total_tokens: measured.output.usage.total_tokens,
+        outputTps:
+          measured.output.usage.completion_tokens /
+          measured.duration,
+        duration: measured.duration,
       },
     };
   }
 
-  async streamGetChatCompletion(messages = null, { temperature = 0.2 }) {
-    const measuredStreamRequest = await LLMPerformanceMonitor.measureStream(
-      this.client.chat({
+  async streamGetChatCompletion(messages, { temperature = 0.2 }) {
+    return await LLMPerformanceMonitor.measureStream(
+      this.client.chat.completions.create({
         model: this.model,
-        stream: true,
         messages,
-        keep_alive: this.keepAlive,
-        options: {
-          temperature,
-          use_mlock: true,
-          // There are currently only two performance settings so if its not "base" - its max context.
-          ...(this.performanceMode === "base"
-            ? {}
-            : { num_ctx: this.promptWindowLimit() }),
-        },
+        temperature,
+        stream: true,
       }),
       messages,
       false
-    ).catch((e) => {
-      throw this.#errorHandler(e);
-    });
-    return measuredStreamRequest;
+    );
   }
 
-  /**
-   * Handles streaming responses from Ollama.
-   * @param {import("express").Response} response
-   * @param {import("../../helpers/chat/LLMPerformanceMonitor").MonitoredStream} stream
-   * @param {import("express").Request} request
-   * @returns {Promise<string>}
-   */
   handleStream(response, stream, responseProps) {
     const { uuid = uuidv4(), sources = [] } = responseProps;
 
     return new Promise(async (resolve) => {
       let fullText = "";
-      let usage = {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-      };
+      let usage = {};
 
-      // Establish listener to early-abort a streaming response
-      // in case things go sideways or the user does not like the response.
-      // We preserve the generated text but continue as if chat was completed
-      // to preserve previously generated content.
       const handleAbort = () => {
-        stream?.endMeasurement(usage);
         clientAbortedHandler(resolve, fullText);
       };
       response.on("close", handleAbort);
 
       try {
         for await (const chunk of stream) {
-          if (chunk === undefined)
-            throw new Error(
-              "Stream returned undefined chunk. Aborting reply - check model provider logs."
-            );
+          const delta = chunk.choices?.[0]?.delta?.content;
+          if (!delta) continue;
 
-          if (chunk.done) {
-            usage.prompt_tokens = chunk.prompt_eval_count;
-            usage.completion_tokens = chunk.eval_count;
-            writeResponseChunk(response, {
-              uuid,
-              sources,
-              type: "textResponseChunk",
-              textResponse: "",
-              close: true,
-              error: false,
-            });
-            response.removeListener("close", handleAbort);
-            stream?.endMeasurement(usage);
-            resolve(fullText);
-            break;
-          }
-
-          if (chunk.hasOwnProperty("message")) {
-            const content = chunk.message.content;
-            fullText += content;
-            writeResponseChunk(response, {
-              uuid,
-              sources,
-              type: "textResponseChunk",
-              textResponse: content,
-              close: false,
-              error: false,
-            });
-          }
+          fullText += delta;
+          writeResponseChunk(response, {
+            uuid,
+            sources,
+            type: "textResponseChunk",
+            textResponse: delta,
+            close: false,
+            error: false,
+          });
         }
-      } catch (error) {
+
+        writeResponseChunk(response, {
+          uuid,
+          sources,
+          type: "textResponseChunk",
+          textResponse: "",
+          close: true,
+          error: false,
+        });
+
+        response.removeListener("close", handleAbort);
+        resolve(fullText);
+      } catch (e) {
         writeResponseChunk(response, {
           uuid,
           sources: [],
           type: "textResponseChunk",
           textResponse: "",
           close: true,
-          error: `Ollama:streaming - could not stream chat. ${
-            error?.cause ?? error.message
-          }`,
+          error: `vLLM stream error: ${e.message}`,
         });
-        response.removeListener("close", handleAbort);
-        stream?.endMeasurement(usage);
         resolve(fullText);
       }
     });
   }
 
-  // Simple wrapper for dynamic embedder & normalize interface for all LLM implementations
-  async embedTextInput(textInput) {
-    return await this.embedder.embedTextInput(textInput);
-  }
-  async embedChunks(textChunks = []) {
-    return await this.embedder.embedChunks(textChunks);
+  async embedTextInput(text) {
+    return this.embedder.embedTextInput(text);
   }
 
- async compressMessages(promptArgs = {}, rawHistory = [], user = null) {
+  async embedChunks(chunks) {
+    return this.embedder.embedChunks(chunks);
+  }
+
+  async compressMessages(promptArgs, rawHistory, user) {
     const { messageArrayCompressor } = require("../../helpers/chat");
     const messageArray = this.constructPrompt(promptArgs);
-    // Pass 'user' as the 4th argument (or ensure the helper receives it)
-    return await messageArrayCompressor(this, messageArray, rawHistory, user);
+    return await messageArrayCompressor(
+      this,
+      messageArray,
+      rawHistory,
+      user
+    );
   }
 }
 
-module.exports = {
-  OllamaAILLM,
-};
+module.exports = { OllamaAILLM };

@@ -423,3 +423,59 @@
 .answer-key-btn:hover {
   background: #0f9e70;
 }
+/* Add to quizgenerator.css - Prevent unwanted keyboard scrolling */
+
+.quiz-form input[type="number"],
+.quiz-form input[type="text"],
+.quiz-form select,
+.quiz-form textarea {
+  /* Prevent page scroll when focused */
+  scroll-margin-top: 100px;
+}
+
+.quiz-form input[type="number"]:focus,
+.quiz-form input[type="text"]:focus,
+.quiz-form select:focus,
+.quiz-form textarea:focus {
+  /* Ensure smooth focus without jumping */
+  scroll-behavior: smooth;
+}
+
+/* Better number input styling */
+.form-group input[type="number"] {
+  -moz-appearance: textfield; /* Firefox */
+}
+
+.form-group input[type="number"]::-webkit-inner-spin-button,
+.form-group input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Add hover effect to show it's interactive */
+.form-group input[type="number"]:hover {
+  border-color: var(--primary-color);
+  cursor: text;
+}
+
+.form-group small {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+/* Form row responsive layout */
+.form-group-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 640px) {
+  .form-group-row {
+    grid-template-columns: 1fr;
+  }
+}

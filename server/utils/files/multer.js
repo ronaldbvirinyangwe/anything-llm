@@ -106,6 +106,30 @@ function handleFileUpload(request, response, next) {
   });
 }
 
+function handleExamUpload(request, response, next) {
+  const upload = multer({ 
+    storage: fileUploadStorage,
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB per file
+  }).fields([
+    { name: 'examPaper', maxCount: 1 },
+    { name: 'markScheme', maxCount: 1 }
+  ]);
+  
+  upload(request, response, function (err) {
+    if (err) {
+      response
+        .status(500)
+        .json({
+          success: false,
+          error: `Invalid file upload. ${err.message}`,
+        })
+        .end();
+      return;
+    }
+    next();
+  });
+}
+
 /**
  * Handle API file upload as documents - this does not manipulate the filename
  * at all for encoding/charset reasons.
@@ -175,4 +199,5 @@ module.exports = {
   handleAPIFileUpload,
   handleAssetUpload,
   handlePfpUpload,
+  handleExamUpload,
 };

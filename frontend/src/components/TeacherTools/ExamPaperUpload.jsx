@@ -72,12 +72,18 @@ export default function ExamPaperUpload() {
       const token = localStorage.getItem("chikoroai_authToken");
       const formData = new FormData();
       
+      // ✅ FIXED: Use "examPaper" to match backend
       formData.append("examPaper", examFile);
-      if (markSchemeFile) formData.append("markScheme", markSchemeFile);
+      
+      // ✅ Add mark scheme if provided
+      if (markSchemeFile) {
+        formData.append("markScheme", markSchemeFile);
+      }
+      
       formData.append("metadata", JSON.stringify(metadata));
 
       const res = await axios.post(
-        "https://api.chikoro-ai.com/api/teacher/extract-exam-paper",
+        "https://api.chikoro-ai.com/api/teacher/documents/upload",
         formData,
         {
           headers: {
@@ -94,80 +100,74 @@ export default function ExamPaperUpload() {
       }
     } catch (err) {
       console.error("Error extracting exam:", err);
-      setError("Error processing exam paper. Please try again.");
+      setError(err.response?.data?.error || "Error processing exam paper. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-const parseQuiz = (rawQuiz) => {
-  const cleanedQuiz = rawQuiz.trim();
-  
-  // Split by question numbers at start of line (matches StudentQuiz format)
-  const questionBlocks = cleanedQuiz.split(/\n(?=\d+\.)/);
-  const parsed = [];
+  const parseQuiz = (rawQuiz) => {
+    const cleanedQuiz = rawQuiz.trim();
+    const questionBlocks = cleanedQuiz.split(/\n(?=\d+\.)/);
+    const parsed = [];
 
-  questionBlocks.forEach(block => {
-    const trimmedBlock = block.trim();
-    if (!trimmedBlock) return;
-    
-    const lines = trimmedBlock.split('\n');
-    const firstLine = lines[0];
-    
-    // Extract question number
-    const qMatch = firstLine.match(/^(\d+)\.\s+(.+)/);
-    if (!qMatch) return;
-    
-    const questionNumber = qMatch[1];
-    const firstLineText = qMatch[2];
-    
-    // Check if it's multiple choice
-    const options = lines.filter(line => /^[A-D]\)/.test(line.trim()));
-    const hasOptions = options.length >= 4;
-    
-    if (hasOptions) {
-      // MULTIPLE CHOICE
-      const answerMatch = trimmedBlock.match(/\*?\*?Answer:\s*([A-D])\*?\*?/i);
-      const answer = answerMatch ? answerMatch[1].toUpperCase() : null;
+    questionBlocks.forEach(block => {
+      const trimmedBlock = block.trim();
+      if (!trimmedBlock) return;
       
-      parsed.push({
-        type: 'multiple-choice',
-        questionNumber,
-        question: firstLineText,
-        options: options,
-        answer: answer,
-        raw: trimmedBlock
-      });
-    } else {
-      // STRUCTURED QUESTION
-      const markSchemeIndex = lines.findIndex(line => 
-        /^Mark Scheme:/i.test(line.trim())
-      );
+      const lines = trimmedBlock.split('\n');
+      const firstLine = lines[0];
       
-      let questionText;
-      let markScheme = '';
+      const qMatch = firstLine.match(/^(\d+)\.\s+(.+)/);
+      if (!qMatch) return;
       
-      if (markSchemeIndex !== -1) {
-        questionText = lines.slice(0, markSchemeIndex).join('\n').replace(/^\d+\.\s*/, '');
-        markScheme = lines.slice(markSchemeIndex).join('\n');
+      const questionNumber = qMatch[1];
+      const firstLineText = qMatch[2];
+      
+      const options = lines.filter(line => /^[A-D]\)/.test(line.trim()));
+      const hasOptions = options.length >= 4;
+      
+      if (hasOptions) {
+        const answerMatch = trimmedBlock.match(/\*?\*?Answer:\s*([A-D])\*?\*?/i);
+        const answer = answerMatch ? answerMatch[1].toUpperCase() : null;
+        
+        parsed.push({
+          type: 'multiple-choice',
+          questionNumber,
+          question: firstLineText,
+          options: options,
+          answer: answer,
+          raw: trimmedBlock
+        });
       } else {
-        questionText = trimmedBlock.replace(/^\d+\.\s*/, '');
-        markScheme = 'No mark scheme provided';
+        const markSchemeIndex = lines.findIndex(line => 
+          /^Mark Scheme:/i.test(line.trim())
+        );
+        
+        let questionText;
+        let markScheme = '';
+        
+        if (markSchemeIndex !== -1) {
+          questionText = lines.slice(0, markSchemeIndex).join('\n').replace(/^\d+\.\s*/, '');
+          markScheme = lines.slice(markSchemeIndex).join('\n');
+        } else {
+          questionText = trimmedBlock.replace(/^\d+\.\s*/, '');
+          markScheme = 'No mark scheme provided';
+        }
+        
+        parsed.push({
+          type: 'structured',
+          questionNumber,
+          question: questionText,
+          markScheme: markScheme,
+          raw: trimmedBlock
+        });
       }
-      
-      parsed.push({
-        type: 'structured',
-        questionNumber,
-        question: questionText,
-        markScheme: markScheme,
-        raw: trimmedBlock
-      });
-    }
-  });
+    });
 
-  console.log(`✅ Parsed ${parsed.length} questions`);
-  return parsed;
-};
+    console.log(`✅ Parsed ${parsed.length} questions`);
+    return parsed;
+  };
 
   const saveStudentVersion = async () => {
     try {
@@ -181,7 +181,8 @@ const parseQuiz = (rawQuiz) => {
       document.body.appendChild(tempDiv);
 
       const parsedQuiz = parseQuiz(extractedQuiz.content);
-
+      
+      let html = '<div>';
       parsedQuiz.forEach((item, idx) => {
         if (item.type === 'multiple-choice') {
           html += `
@@ -210,7 +211,6 @@ const parseQuiz = (rawQuiz) => {
           `;
         }
       });
-
       html += '</div>';
       tempDiv.innerHTML = html;
 
@@ -261,8 +261,8 @@ const parseQuiz = (rawQuiz) => {
       document.body.appendChild(tempDiv);
 
       const parsedQuiz = parseQuiz(extractedQuiz.content);
-  
-
+      
+      let html = '<div>';
       parsedQuiz.forEach((item, idx) => {
         if (item.type === 'multiple-choice') {
           html += `
@@ -294,7 +294,6 @@ const parseQuiz = (rawQuiz) => {
           `;
         }
       });
-
       html += '</div>';
       tempDiv.innerHTML = html;
 
@@ -451,7 +450,6 @@ const parseQuiz = (rawQuiz) => {
       </header>
 
       <form className="exam-upload-form" onSubmit={handleUpload}>
-
         <div className="file-upload-section">
           <div className="file-upload-box">
             <label htmlFor="exam-file" className="file-label">
@@ -501,6 +499,7 @@ const parseQuiz = (rawQuiz) => {
               <h2>✅ Extracted Questions</h2>
               <p className="extraction-info">
                 {extractedQuiz.questionCount} questions extracted from your exam paper
+                {extractedQuiz.hasMarkScheme && " (with mark scheme)"}
               </p>
             </div>
 

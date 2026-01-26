@@ -292,6 +292,7 @@ EXACT JSON FORMAT REQUIRED:
 {
   "subject": "${subject}",
   "grade": "${grade}",
+  "difficulty": "${difficulty}",
   "userMessage": "${userMessage}",
   "questions": [
     {
@@ -589,6 +590,92 @@ Return ONLY the JSON object. Start with { and end with }. No other text.`;
   }
 });
 
+// 🔍 Web Search Tool
+app.post("/agent-tools/web-search", [validatedRequest], async (req, res) => {
+  try {
+    const { query, provider = "duckduckgo", numResults = 10 } = req.body;
+
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing search query",
+      });
+    }
+
+    let results = [];
+
+    switch (provider) {
+      case "duckduckgo":
+        results = await require("../utils/search/duckduckgo")(query, numResults);
+        break;
+
+      case "serper":
+        results = await require("../utils/search/serper")(query, numResults);
+        break;
+
+      case "tavily":
+        results = await require("../utils/search/tavily")(query, numResults);
+        break;
+
+      default:
+        return res.status(400).json({
+          success: false,
+          error: "Unsupported search provider",
+        });
+    }
+
+    return res.json({
+      success: true,
+      tool: "web_search",
+      query,
+      results,
+    });
+  } catch (err) {
+    console.error("🌐 Web search failed:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
+  }
+});
+
+setTimeout(() => {
+  try {
+    const existing = AgentFlows.listFlows()?.find(
+      (f) => f.name === "web_search_tool"
+    );
+
+    if (!existing) {
+      const flowConfig = {
+        description: "Performs live web search for current information and research",
+        active: true,
+        blocks: [
+          {
+            type: "tool",
+            name: "web_search",
+            endpoint: "/agent-flows/web-search",
+            method: "POST",
+            params: ["query", "provider", "numResults"],
+          },
+        ],
+      };
+
+      if (!Array.isArray(flowConfig.blocks)) flowConfig.blocks = [];
+
+      const saved = AgentFlows.saveFlow("web_search_tool", flowConfig);
+      if (!saved || !saved.success) {
+        console.error("⚠️ Failed to save web_search_tool:", saved?.error);
+      } else {
+        console.log("✅ web_search_tool registered successfully.");
+      }
+    } else {
+      console.log("ℹ️ web_search_tool already registered.");
+    }
+  } catch (err) {
+    console.error("⚠️ Failed to register web_search_tool:", err.message);
+  }
+}, 2000);
+
 // Register flashcard agent flow
 setTimeout(() => {
   try {
@@ -665,5 +752,6 @@ setTimeout(() => {
   }
 }, 2000);
 }
+
 
 module.exports = { agentFlowEndpoints };

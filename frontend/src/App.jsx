@@ -42,6 +42,11 @@ import LinkParent from "./components/Parents/LinkParent"
 import GenerateLinkCode from "./components/Parents/GenerateLink";
 import ParentReport from "./components/Parents/ParentReport";
 import ExamPaperUpload from "./components/TeacherTools/ExamPaperUpload";
+import StudentResults from "./components/TeacherTools/StudentResults";
+import StudentResultDetail from "./components/TeacherTools/StudentResultDetail";
+import TeacherStudentResults from "./components/TeacherTools/TeacherStudentResults";
+import TeacherResultDetail from "./components/TeacherTools/TeacherResultDetail";
+import TeacherQuizResults from "./components/TeacherTools/TeacherQuizResults";
 
 const Main = lazy(() => import("@/pages/Main"));
 const InvitePage = lazy(() => import("@/pages/Invite"));
@@ -157,7 +162,13 @@ export default function App() {
                     <Route path="/link-parent" element={<GenerateLinkCode/ >} />
                     <Route path="/parent/reports/:childId" element={<ParentReport/ >} />
                     <Route path="/upload-exam" element={<ExamPaperUpload/ >} />
-
+<Route path="/student/results" element={<StudentResults />} />
+<Route path="/student/result/:resultId" element={<StudentResultDetail />} />
+<Route path="/teacher/reports/student/:studentId" element={<TeacherStudentResults />} />
+<Route path="/teacher/result/:resultId" element={<TeacherResultDetail />} />
+<Route path="/teacher/quiz-results/:quizId" element={<TeacherQuizResults />} />
+<Route path="/teacher/quizzes" element={<TeacherQuizResults />} />
+<Route path="/teacher/quizzes/:quizId" element={<TeacherQuizResults />} />
                   <Route
                     path="/workspace/:slug/settings/:tab"
                     element={<ManagerRoute Component={WorkspaceSettings} />}

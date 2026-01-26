@@ -12,7 +12,7 @@ const { Document } = require("../models/documents");
 const { DocumentVectors } = require("../models/vectors");
 const { WorkspaceChats } = require("../models/workspaceChats");
 const { getVectorDbClass, getLLMProvider } = require("../utils/helpers"); // Added getLLMProvider here
-const { handleFileUpload, handlePfpUpload } = require("../utils/files/multer");
+const { handleFileUpload, handlePfpUpload,handleExamUpload } = require("../utils/files/multer");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { Telemetry } = require("../models/telemetry");
 const {
@@ -1109,6 +1109,354 @@ app.post(
       }
     }
   );
+
+async function getTeacherWorkspace(user) {
+  if (!user || user.role !== "teacher") return null;
+
+  let workspace = await Workspace.get({
+    slug: `teacher-${user.id}`,
+  });
+
+  if (!workspace) {
+    // Use Workspace.new() instead of create()
+    const { workspace: newWorkspace, message } = await Workspace.new(
+      `${user.username}'s Teaching Workspace`,
+      user.id
+    );
+    
+    if (!newWorkspace) {
+      console.error("Failed to create teacher workspace:", message);
+      return null;
+    }
+
+    // Update the slug to be teacher-specific
+    await Workspace.update(newWorkspace.id, {
+      slug: `teacher-${user.id}`,
+    });
+    
+    // Fetch the updated workspace
+    workspace = await Workspace.get({ id: newWorkspace.id });
+  }
+
+  return workspace;
+}
+
+
+app.post(
+  "/teacher/documents/upload",
+  [
+    validatedRequest,
+    flexUserRoleValid([ROLES.teacher]),
+    handleExamUpload,
+  ],
+  async (request, response) => {
+    request.setTimeout(900000);
+    response.setTimeout(900000);
+
+    try {
+      const user = await userFromSession(request, response);
+      const workspace = await getTeacherWorkspace(user);
+
+      if (!workspace) {
+        return response.status(403).json({ 
+          success: false, 
+          error: "Teacher workspace not accessible" 
+        });
+      }
+
+      const examFile = request.files?.examPaper?.[0];
+      const markSchemeFile = request.files?.markScheme?.[0];
+
+      if (!examFile) {
+        return response.status(400).json({ 
+          success: false, 
+          error: "No exam paper uploaded" 
+        });
+      }
+
+      let metadata = {};
+      try {
+        if (request.body.metadata) {
+          metadata = JSON.parse(request.body.metadata);
+        }
+      } catch (e) {
+        console.error("Error parsing metadata:", e);
+      }
+
+      const Collector = new CollectorApi();
+      const processingOnline = await Collector.online();
+
+      if (!processingOnline) {
+        return response.status(500).json({
+          success: false,
+          error: `Document processing API is not online.`,
+        });
+      }
+
+      const examResult = await Collector.processDocument(examFile.originalname);
+      
+      if (!examResult.success || !examResult.documents?.length) {
+        return response.status(500).json({ 
+          success: false, 
+          error: examResult.reason || "Failed to process exam paper"
+        });
+      }
+
+      let markSchemeContent = "";
+      
+      if (markSchemeFile) {
+        const schemeResult = await Collector.processDocument(markSchemeFile.originalname);
+        
+        if (schemeResult.success && schemeResult.documents?.length) {
+          markSchemeContent = schemeResult.documents[0].pageContent || 
+            schemeResult.documents.map(d => d.pageContent).join('\n\n');
+        }
+      }
+
+      const allDocLocations = examResult.documents.map(d => d.location);
+      const { failedToEmbed = [], errors = [] } = await Document.addDocuments(
+        workspace,
+        allDocLocations,
+        user.id
+      );
+
+      if (failedToEmbed.length > 0) {
+        return response.status(500).json({
+          success: false,
+          error: errors.join(", "),
+        });
+      }
+
+      const LLMConnector = getLLMProvider({
+        provider: process.env.LLM_PROVIDER,
+        model: process.env.LLM_MODEL,
+      });
+
+      const examContent = examResult.documents[0].pageContent || 
+        examResult.documents.map(d => d.pageContent).join('\n\n');
+
+      console.log(`Exam content length: ${examContent.length} chars`);
+      console.log(`Mark scheme length: ${markSchemeContent.length} chars`);
+
+      // ✅ OPTIMIZED CHUNKING with parallel processing
+      function smartChunk(content, maxChunkSize = 10000) {
+        if (content.length <= maxChunkSize) {
+          return [content];
+        }
+
+        const chunks = [];
+        let currentChunk = '';
+        const sections = content.split(/\n\n+/);
+        
+        for (const section of sections) {
+          if (currentChunk.length + section.length > maxChunkSize && currentChunk.length > 0) {
+            chunks.push(currentChunk.trim());
+            currentChunk = '';
+          }
+          
+          if (section.length > maxChunkSize) {
+            if (currentChunk.length > 0) {
+              chunks.push(currentChunk.trim());
+              currentChunk = '';
+            }
+            
+            let remaining = section;
+            while (remaining.length > maxChunkSize) {
+              chunks.push(remaining.substring(0, maxChunkSize).trim());
+              remaining = remaining.substring(maxChunkSize);
+            }
+            if (remaining.length > 0) {
+              currentChunk = remaining;
+            }
+          } else {
+            currentChunk += (currentChunk.length > 0 ? '\n\n' : '') + section;
+          }
+        }
+        
+        if (currentChunk.trim().length > 0) {
+          chunks.push(currentChunk.trim());
+        }
+        
+        return chunks;
+      }
+
+      // ✅ Process chunks in PARALLEL
+      async function extractQuestionsInChunks(content, type = 'exam') {
+        const MAX_CHUNK_SIZE = 10000; // Larger chunks = fewer API calls
+        const chunks = smartChunk(content, MAX_CHUNK_SIZE);
+        
+        console.log(`Processing ${type} in ${chunks.length} chunk(s)...`);
+        
+        // ✅ Process all chunks in parallel using Promise.all
+        const chunkPromises = chunks.map(async (chunk, i) => {
+          console.log(`Processing ${type} chunk ${i + 1}/${chunks.length} (${chunk.length} chars)...`);
+          
+          const chunkPrompt = `You are an expert at extracting exam questions from documents.
+
+${type === 'mark_scheme' ? 'This is a MARK SCHEME. Extract questions AND marking criteria.' : 'This is an EXAM PAPER. Extract questions.'}
+
+CONTENT (Part ${i + 1} of ${chunks.length}):
+${chunk}
+
+Extract all questions. Format:
+
+MULTIPLE CHOICE:
+1. [Question]
+A) [Option A]
+B) [Option B]
+C) [Option C]
+D) [Option D]
+Answer: [Letter]
+
+STRUCTURED:
+1. [Question]
+Mark Scheme:
+- [Point 1]
+- [Point 2]
+
+Extract now:`;
+
+          try {
+            const chunkResponse = await LLMConnector.getChatCompletion(
+              [{ role: "user", content: chunkPrompt }],
+              { 
+                temperature: 0.3,
+                max_tokens: 4000
+              }
+            );
+            
+            if (chunkResponse?.textResponse) {
+              console.log(`✅ Chunk ${i + 1}/${chunks.length} processed`);
+              return chunkResponse.textResponse;
+            } else {
+              console.error(`❌ Chunk ${i + 1}/${chunks.length} no response`);
+              return '';
+            }
+          } catch (chunkError) {
+            console.error(`Error processing chunk ${i + 1}:`, chunkError.message);
+            return '';
+          }
+        });
+
+        // ✅ Wait for all chunks to complete
+        const results = await Promise.all(chunkPromises);
+        return results.filter(r => r.length > 0).join('\n\n');
+      }
+
+      async function mergeQuestionsWithMarkScheme(examQuestions, markSchemeQuestions) {
+        if (!markSchemeQuestions) {
+          return examQuestions;
+        }
+
+        // ✅ Truncate if combined content is too long
+        const maxMergeLength = 15000;
+        const truncatedExam = examQuestions.length > maxMergeLength 
+          ? examQuestions.substring(0, maxMergeLength) 
+          : examQuestions;
+        const truncatedScheme = markSchemeQuestions.length > maxMergeLength 
+          ? markSchemeQuestions.substring(0, maxMergeLength) 
+          : markSchemeQuestions;
+
+        const mergePrompt = `Merge exam questions with mark schemes.
+
+EXAM QUESTIONS:
+${truncatedExam}
+
+MARK SCHEME:
+${truncatedScheme}
+
+Format:
+
+MULTIPLE CHOICE:
+1. [Question]
+A) [A]
+B) [B]
+C) [C]
+D) [D]
+Answer: [Letter]
+
+STRUCTURED:
+1. [Question]
+Mark Scheme:
+- [Point] ([marks])
+
+Merge now:`;
+
+        try {
+          const mergeResponse = await LLMConnector.getChatCompletion(
+            [{ role: "user", content: mergePrompt }],
+            { 
+              temperature: 0.2,
+              max_tokens: 4000
+            }
+          );
+          
+          return mergeResponse?.textResponse || examQuestions;
+        } catch (mergeError) {
+          console.error("Error merging:", mergeError.message);
+          return examQuestions;
+        }
+      }
+
+      console.log("📄 Extracting questions from exam paper...");
+      const examQuestions = await extractQuestionsInChunks(examContent, 'exam');
+      
+      let finalExtractedContent = examQuestions;
+
+      if (markSchemeContent && markSchemeContent.trim().length > 0) {
+        console.log("📋 Extracting mark scheme...");
+        const markSchemeQuestions = await extractQuestionsInChunks(markSchemeContent, 'mark_scheme');
+        
+        console.log("🔄 Merging...");
+        finalExtractedContent = await mergeQuestionsWithMarkScheme(examQuestions, markSchemeQuestions);
+      }
+
+      if (!finalExtractedContent || finalExtractedContent.trim().length === 0) {
+        console.error("LLM returned no content");
+        return response.status(500).json({
+          success: false,
+          error: "Failed to extract quiz content from document"
+        });
+      }
+
+      const questionCount = (finalExtractedContent.match(/^\d+\./gm) || []).length;
+      
+      console.log(`✅ Successfully extracted ${questionCount} questions`);
+
+      await Telemetry.sendTelemetry("exam_paper_extracted");
+      await EventLogs.logEvent(
+        "exam_paper_extracted",
+        { 
+          documentName: examFile.originalname,
+          hasMarkScheme: !!markSchemeFile,
+          subject: metadata.subject || "Unknown",
+          questionCount
+        },
+        user.id
+      );
+
+      response.status(200).json({
+        success: true,
+        documents: examResult.documents.map(d => ({
+          id: d.id,
+          location: d.location,
+        })),
+        extractedQuiz: {
+          content: finalExtractedContent,
+          questionCount,
+          hasMarkScheme: !!markSchemeFile,
+          metadata
+        }
+      });
+    } catch (e) {
+      console.error("Teacher document upload failed:", e);
+      response.status(500).json({ 
+        success: false, 
+        error: e.message 
+      });
+    }
+  }
+);
 
   // Parsed Files in separate endpoint just to keep the workspace endpoints clean
   workspaceParsedFilesEndpoints(app);

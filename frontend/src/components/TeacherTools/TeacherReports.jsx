@@ -10,40 +10,60 @@ export default function TeacherReports() {
   const [error, setError] = useState("");
   const [groupBy, setGroupBy] = useState("all"); // 'all' or 'subject'
 
-  useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        const token = localStorage.getItem("chikoroai_authToken");
-        const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
-        const teacherId = storedUser?.id;
+ useEffect(() => {
+  const fetchStudents = async () => {
+    try {
+      const token = localStorage.getItem("chikoroai_authToken");
+      const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
+      const teacherId = storedUser?.id;
 
-        if (!teacherId) {
-          navigate("/login");
-          return;
-        }
-
-        const res = await axios.get(
-          `https://api.chikoro-ai.com/api/system/teacher/my-students/${teacherId}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
-
-        if (res.data.success) {
-          setStudents(res.data.students);
-        } else {
-          setError(res.data.error || "Failed to fetch students");
-        }
-      } catch (err) {
-        console.error("Error fetching students:", err);
-        setError("Error loading students");
-      } finally {
-        setLoading(false);
+      if (!teacherId) {
+        navigate("/login");
+        return;
       }
-    };
 
-    fetchStudents();
-  }, [navigate]);
+      const res = await axios.get(
+        `https://api.chikoro-ai.com/api/system/teacher/my-students/${teacherId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (res.data.success) {
+        // ✅ Deduplicate students and group their subjects
+        const uniqueStudents = res.data.students.reduce((acc, student) => {
+          const existing = acc.find(s => s.id === student.id);
+          
+          if (existing) {
+            // Student already exists, add subject to their list
+            if (!existing.subjects.includes(student.subject)) {
+              existing.subjects.push(student.subject);
+            }
+          } else {
+            // New student, create entry with subjects array
+            acc.push({
+              ...student,
+              subjects: student.subject ? [student.subject] : []
+            });
+          }
+          
+          return acc;
+        }, []);
+
+        setStudents(uniqueStudents);
+      } else {
+        setError(res.data.error || "Failed to fetch students");
+      }
+    } catch (err) {
+      console.error("Error fetching students:", err);
+      setError("Error loading students");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchStudents();
+}, [navigate]);
 
   if (loading) {
     return <div className="loading-screen">Loading your students...</div>;
@@ -109,7 +129,7 @@ export default function TeacherReports() {
             <div className="students-grid">
               {studentList.map((student) => (
   <Link
-    key={`${student.id}-${student.subject || 'default'}`}  // ✅ Composite key
+     key={student.id}  
     to={`/teacher/reports/student/${student.id}`}
     className="student-card"
   >

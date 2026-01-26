@@ -66,6 +66,9 @@ model quiz_results {
   shared_quiz_id    Int?
   submitted_at      DateTime @default(now())
   detailed_feedback Json?
+  tab_violations      Int       @default(0)
+  tab_limit_exceeded  Boolean   @default(false)
+  auto_submitted      Boolean   @default(false)
 
   user            users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
   shared_quiz     shared_quizzes?   @relation(fields: [shared_quiz_id], references: [id])
@@ -551,6 +554,8 @@ model shared_quizzes {
   topic             String
   difficulty        String?
   quiz_content      String
+  time_limit          Int                        @default(0)  // 0 = No limit, else minutes
+  tab_limit           Int                        @default(1)  // Number of allowed tab switches
   is_class_specific Boolean  @default(false)
   created_at        DateTime @default(now())
 

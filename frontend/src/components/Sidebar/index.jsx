@@ -184,7 +184,7 @@ export function SidebarMobileHeader() {
       </div>
     </>
   );
-}
+} 
 
 function NewWorkspaceButton({ user, showNewWsModal }) {
   const { t } = useTranslation();

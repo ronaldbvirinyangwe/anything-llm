@@ -62,7 +62,6 @@ async function grepAgents({
     return true;
   }
 
-  // 🧩 🔥 NEW: detect AI tool calls like {"tool":"quiz_create"}
   try {
     const parsed = JSON.parse(message);
     if (parsed?.tool === "quiz_create" && parsed?.args) {

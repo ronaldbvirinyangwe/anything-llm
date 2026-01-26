@@ -39,7 +39,7 @@ export const ICON_COMPONENTS = {
 export default function Footer() {
   const [footerData, setFooterData] = useState(false);
   const student = JSON.parse(localStorage.getItem("chikoroai_user") || "{}");
-const reportLink = student?.id ? `/reports/${student.id}` : "/reports";
+  const [reportLink, setReportLink] = useState("/reports");
 
   useEffect(() => {
     async function fetchFooterData() {
@@ -48,6 +48,42 @@ const reportLink = student?.id ? `/reports/${student.id}` : "/reports";
     }
     fetchFooterData();
   }, []);
+
+useEffect(() => {
+  async function fetchStudentId() {
+    const user = JSON.parse(localStorage.getItem("chikoroai_user") || "{}");
+    
+    if (!user?.id) {
+      console.log("No user ID found in localStorage");
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem("chikoroai_authToken");
+      
+      if (!token) {
+        console.log("No auth token found");
+        return;
+      }
+      
+      const res = await fetch(`https://api.chikoro-ai.com/api/system/my-profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.student?.id) {
+          setReportLink(`/reports/${data.student.id}`);
+        }
+      } else {
+        console.error("Failed to fetch student profile:", res.status);
+      }
+    } catch (err) {
+      console.error("Error fetching student profile:", err);
+    }
+  }
+  fetchStudentId();
+}, []);
 
   // wait for some kind of non-false response from footer data first
   // to prevent pop-in.
