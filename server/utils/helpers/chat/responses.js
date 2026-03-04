@@ -157,6 +157,9 @@ function convertToChatHistory(history = []) {
         sentAt: moment(createdAt).unix(),
         feedbackScore,
         metrics: data?.metrics || {},
+         tool_call: data?.tool_call || null,        
+    quizData: data?.quizData || null,          
+    flashcardData: data?.flashcardData || null,
       },
     ]);
   }
@@ -200,7 +203,7 @@ function convertToPromptHistory(history = []) {
       },
       {
         role: "assistant",
-        content: data.text,
+        content: data.text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim(),
       },
     ]);
   }

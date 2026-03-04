@@ -22,8 +22,8 @@ export function websocketURI() {
   return `${wsProtocol}//${new URL(import.meta.env.VITE_API_BASE).host}`;
 }
 
-export default function handleSocketResponse(socket, event, setChatHistory) {
-  const data = safeJsonParse(event.data, null);
+export default function handleSocketResponse(socket, event, setChatHistory, parsedOverride = null) {
+  const data = parsedOverride ?? safeJsonParse(event.data, null);
   if (data === null) return;
 
   // No message type is defined then this is a generic message
@@ -118,6 +118,7 @@ export default function handleSocketResponse(socket, event, setChatHistory) {
         // For tool call invocations, we need to update the existing message entirely since it is accumulated
         // and we dont know if the function will have arguments or not while streaming - so replace the existing message entirely
        if (type === "toolCallInvocation") {
+        console.log("🔍 toolCallInvocation data.content:", data.content); 
   const knownMessage = prev.find((msg) => msg.uuid === uuid);
 
   // 🧠 Detect specific tool types and set a human-friendly display message
@@ -126,9 +127,9 @@ export default function handleSocketResponse(socket, event, setChatHistory) {
     const parsed = typeof content === "string" ? JSON.parse(content) : content;
 
     if (parsed?.tool_call === "quiz_create") {
-      displayMessage = "✅ Quiz generated successfully!";
+      displayMessage = "✅ Quiz generated successfully! Click to reopen.";
     } else if (parsed?.tool_call === "flashcard_create") {
-      displayMessage = "🧠 Flashcards created successfully!";
+      displayMessage = "🎴 Flashcards created successfully! Click to reopen.";
     } else if (parsed?.tool_call) {
       displayMessage = `🧩 ${parsed.tool_call.replace(/_/g, " ")} completed.`;
     }
@@ -139,8 +140,9 @@ export default function handleSocketResponse(socket, event, setChatHistory) {
   const newMessage = {
     uuid,
     type: "toolCallInvocation",
-    content,
-    display_message: displayMessage, // 🪄 add this
+    content:displayMessage || content, 
+    savedQuizId: data.content.savedQuizId ?? null,        
+  savedFlashcardSetId: data.content.savedFlashcardSetId ?? null, 
   };
 
   if (!knownMessage) return [...prev, newMessage];

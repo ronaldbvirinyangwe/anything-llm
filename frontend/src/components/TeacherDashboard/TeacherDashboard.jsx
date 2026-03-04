@@ -7,18 +7,23 @@ import {
   FiClipboard,
   FiMessageSquare,
   FiBarChart2,
+  FiAlertCircle,
+  FiUsers,
+  FiLayers
 } from "react-icons/fi";
 import DashboardStatsCard from "./DashboardStatsCard";
 import "./dashboard.css";
 
 const TeacherDashboard = () => {
   const navigate = useNavigate();
+  
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalClasses: 0,
     quizzesCreated: 0,
-    lessonPlans: 0,
+    studentsNeedingAttention: 0, 
   });
+  
   const [teacherProfile, setTeacherProfile] = useState(null);
   const [user, setUser] = useState(null);
   const [accessToken, setAccessToken] = useState(null);
@@ -30,7 +35,7 @@ const TeacherDashboard = () => {
     const storedToken = localStorage.getItem("chikoroai_authToken");
 
     if (!storedUser || !storedToken) {
-      navigate("/login"); // redirect if not authenticated
+      navigate("/login"); 
       return;
     }
 
@@ -38,7 +43,7 @@ const TeacherDashboard = () => {
     setAccessToken(storedToken);
   }, [navigate]);
 
-  // 🧾 Fetch teacher profile by user ID
+  // 🧾 Fetch teacher profile
   useEffect(() => {
     if (!accessToken || !user?.id) return;
 
@@ -54,16 +59,11 @@ const TeacherDashboard = () => {
           }
         );
 
-        if (!res.ok) {
-          console.error("Profile fetch failed:", res.status);
-          return;
-        }
+        if (!res.ok) return;
 
         const data = await res.json();
         if (data.success && data.profile?.name) {
           setTeacherProfile(data.profile);
-        } else {
-          console.warn("Unexpected profile response:", data);
         }
       } catch (err) {
         console.error("Error fetching teacher profile:", err);
@@ -85,7 +85,6 @@ const TeacherDashboard = () => {
         });
 
         if (!res.ok) {
-          console.warn("Stats route not found:", res.status);
           setLoading(false);
           return;
         }
@@ -102,9 +101,13 @@ const TeacherDashboard = () => {
     fetchStats();
   }, [accessToken]);
 
-  if (loading)
-    return <div className="loading-container">Loading dashboard...</div>;
-
+ if (loading) {
+    return (
+      <div className="loading-container">
+        <div className="spinner"></div>
+      </div>
+    );
+  }
   return (
     <div className="teacher-dashboard">
       <header className="dashboard-header">
@@ -113,22 +116,10 @@ const TeacherDashboard = () => {
           {teacherProfile?.name ? (
             (() => {
               const name = teacherProfile.name.trim();
-              // Regex checks for typical respectful prefixes
               const hasPrefix = /^(Mr\.|Mrs\.|Ms\.|Miss|Dr\.)/i.test(name);
-
-              if (hasPrefix) {
-                // If already has prefix, display as-is
-                return name;
-              }
-
-              // If not, display first name + last name
-              const parts = name.split(/\s+/); // Split on whitespace
-              if (parts.length === 1) {
-                // Only one name part
-                return parts[0];
-              }
-              // Otherwise, display first + last name only
-              return `${parts[0]} ${parts[parts.length - 1]}`;
+              if (hasPrefix) return name;
+              const parts = name.split(/\s+/);
+              return parts.length === 1 ? parts[0] : `${parts[0]} ${parts[parts.length - 1]}`;
             })()
           ) : (
             user?.username || "Teacher"
@@ -140,10 +131,28 @@ const TeacherDashboard = () => {
 
       {/* Top Stats Section */}
       <div className="stats-grid">
-        <DashboardStatsCard title="Total Students" value={stats.totalStudents} />
-        <DashboardStatsCard title="My Classes" value={stats.totalClasses} />
-        <DashboardStatsCard title="Quizzes Created" value={stats.quizzesCreated} />
-        <DashboardStatsCard title="Lesson Plans" value={stats.lessonPlans} />
+        <DashboardStatsCard 
+          title="Total Students" 
+          value={stats.totalStudents} 
+          icon={<FiUsers />}
+        />
+        <DashboardStatsCard 
+          title="My Classes" 
+          value={stats.totalClasses} 
+          icon={<FiLayers />}
+        />
+        <DashboardStatsCard 
+          title="Quizzes Created" 
+          value={stats.quizzesCreated} 
+          icon={<FiClipboard />}
+        />
+        
+        <DashboardStatsCard 
+          title="Needs Attention" 
+          value={stats.studentsNeedingAttention}
+          icon={<FiAlertCircle style={{ color: "#ef4444" }} />} 
+          label="Avg Score < 50%"
+        />
       </div>
 
       {/* Tool Quick Links */}
@@ -158,38 +167,33 @@ const TeacherDashboard = () => {
 
           <Link to="/teacher-tools/quiz-generator" className="tool-card">
             <FiClipboard className="tool-icon" />
-            <h3>Smart Quiz & Homework Builder</h3>
-            <p>Save hours of prep time. Generate tailored assessments that automatically adjust to your students' learning levels.</p>
+            <h3>Quiz & Homework Builder</h3>
+            <p>Save prep time. Generate tailored assessments automatically.</p>
           </Link>
-          {/* <Link to="/teacher-tools/resource-finder" className="tool-card">
-            <FiClipboard className="tool-icon" />
-            <h3>Resource Finder</h3>
-            <p>Find resources for interactive lessons</p>
-          </Link> */}
 
           <Link to="/upload-exam" className="tool-card">
-            <FiClipboard className="tool-icon" />
+            <FiFileText className="tool-icon" />
             <h3>Exam Paper Upload</h3>
-            <p>Generate quizzes and tests from exam papers</p>
+            <p>Digitize and generate quizzes directly from exam papers.</p>
           </Link>
 
-
           <Link to="/teacher-tools/scheme-creator" className="tool-card">
-            <FiFileText className="tool-icon" />
+            <FiLayers className="tool-icon" />
             <h3>Scheme of Work Creator</h3>
             <p>Plan your term week-by-week effortlessly.</p>
           </Link>
 
           <Link to="/teacher/link-student" className="tool-card">
             <FiMessageSquare className="tool-icon" />
-            <h3>Link to Students</h3>
-            <p>Connect students to their respective classes and resources.</p>
+            <h3>Link Students</h3>
+            <p>Connect students to their respective classes.</p>
           </Link>
-         <Link to="/teacher/quizzes" className="tool-card">
-  <FiBarChart2 className="tool-icon" />
-  <h3>Quiz and Homework Results</h3>
-  <p>View detailed results of quizzes and homework.</p>
-</Link>
+          
+          <Link to="/teacher/quizzes" className="tool-card">
+            <FiBarChart2 className="tool-icon" />
+            <h3>Quiz Results</h3>
+            <p>View detailed results of quizzes and homework.</p>
+          </Link>
 
           <Link to="/teacher/reports" className="tool-card">
             <FiBarChart2 className="tool-icon" />

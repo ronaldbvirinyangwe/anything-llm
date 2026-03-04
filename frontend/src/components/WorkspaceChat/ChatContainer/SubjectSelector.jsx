@@ -92,14 +92,15 @@ export default function SubjectSelector({ subject, setSubject, curriculum, grade
   const zimsec_primary_subjects = [
     "Mathematics",
     "English Language",
-    "Indigenous Language (e.g., Shona or Ndebele)",
-    "Agriculture, Science and Technology, and ICT (combined)",
-    "Social Sciences (includes Family, Religion and Moral Education, Heritage and Social Studies, Guidance and Counselling)",
-    "Physical Education and Arts (includes Visual and Performing Arts, Physical Education, Sports and Mass Displays)"
+    "Shona",
+    "Ndebele",
+    "Agriculture, Science and Technology",
+    "Social Sciences",
+    "Physical Education and Arts "
   ];
 
   const cambridge_primary_subjects = [
-    "English (as First Language or Second Language)",
+    "English",
     "Mathematics",
     "Science",
     "French",

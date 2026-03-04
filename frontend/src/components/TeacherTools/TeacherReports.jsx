@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
-import "./teacher-student-results.css";
+import "./teacher-reports.css";
 
 export default function TeacherReports() {
   const navigate = useNavigate();
@@ -9,61 +9,60 @@ export default function TeacherReports() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [groupBy, setGroupBy] = useState("all"); // 'all' or 'subject'
+  const [searchTerm, setSearchTerm] = useState(""); // --- NEW: Search State ---
 
- useEffect(() => {
-  const fetchStudents = async () => {
-    try {
-      const token = localStorage.getItem("chikoroai_authToken");
-      const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
-      const teacherId = storedUser?.id;
+  useEffect(() => {
+    const fetchStudents = async () => {
+      try {
+        const token = localStorage.getItem("chikoroai_authToken");
+        const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
+        const teacherId = storedUser?.id;
 
-      if (!teacherId) {
-        navigate("/login");
-        return;
-      }
-
-      const res = await axios.get(
-        `https://api.chikoro-ai.com/api/system/teacher/my-students/${teacherId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
+        if (!teacherId) {
+          navigate("/login");
+          return;
         }
-      );
 
-      if (res.data.success) {
-        // ✅ Deduplicate students and group their subjects
-        const uniqueStudents = res.data.students.reduce((acc, student) => {
-          const existing = acc.find(s => s.id === student.id);
-          
-          if (existing) {
-            // Student already exists, add subject to their list
-            if (!existing.subjects.includes(student.subject)) {
-              existing.subjects.push(student.subject);
-            }
-          } else {
-            // New student, create entry with subjects array
-            acc.push({
-              ...student,
-              subjects: student.subject ? [student.subject] : []
-            });
+        const res = await axios.get(
+          `https://api.chikoro-ai.com/api/system/teacher/my-students/${teacherId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
           }
-          
-          return acc;
-        }, []);
+        );
 
-        setStudents(uniqueStudents);
-      } else {
-        setError(res.data.error || "Failed to fetch students");
+        if (res.data.success) {
+          // ✅ Deduplicate students and group their subjects
+          const uniqueStudents = res.data.students.reduce((acc, student) => {
+            const existing = acc.find((s) => s.id === student.id);
+
+            if (existing) {
+              if (!existing.subjects.includes(student.subject)) {
+                existing.subjects.push(student.subject);
+              }
+            } else {
+              acc.push({
+                ...student,
+                subjects: student.subject ? [student.subject] : [],
+              });
+            }
+
+            return acc;
+          }, []);
+
+          setStudents(uniqueStudents);
+        } else {
+          setError(res.data.error || "Failed to fetch students");
+        }
+      } catch (err) {
+        console.error("Error fetching students:", err);
+        setError("Error loading students");
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error("Error fetching students:", err);
-      setError("Error loading students");
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  fetchStudents();
-}, [navigate]);
+    fetchStudents();
+  }, [navigate]);
 
   if (loading) {
     return <div className="loading-screen">Loading your students...</div>;
@@ -80,15 +79,23 @@ export default function TeacherReports() {
     );
   }
 
-  // Group students by subject if needed
-  const groupedStudents = groupBy === "subject" 
-    ? students.reduce((acc, student) => {
-        const subject = student.subject || "Unknown";
-        if (!acc[subject]) acc[subject] = [];
-        acc[subject].push(student);
-        return acc;
-      }, {})
-    : { "All Students": students };
+  // --- NEW: Filter students based on search term before grouping ---
+  const filteredStudents = students.filter(student => 
+    student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (student.subject && student.subject.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (student.grade && student.grade.toString().includes(searchTerm))
+  );
+
+  // Group the *filtered* students by subject if needed
+  const groupedStudents =
+    groupBy === "subject"
+      ? filteredStudents.reduce((acc, student) => {
+          const subject = student.subject || "Unknown";
+          if (!acc[subject]) acc[subject] = [];
+          acc[subject].push(student);
+          return acc;
+        }, {})
+      : { "All Students": filteredStudents };
 
   return (
     <div className="report-container">
@@ -100,19 +107,33 @@ export default function TeacherReports() {
 
       <header className="reports-header">
         <h1>📊 Student Performance Reports</h1>
-        <p>Select a student to view their detailed performance analysis</p>
+        <p>Search and select a student to view their detailed performance analysis</p>
       </header>
 
-      <div className="filter-section">
-        <label>View by:</label>
-        <select 
-          value={groupBy} 
-          onChange={(e) => setGroupBy(e.target.value)}
-          className="filter-select"
-        >
-          <option value="all">All Students</option>
-          <option value="subject">By Subject</option>
-        </select>
+      {/* --- UPDATED: Controls Toolbar with Search & Filter --- */}
+      <div className="controls-toolbar">
+        <div className="search-wrapper">
+          <span className="search-icon">🔍</span>
+          <input 
+            type="text" 
+            placeholder="Search students by name, grade, or subject..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="search-input"
+          />
+        </div>
+
+        <div className="filter-group">
+          <label>View by:</label>
+          <select
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value)}
+            className="filter-select"
+          >
+            <option value="all">All Students</option>
+            <option value="subject">By Subject</option>
+          </select>
+        </div>
       </div>
 
       {students.length === 0 ? (
@@ -122,27 +143,34 @@ export default function TeacherReports() {
             Link Students
           </Link>
         </div>
+      ) : filteredStudents.length === 0 ? (
+        <div className="empty-state">
+          <p>No students match your search for "{searchTerm}".</p>
+          <button onClick={() => setSearchTerm("")} className="link-btn secondary">
+            Clear Search
+          </button>
+        </div>
       ) : (
         Object.entries(groupedStudents).map(([category, studentList]) => (
           <section key={category} className="students-section">
             <h2>{category}</h2>
             <div className="students-grid">
               {studentList.map((student) => (
-  <Link
-     key={student.id}  
-    to={`/teacher/reports/student/${student.id}`}
-    className="student-card"
-  >
-    <div className="student-info">
-      <h3>{student.name}</h3>
-      <p className="student-grade">Grade {student.grade}</p>
-      {groupBy === "all" && student.subject && (
-        <p className="student-subject">{student.subject}</p>
-      )}
-    </div>
-    <div className="student-arrow">→</div>
-  </Link>
-))}
+                <Link
+                  key={student.id}
+                  to={`/teacher/reports/student/${student.id}`}
+                  className="student-card"
+                >
+                  <div className="student-info">
+                    <h3>{student.name}</h3>
+                    <p className="student-grade">Grade {student.grade}</p>
+                    {groupBy === "all" && student.subject && (
+                      <p className="student-subject">{student.subject}</p>
+                    )}
+                  </div>
+                  <div className="student-arrow">→</div>
+                </Link>
+              ))}
             </div>
           </section>
         ))

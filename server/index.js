@@ -30,6 +30,7 @@ const { communityHubEndpoints } = require("./endpoints/communityHub");
 const { agentFlowEndpoints } = require("./endpoints/agentFlows");
 const { mcpServersEndpoints } = require("./endpoints/mcpServers");
 const { mobileEndpoints } = require("./endpoints/mobile");
+const { workspaceParsedFilesEndpoints } = require("./endpoints/workspacesParsedFiles");
 const { httpLogger } = require("./middleware/httpLogger");
 
 const app = express();
@@ -123,6 +124,7 @@ inviteEndpoints(apiRouter);
 embedManagementEndpoints(apiRouter);
 utilEndpoints(apiRouter);
 documentEndpoints(apiRouter);
+workspaceParsedFilesEndpoints(apiRouter);
 agentWebsocket(apiRouter);
 experimentalEndpoints(apiRouter);
 developerEndpoints(app, apiRouter);

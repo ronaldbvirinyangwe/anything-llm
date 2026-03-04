@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { create } from "zustand";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { useTheme } from "../../hooks/useTheme";
+import { ChikoroMascot, MascotSpeechBubble, MASCOT_EXPRESSIONS, getQuizExpression } from "@/components/ChikoroMascot";
 import "./test.css";
 
 // ✅ Zustand store
@@ -56,7 +57,6 @@ export default function Test({ readOnly = false, externalTest = null }) {
   useEffect(() => {
     if (readOnly) return;
     
-    // Check if quiz is passed from navigation state
     const quizFromState = externalTest || location.state?.externalTest;
     if (quizFromState) {
       const wrapped = Array.isArray(quizFromState)
@@ -66,10 +66,9 @@ export default function Test({ readOnly = false, externalTest = null }) {
       return;
     }
 
-    // Check if we need to generate a new quiz from query params
     const params = new URLSearchParams(location.search);
     const subject = params.get('subject');
-    const topic = params.get('åtopic');
+    const topic = params.get('topic');
     const grade = params.get('grade');
     const numQuestions = params.get('numQuestions') || 10;
     const difficulty = params.get('difficulty') || 'medium';
@@ -84,7 +83,7 @@ export default function Test({ readOnly = false, externalTest = null }) {
   const generateQuiz = async (params) => {
     useTestStore.setState({ isLoading: true, error: "" });
     try {
-      const res = await fetch("httpss://api.chikoro-ai.com/api/quiz/generate", {
+      const res = await fetch("https://api.chikoro-ai.com/api/quiz/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -96,7 +95,6 @@ export default function Test({ readOnly = false, externalTest = null }) {
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Failed to generate quiz.");
 
-      // Parse the quiz content into structured format
       const parsedQuiz = parseQuizContent(data.quiz, data.metadata);
       setTest(parsedQuiz);
     } catch (err) {
@@ -114,12 +112,10 @@ export default function Test({ readOnly = false, externalTest = null }) {
       const lines = block.split("\n").filter((l) => l.trim());
       const questionText = lines[0]?.replace(/^\d+\.\s*/, "").trim();
       
-      // Check if it's MCQ
       const hasOptions = lines.some((l) => /^[A-D]\)/.test(l));
       const answerMatch = block.match(/\*?\*?Answer:\s*([A-D])/i);
       
       if (hasOptions) {
-        // Multiple Choice Question
         const options = lines
           .filter(l => /^[A-D]\)/.test(l))
           .map(opt => opt.trim());
@@ -131,7 +127,6 @@ export default function Test({ readOnly = false, externalTest = null }) {
           correct_answer: answerMatch ? answerMatch[1].toUpperCase() : null,
         };
       } else {
-        // Structured Question
         const markSchemeIndex = lines.findIndex(line => 
           /^(Mark Scheme|Answer|Expected Answer):/i.test(line)
         );
@@ -145,7 +140,7 @@ export default function Test({ readOnly = false, externalTest = null }) {
           correct_answer: markScheme || "Provide a detailed answer based on the question.",
         };
       }
-    }).filter(q => q.question); // Remove any invalid questions
+    }).filter(q => q.question);
 
     return {
       subject: metadata.subject,
@@ -158,14 +153,13 @@ export default function Test({ readOnly = false, externalTest = null }) {
 
   // 🕒 Timer
   useEffect(() => {
-  if (!readOnly && !results && !isLoading) { 
-    const tick = setInterval(() => {
-      useTestStore.setState((s) => ({ timer: s.timer + 1 }));
-    }, 1000);
-    return () => clearInterval(tick);
-  }
-}, [readOnly, results, isLoading]); 
-
+    if (!readOnly && !results && !isLoading) { 
+      const tick = setInterval(() => {
+        useTestStore.setState((s) => ({ timer: s.timer + 1 }));
+      }, 1000);
+      return () => clearInterval(tick);
+    }
+  }, [readOnly, results, isLoading]); 
 
   // 🧮 Submit quiz
   const submitTest = async () => {
@@ -189,21 +183,46 @@ export default function Test({ readOnly = false, externalTest = null }) {
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Grading failed.");
 
-      // ✅ FIX: Use the comprehensive response from backend
       setResults({
         summary: {
-          overallScore: data.score, // Use score from backend
+          overallScore: data.score,
           earnedPoints: data.earnedPoints,
           totalPoints: data.totalPoints,
           message: data.summary,
         },
-        results: data.feedback, // This contains isCorrect, not correct
+        results: data.feedback,
       });
     } catch (err) {
       setError(err.message);
     } finally {
       useTestStore.setState({ isLoading: false });
     }
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // 🤖 MASCOT — derive expression from quiz state
+  // ═══════════════════════════════════════════════════════════
+  const getMascotExpression = () => {
+    if (isLoading) return MASCOT_EXPRESSIONS.thinking;
+    if (results) return getQuizExpression(results.summary.overallScore);
+    return MASCOT_EXPRESSIONS.quizzing;
+  };
+
+  const getMascotMessage = () => {
+    if (isLoading) return "Checking your answers... 🧠";
+    if (results) {
+      const score = results.summary.overallScore;
+      if (score === 100) return "PERFECT! You're a genius! 🤯";
+      if (score >= 80) return "Amazing work! You nailed it! 🎉";
+      if (score >= 50) return "Good effort! Let's review together 💪";
+      return "Don't worry — mistakes help us learn!";
+    }
+    const answered = answers.filter((a) => a.trim()).length;
+    const total = test?.questions?.length || 0;
+    if (total === 0) return "Loading your quiz... 📋";
+    if (answered === 0) return "Let's do this! Read carefully 📋";
+    if (answered === total) return "All done! Ready to submit? 🎯";
+    return `${answered}/${total} answered — keep going!`;
   };
 
   // 🧩 Render each question
@@ -252,7 +271,6 @@ export default function Test({ readOnly = false, externalTest = null }) {
           </div>
         )}
 
-        {/* ✅ FIX: Use isCorrect instead of correct */}
         {result && (
           <div
             className={`feedback ${
@@ -280,9 +298,26 @@ export default function Test({ readOnly = false, externalTest = null }) {
   // 🧭 Main layout
   return (
     <div className="student-quiz-container">
+      {/* ═══ Quiz Header with Mascot ═══ */}
       <header className="quiz-header">
-        <h1>{test?.subject || "Quiz"}</h1>
-        <p>⏱ Time: {formatTime(timer)}</p>
+        <div className="quiz-header-left">
+          <ChikoroMascot
+            expression={getMascotExpression()}
+            size={40}
+            animate={true}
+          />
+          <div>
+            <h1>{test?.topic || test?.subject || "Quiz"}</h1>
+            <p>⏱ Time: {formatTime(timer)}</p>
+          </div>
+        </div>
+        <div className="chk-quiz-mascot-bubble">
+          <MascotSpeechBubble
+            message={getMascotMessage()}
+            visible={true}
+            position="left"
+          />
+        </div>
       </header>
 
       {error && <div className="error">{error}</div>}
@@ -302,7 +337,21 @@ export default function Test({ readOnly = false, externalTest = null }) {
         </>
       ) : (
         <div className="quiz-feedback-container">
+          {/* ═══ Results Header with Big Mascot ═══ */}
           <header className="feedback-header">
+            <div className="chk-results-mascot">
+              <ChikoroMascot
+                expression={getMascotExpression()}
+                size={80}
+                animate={true}
+              />
+              <MascotSpeechBubble
+                message={getMascotMessage()}
+                visible={true}
+                position="right"
+              />
+            </div>
+
             <h1>📊 Quiz Results</h1>
             <div className="score-display">
               <div className="score-circle">
@@ -311,7 +360,6 @@ export default function Test({ readOnly = false, externalTest = null }) {
                 </span>
               </div>
               <p className="score-breakdown">
-                {/* ✅ FIX: Use isCorrect instead of correct */}
                 {results.results.filter((r) => r.isCorrect).length} /{" "}
                 {results.results.length} correct
               </p>
@@ -369,7 +417,7 @@ export default function Test({ readOnly = false, externalTest = null }) {
               className="btn-primary"
               onClick={() => {
                 setResults(null);
-                setTest(test); // Reset answers
+                setTest(test);
                 useTestStore.setState({ timer: 0 });
               }}
             >
@@ -377,9 +425,9 @@ export default function Test({ readOnly = false, externalTest = null }) {
             </button>
             <button
               className="btn-secondary"
-              onClick={() => navigate("/quiz")}
+              onClick={() => navigate("/")}
             >
-              ← Back to Quizzes
+              ← Back to Learning
             </button>
           </div>
         </div>

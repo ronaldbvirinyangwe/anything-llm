@@ -1,0 +1,333 @@
+/* ═══════════════════════════════════════════════════════════════
+   CHIKORO MASCOT — Animation & Style System
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Core Animations ─── */
+@keyframes chk-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes chk-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes chk-shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-4deg); }
+  75% { transform: rotate(4deg); }
+}
+@keyframes chk-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-3deg); }
+  40% { transform: rotate(3deg); }
+  60% { transform: rotate(-2deg); }
+  80% { transform: rotate(2deg); }
+}
+@keyframes chk-pulse-anim {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 0.9; transform: scale(1.15); }
+}
+@keyframes chk-zzz-float {
+  0% { opacity: 0; transform: translateY(0) scale(0.5); }
+  50% { opacity: 1; transform: translateY(-10px) scale(1); }
+  100% { opacity: 0; transform: translateY(-20px) scale(0.5); }
+}
+@keyframes chk-confetti-fall {
+  0% { transform: translateY(0) rotate(0deg); }
+  100% { transform: translateY(10px) rotate(200deg); }
+}
+@keyframes chk-explode-anim {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.35); }
+}
+@keyframes chk-bubble-enter {
+  from { opacity: 0; transform: scale(0.85) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes chk-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Expression-specific mascot animations ─── */
+.chk-mascot--animated.chk-mascot--thinking   { animation: chk-float 2.5s ease infinite; }
+.chk-mascot--animated.chk-mascot--celebrating { animation: chk-bounce 0.6s ease infinite; }
+.chk-mascot--animated.chk-mascot--mindblown   { animation: chk-shake 0.35s ease infinite; }
+.chk-mascot--animated.chk-mascot--waving      { animation: chk-wiggle 1.2s ease infinite; }
+.chk-mascot--animated.chk-mascot--comeback    { animation: chk-float 3s ease infinite; }
+.chk-mascot--animated.chk-mascot--sleeping    { animation: chk-float 4s ease infinite; filter: brightness(0.85); }
+.chk-mascot--animated.chk-mascot--explaining  { animation: chk-float 3s ease infinite; }
+
+/* ─── Element-level animations ─── */
+.chk-pulse      { animation: chk-pulse-anim 2s ease infinite; }
+.chk-pulse-d1   { animation: chk-pulse-anim 2s ease infinite 0.3s; }
+.chk-pulse-d2   { animation: chk-pulse-anim 2s ease infinite 0.6s; }
+.chk-zzz1       { animation: chk-zzz-float 2.5s ease infinite; }
+.chk-zzz2       { animation: chk-zzz-float 2.5s ease infinite 0.4s; }
+.chk-zzz3       { animation: chk-zzz-float 2.5s ease infinite 0.8s; }
+.chk-confetti   { animation: chk-confetti-fall 1.2s ease infinite; }
+.chk-cd1        { animation-delay: 0.15s; }
+.chk-cd2        { animation-delay: 0.3s; }
+.chk-cd3        { animation-delay: 0.45s; }
+.chk-cd4        { animation-delay: 0.6s; }
+.chk-cd5        { animation-delay: 0.75s; }
+.chk-explode    { animation: chk-explode-anim 0.6s ease infinite; }
+
+/* ─── Mascot + Bubble Group ─── */
+.chk-mascot-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: chk-fade-in 0.4s ease;
+}
+
+/* ─── Speech Bubble ─── */
+.chk-bubble {
+  background: rgba(30, 41, 59, 0.95);
+  border: 1.5px solid rgba(34, 197, 94, 0.25);
+  border-radius: 16px;
+  padding: 10px 16px;
+  max-width: 240px;
+  animation: chk-bubble-enter 0.35s ease;
+  position: relative;
+  backdrop-filter: blur(8px);
+}
+.chk-bubble p {
+  margin: 0;
+  font-size: 13px;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+.chk-bubble__tail {
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 8px solid rgba(30, 41, 59, 0.95);
+}
+.chk-bubble--left .chk-bubble__tail {
+  left: auto;
+  right: -8px;
+  border-right: none;
+  border-left: 8px solid rgba(30, 41, 59, 0.95);
+}
+.chk-bubble--top {
+  position: relative;
+}
+.chk-bubble--top .chk-bubble__tail {
+  left: 50%;
+  top: auto;
+  bottom: -8px;
+  transform: translateX(-50%);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid rgba(30, 41, 59, 0.95);
+  border-bottom: none;
+}
+
+/* ─── Welcome Screen Mascot Container ─── */
+.chk-welcome-mascot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  animation: chk-fade-in 0.6s ease;
+}
+.chk-welcome-mascot .chk-mascot-group {
+  flex-direction: column;
+  text-align: center;
+}
+.chk-welcome-mascot .chk-bubble {
+  max-width: 300px;
+  text-align: center;
+}
+.chk-welcome-mascot .chk-bubble__tail {
+  left: 50%;
+  top: -8px;
+  bottom: auto;
+  transform: translateX(-50%) rotate(180deg);
+  border-top: none;
+  border-bottom: 8px solid rgba(30, 41, 59, 0.95);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+}
+.chk-welcome-suggestions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  max-width: 400px;
+  width: 100%;
+  margin-top: 8px;
+}
+.chk-welcome-suggestions button {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #d1d5db;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1.4;
+}
+.chk-welcome-suggestions button:hover {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: #f0fdf4;
+}
+.chk-welcome-suggestions button strong {
+  display: block;
+  color: #4ade80;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+/* ─── Inline thinking mascot (next to loading dots) ─── */
+.chk-thinking-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  min-height: 44px;
+}
+.chk-thinking-inline .chk-bubble {
+  padding: 6px 12px;
+  max-width: 200px;
+}
+.chk-thinking-inline .chk-bubble p {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+/* ─── Side Panel Header (Quiz / Flashcards) ─── */
+.chk-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.2);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.chk-panel-header .chk-panel-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  color: #4ade80;
+  letter-spacing: 0.3px;
+}
+.chk-panel-header .close-quiz {
+  position: static;
+  margin: 0;
+}
+
+/* ─── Quiz Page — Mascot in Header ─── */
+.quiz-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.quiz-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.quiz-header-left h1 {
+  margin: 0;
+  line-height: 1.2;
+}
+.quiz-header-left p {
+  margin: 0;
+}
+.chk-quiz-mascot-bubble {
+  flex-shrink: 0;
+}
+.chk-quiz-mascot-bubble .chk-bubble {
+  max-width: 200px;
+  font-size: 12px;
+}
+
+/* ─── Quiz Results — Mascot Celebration ─── */
+.chk-results-mascot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  animation: chk-fade-in 0.5s ease;
+}
+.chk-results-mascot .chk-bubble {
+  max-width: 220px;
+}
+
+/* ─── Flashcards — Mascot Row ─── */
+.chk-flashcard-mascot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.flashcard-header-text {
+  flex: 1;
+  min-width: 0;
+}
+.flashcard-header-text h2 {
+  margin: 0;
+  line-height: 1.2;
+}
+.flashcard-header-text p {
+  margin: 0;
+}
+.chk-flashcard-bubble {
+  flex-shrink: 0;
+}
+.chk-flashcard-bubble .chk-bubble {
+  max-width: 180px;
+  font-size: 12px;
+}
+
+/* ─── Flashcards — Completion State ─── */
+.chk-flashcard-complete {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 40px 20px;
+  text-align: center;
+  animation: chk-fade-in 0.5s ease;
+}
+.chk-flashcard-complete .chk-bubble {
+  max-width: 280px;
+  text-align: center;
+}
+.chk-flashcard-complete-actions {
+  margin-top: 12px;
+}
+.chk-flashcard-complete-actions .control-btn {
+  font-size: 15px;
+  padding: 10px 24px;
+}
+
+/* ─── Responsive: Stack mascot bubble below on small screens ─── */
+@media (max-width: 500px) {
+  .chk-quiz-mascot-bubble,
+  .chk-flashcard-bubble {
+    display: none;
+  }
+  .chk-results-mascot {
+    flex-direction: column;
+  }
+  .chk-flashcard-mascot-row {
+    flex-wrap: wrap;
+  }
+}

@@ -1,0 +1,24 @@
+services:
+  frontend:
+    build: .
+    container_name: chikoro-frontend
+    restart: always
+    ports:
+      - "4173:4173"
+    command: yarn prod:frontend --host 0.0.0.0
+
+  backend:
+    build: .
+    container_name: chikoro-backend
+    restart: always
+    ports:
+      - "3001:3001"
+    command: yarn prod:server
+
+  collector:
+    build: .
+    container_name: chikoro-collector
+    restart: always
+    ports:
+      - "8888:8888"
+    command: yarn dev:collector

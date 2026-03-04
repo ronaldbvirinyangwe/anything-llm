@@ -3,7 +3,141 @@ import { useParams, Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import axios from "axios";
+import "katex/dist/katex.min.css";
 import "./studentquiz.css";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import { 
+  FiClock, FiShield, FiAlertTriangle, FiCheckCircle, 
+  FiXCircle, FiPrinter, FiArrowLeft, FiSend, FiInfo 
+} from "react-icons/fi";
+
+// Helper to render text with inline LaTeX
+function MathText({ text }) {
+  if (!text) return null;
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+      components={{
+        p: ({ children }) => <span>{children}</span>,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
+
+// Robust question parser
+function parseQuestions(content) {
+  if (!content) return [];
+  let processed = content;
+  processed = processed.replace(/\\\([\s\S]*?\\\)/g, (m) => m.replace(/\n/g, ' '));
+  processed = processed.replace(/\\\[[\s\S]*?\\\]/g, (m) => m.replace(/\n/g, ' '));
+  processed = processed.replace(/\$\$[\s\S]*?\$\$/g, (m) => m.replace(/\n/g, ' '));
+  processed = processed.replace(/\$(?!\$)[\s\S]*?(?<!\$)\$/g, (m) => m.replace(/\n/g, ' '));
+
+  const lines = processed.split("\n");
+  const questions = [];
+  let current = null;
+  let inMarkScheme = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+
+    const questionMatch = trimmed.match(/^(\d+)\.\s+(.+)/);
+
+    if (questionMatch) {
+      inMarkScheme = false;
+      let pendingMarks = current?._pendingMarks || null;
+
+      if (current) {
+        delete current._pendingMarks;
+        questions.push(current);
+      }
+
+      let questionText = questionMatch[2].trim();
+      let marks = pendingMarks; 
+
+      const marksInQuestion = questionText.match(/\[(\d+)\s*marks?\]\s*\*?\s*$/i);
+      if (marksInQuestion) {
+        marks = parseInt(marksInQuestion[1]);
+        questionText = questionText.replace(/\[?\(?\d+\s*marks?\)?\]?\s*\*?\s*$/i, "").trim();
+      }
+
+      if (!questionText.includes("\\(") && !questionText.includes("\\[")) {
+        questionText = questionText.replace(/^\*+|\*+$/g, "").trim();
+        questionText = questionText.replace(/^_+|_+$/g, "").trim();
+      }
+
+      current = {
+        number: parseInt(questionMatch[1]),
+        text: questionText,
+        options: [],
+        lines: [],
+        marks: marks,
+      };
+      continue;
+    }
+
+    if (!current) continue;
+
+    if (/^\*?\*?\s*(correct\s*)?answer\s*[:=]/i.test(trimmed)) continue;
+    if (/^(mark\s*scheme|marking\s*(guide|criteria|rubric))\s*:/i.test(trimmed)) {
+      inMarkScheme = true;
+      continue;
+    }
+
+    if (inMarkScheme) {
+      const nextQ = trimmed.match(/^(\d+)\.\s+(.+)/);
+      if (nextQ) {
+        inMarkScheme = false;
+        i--; 
+      }
+      continue;
+    }
+
+    const standaloneMarks = trimmed.match(/^\*?\*?\[?\(?\s*(\d+)\s*marks?\s*\)?\]?\*?\*?\s*$/i);
+    if (standaloneMarks) {
+      if (!current.marks) current.marks = parseInt(standaloneMarks[1]);
+      else current._pendingMarks = parseInt(standaloneMarks[1]);
+      continue;
+    }
+
+    if (/^\*?\*?\s*(model\s*answer|expected\s*answer|suggested\s*answer|sample\s*answer|solution|explanation)\s*[:=]/i.test(trimmed)) {
+      continue;
+    }
+
+    if (/^[A-Da-d][).]\s+/.test(trimmed)) {
+      current.options.push(trimmed);
+      continue;
+    }
+
+    let cleaned = trimmed;
+    if (!cleaned.includes("\\(") && !cleaned.includes("\\[") && !cleaned.includes("$")) {
+      cleaned = cleaned.replace(/^\*+|\*+$/g, "").trim();
+      cleaned = cleaned.replace(/^_+|_+$/g, "").trim();
+    }
+
+    const contextMarks = cleaned.match(/\[(\d+)\s*marks?\]\s*\*?\s*$/i);
+    if (contextMarks && !current.marks) {
+      current.marks = parseInt(contextMarks[1]);
+    }
+    cleaned = cleaned.replace(/\[?\(?\d+\s*marks?\)?\]?\s*/gi, "").trim();
+    cleaned = cleaned.replace(/[\*_]+\s*$/, "").trim();
+    cleaned = cleaned.replace(/^[\*_]+\s*/, "").trim();
+
+    if (cleaned) current.lines.push(cleaned);
+  }
+
+  if (current) {
+    delete current._pendingMarks;
+    questions.push(current);
+  }
+
+  return questions;
+}
 
 export default function StudentQuiz() {
   const { quizCode } = useParams();
@@ -17,56 +151,37 @@ export default function StudentQuiz() {
   const [fullscreenActive, setFullscreenActive] = useState(false);
   const [quizStarted, setQuizStarted] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
-  
-  // Timer state
+
   const [timeRemaining, setTimeRemaining] = useState(null);
   const [timerExpired, setTimerExpired] = useState(false);
   const timerRef = useRef(null);
   const isSubmittingRef = useRef(false);
   const tabViolationsRef = useRef(0);
 
-  const cleanQuizText = (rawQuiz) => {
-    if (!rawQuiz || typeof rawQuiz !== "string") return "";
-    return rawQuiz
-      .replace(/^.*?(?:here'?s?|here is).*?quiz.*?:/i, '')
-      .replace(/^(sure|certainly|okay|alright)[!,.\s]*/i, '')
-      .replace(/```.*?```/gs, '')
-      .trim();
-  };
-
-  // Fetch quiz details
   useEffect(() => {
     const fetchQuiz = async () => {
       try {
         const res = await axios.get(`https://api.chikoro-ai.com/api/system/quiz/${quizCode}`);
-        if (res.data.success) {
-          setQuiz(res.data.quiz);
-        }
-      } catch (err) {
-        console.error("Error loading quiz:", err);
-      }
+        if (res.data.success) setQuiz(res.data.quiz);
+      } catch (err) { console.error("Error loading quiz:", err); }
     };
     fetchQuiz();
   }, [quizCode]);
 
-  // Initialize timer when quiz starts
   const initializeTimer = () => {
     if (quiz.timeLimit && quiz.timeLimit > 0) {
       const storageKey = `quiz_${quizCode}_start`;
       let startTime = localStorage.getItem(storageKey);
-      
       if (!startTime) {
         startTime = Date.now();
         localStorage.setItem(storageKey, startTime);
       }
-      
       const elapsed = Math.floor((Date.now() - parseInt(startTime)) / 1000);
       const totalTime = quiz.timeLimit * 60;
       const remaining = totalTime - elapsed;
-      
-      if (remaining > 0) {
-        setTimeRemaining(remaining);
-      } else {
+
+      if (remaining > 0) setTimeRemaining(remaining);
+      else {
         setTimeRemaining(0);
         setTimerExpired(true);
         autoSubmitQuiz(0, true);
@@ -74,82 +189,46 @@ export default function StudentQuiz() {
     }
   };
 
-  // Request fullscreen and start quiz
   const startQuizInFullscreen = async () => {
     try {
       const elem = document.documentElement;
-      
-      // Try different fullscreen methods for cross-browser compatibility
-      if (elem.requestFullscreen) {
-        await elem.requestFullscreen();
-      } else if (elem.webkitRequestFullscreen) {
-        await elem.webkitRequestFullscreen();
-      } else if (elem.msRequestFullscreen) {
-        await elem.msRequestFullscreen();
-      } else if (elem.mozRequestFullScreen) {
-        await elem.mozRequestFullScreen();
-      }
+      if (elem.requestFullscreen) await elem.requestFullscreen();
+      else if (elem.webkitRequestFullscreen) await elem.webkitRequestFullscreen();
+      else if (elem.msRequestFullscreen) await elem.msRequestFullscreen();
       
       setFullscreenActive(true);
       setQuizStarted(true);
       initializeTimer();
     } catch (err) {
       console.error("Fullscreen request failed:", err);
-      alert(
-        "⚠️ Fullscreen mode is required to take this quiz.\n\n" +
-        "Please allow fullscreen when prompted by your browser.\n" +
-        "If you continue to have issues, try a different browser."
-      );
+      alert("⚠️ Fullscreen mode is required. Please allow fullscreen when prompted.");
     }
   };
 
-  // Fullscreen change detection
   useEffect(() => {
     if (!quizStarted) return;
-
     const handleFullscreenChange = () => {
-      const isFullscreen = !!(
-        document.fullscreenElement ||
-        document.webkitFullscreenElement ||
-        document.mozFullScreenElement ||
-        document.msFullscreenElement
-      );
-
+      const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
       if (!isFullscreen && quizStarted && !submitted) {
-        // Student exited fullscreen
         const newViolations = tabViolationsRef.current + 1;
         tabViolationsRef.current = newViolations;
         setTabViolations(newViolations);
-        
-        alert(
-          "🚨 FULLSCREEN EXIT DETECTED!\n\n" +
-          "You exited fullscreen mode. This counts as a security violation.\n" +
-          "Your quiz will be automatically submitted."
-        );
-        
+        alert("🚨 FULLSCREEN EXIT DETECTED!\n\nThis counts as a security violation. Your quiz will be automatically submitted.");
         autoSubmitQuiz(newViolations, false);
       }
-
       setFullscreenActive(isFullscreen);
     };
 
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
-    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
-    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
-
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
-      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
-      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
     };
   }, [quizStarted, submitted]);
 
-  // Countdown timer that auto-submits when time expires
   useEffect(() => {
     if (!quizStarted || submitted || timeRemaining === null || timeRemaining <= 0) return;
-
     timerRef.current = setInterval(() => {
       setTimeRemaining((prevTime) => {
         if (prevTime <= 1) {
@@ -161,294 +240,133 @@ export default function StudentQuiz() {
         return prevTime - 1;
       });
     }, 1000);
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
+    return () => clearInterval(timerRef.current);
   }, [quizStarted, submitted, timeRemaining]);
 
-  // Tab/window focus detection with warning and auto-submit
   useEffect(() => {
     if (!quizStarted || submitted) return;
-
     const maxTabSwitches = quiz?.tabLimit || 1;
 
     const handleVisibility = () => {
       if (document.hidden) {
-        const newViolations = tabViolationsRef.current + 1;
-        tabViolationsRef.current = newViolations;
-        setTabViolations(newViolations);
+        const newV = tabViolationsRef.current + 1;
+        tabViolationsRef.current = newV;
+        setTabViolations(newV);
 
-        // First violation - show warning
-        if (newViolations === 1 && !hasWarned) {
+        if (newV === 1 && !hasWarned) {
           setHasWarned(true);
-          alert(
-            `⚠️ WARNING: Focus Loss Detected!\n\n` +
-            `You switched away from the quiz (tab switch, window switch, or other app).\n` +
-            `You have ${maxTabSwitches} allowed violation(s).\n` +
-            `You have used ${newViolations} so far.\n\n` +
-            `If you exceed the limit, your quiz will be automatically submitted.`
-          );
+          alert(`⚠️ WARNING: Focus Loss Detected!\nYou have ${maxTabSwitches} allowed violation(s). You have used ${newV}.`);
         }
-
-        // Exceeded limit - auto-submit
-        if (newViolations > maxTabSwitches) {
-          alert(
-            `🚨 VIOLATION LIMIT EXCEEDED!\n\n` +
-            `You had ${newViolations} focus violations (limit: ${maxTabSwitches}).\n` +
-            `Your quiz will now be automatically submitted.\n\n` +
-            `Your teacher will be notified of this violation.`
-          );
-          
-          autoSubmitQuiz(newViolations, false);
-        }
-      }
-    };
-
-    const handleBlur = () => {
-      if (!document.hidden) {
-        // Window lost focus but tab is still visible (e.g., clicked outside browser)
-        const newViolations = tabViolationsRef.current + 1;
-        tabViolationsRef.current = newViolations;
-        setTabViolations(newViolations);
-
-        if (newViolations > maxTabSwitches) {
-          alert(
-            `🚨 VIOLATION LIMIT EXCEEDED!\n\n` +
-            `Focus violations: ${newViolations} (limit: ${maxTabSwitches}).\n` +
-            `Your quiz will now be automatically submitted.`
-          );
-          autoSubmitQuiz(newViolations, false);
+        if (newV > maxTabSwitches) {
+          alert(`🚨 VIOLATION LIMIT EXCEEDED!\nYour quiz will now be automatically submitted.`);
+          autoSubmitQuiz(newV, false);
         }
       }
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
-    window.addEventListener("blur", handleBlur);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("blur", handleBlur);
-    };
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [quizStarted, submitted, hasWarned, quiz]);
 
-  // Prevent right-click, copy, paste, cut, devtools
   useEffect(() => {
     if (!quizStarted) return;
-
-    const prevent = (e) => {
-      e.preventDefault();
-      return false;
-    };
-
+    const prevent = (e) => { e.preventDefault(); return false; };
     const preventDevTools = (e) => {
-      // F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U
-      if (
-        e.keyCode === 123 || // F12
-        (e.ctrlKey && e.shiftKey && e.keyCode === 73) || // Ctrl+Shift+I
-        (e.ctrlKey && e.shiftKey && e.keyCode === 74) || // Ctrl+Shift+J
-        (e.ctrlKey && e.keyCode === 85) // Ctrl+U
-      ) {
-        e.preventDefault();
-        return false;
+      if (e.keyCode === 123 || (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || (e.ctrlKey && e.keyCode === 85)) {
+        e.preventDefault(); return false;
       }
     };
-
     document.addEventListener("contextmenu", prevent);
     document.addEventListener("copy", prevent);
-    document.addEventListener("paste", prevent);
-    document.addEventListener("cut", prevent);
     document.addEventListener("keydown", preventDevTools);
-
     return () => {
       document.removeEventListener("contextmenu", prevent);
       document.removeEventListener("copy", prevent);
-      document.removeEventListener("paste", prevent);
-      document.removeEventListener("cut", prevent);
       document.removeEventListener("keydown", preventDevTools);
     };
   }, [quizStarted]);
 
-  // Warn before leaving page
   useEffect(() => {
     if (!quizStarted || submitted) return;
-
     const warnUnload = (e) => {
       e.preventDefault();
       e.returnValue = "Are you sure you want to leave? Your quiz progress may be lost.";
       return e.returnValue;
     };
-
     window.addEventListener("beforeunload", warnUnload);
     return () => window.removeEventListener("beforeunload", warnUnload);
   }, [quizStarted, submitted]);
 
-  // Auto-submit function with duplicate check
   const autoSubmitQuiz = async (violations, isTimeExpired = false) => {
     if (submitted || loading || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
+    setSubmitted(true); setLoading(true);
+    if (timerRef.current) clearInterval(timerRef.current);
 
-    // Stop the timer immediately
-    setSubmitted(true);
-    setLoading(true);
-    
-    // Clear the timer interval immediately
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-    
     try {
       const student = JSON.parse(localStorage.getItem("chikoroai_user"));
-
       const formattedAnswers = Object.entries(answers).map(([index, answer]) => ({
-        questionIndex: parseInt(index),
-        answer: answer || "",
+        questionIndex: parseInt(index), answer: answer || "",
       }));
 
       const res = await axios.post("https://api.chikoro-ai.com/api/system/student/submit-quiz", {
-        quizCode,
-        answers: formattedAnswers,
-        studentId: student.id,
-        tabViolations: violations,
-        tabLimitExceeded: !isTimeExpired && violations > (quiz?.tabLimit || 1),
-        autoSubmitted: true,
-        timeExpired: isTimeExpired,
+        quizCode, answers: formattedAnswers, studentId: student.id,
+        tabViolations: violations, tabLimitExceeded: !isTimeExpired && violations > (quiz?.tabLimit || 1),
+        autoSubmitted: true, timeExpired: isTimeExpired,
       });
 
       if (res.data.success) {
-        // submitted already set to true at function start
-        setFeedback({
-          ...res.data,
-          timeExpired: isTimeExpired,
-        });
-        
-        // Clear the timer storage
+        setFeedback({ ...res.data, timeExpired: isTimeExpired });
         localStorage.removeItem(`quiz_${quizCode}_start`);
-        
-        // Exit fullscreen
-        if (document.fullscreenElement) {
-          document.exitFullscreen();
-        }
+        if (document.fullscreenElement) document.exitFullscreen();
       }
     } catch (err) {
-      console.error("Error auto-submitting quiz:", err);
-      
-      if (err.response?.data?.alreadySubmitted) {
-        // Keep submitted as true
-        alert("❌ You have already submitted this quiz. Multiple submissions are not allowed.");
-      } else {
-        // Keep submitted as true for auto-submit failures (teacher should be contacted)
-        alert("❌ Auto-submission failed. Please contact your teacher.");
-      }
-    } finally {
-      setLoading(false);
-      isSubmittingRef.current = false;
-    }
+      if (err.response?.data?.alreadySubmitted) alert("❌ You have already submitted this quiz.");
+      else alert("❌ Auto-submission failed.");
+    } finally { setLoading(false); isSubmittingRef.current = false; }
   };
 
-  const handleChange = (qIndex, value) => {
-    setAnswers({ ...answers, [qIndex]: value });
-  };
+  const handleChange = (qIndex, value) => setAnswers({ ...answers, [qIndex]: value });
 
-  // Manual submit with duplicate check
-  const handleSubmit = async () => {
-    if (loading || isSubmittingRef.current) return;
-    
-    // Show custom confirmation modal instead of window.confirm
-    setShowSubmitConfirm(true);
-  };
-
-  // Actual submission after confirmation
   const confirmSubmit = async () => {
     setShowSubmitConfirm(false);
-    
     if (loading || isSubmittingRef.current) return;
-    
     isSubmittingRef.current = true;
+    setSubmitted(true); setLoading(true);
+    if (timerRef.current) clearInterval(timerRef.current);
 
-    const maxTabSwitches = quiz?.tabLimit || 1;
-    
-    // Stop the timer immediately by setting submitted to true
-    setSubmitted(true);
-    setLoading(true);
-    
-    // Clear the timer interval immediately
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
     try {
       const student = JSON.parse(localStorage.getItem("chikoroai_user"));
-
       const formattedAnswers = Object.entries(answers).map(([index, answer]) => ({
-        questionIndex: parseInt(index),
-        answer,
+        questionIndex: parseInt(index), answer,
       }));
 
       const res = await axios.post("https://api.chikoro-ai.com/api/system/student/submit-quiz", {
-        quizCode,
-        answers: formattedAnswers,
-        studentId: student.id,
-        tabViolations: tabViolationsRef.current,
-        tabLimitExceeded: tabViolationsRef.current > maxTabSwitches,
-        autoSubmitted: false,
-        timeExpired: false,
+        quizCode, answers: formattedAnswers, studentId: student.id,
+        tabViolations: tabViolationsRef.current, tabLimitExceeded: tabViolationsRef.current > (quiz?.tabLimit || 1),
+        autoSubmitted: false, timeExpired: false,
       });
 
       if (res.data.success) {
-        // Keep submitted as true
         setFeedback(res.data);
-        
-        // Clear the timer storage
         localStorage.removeItem(`quiz_${quizCode}_start`);
-        
-        // Exit fullscreen
-        if (document.fullscreenElement) {
-          document.exitFullscreen();
-        }
+        if (document.fullscreenElement) document.exitFullscreen();
       }
     } catch (err) {
-      console.error("Error submitting quiz:", err);
-      
-      if (err.response?.data?.alreadySubmitted) {
-        // Keep submitted as true for already submitted
-        alert("❌ You have already submitted this quiz. Multiple submissions are not allowed.");
-      } else {
-        // Submission failed - allow retry by resetting submitted state
-        setSubmitted(false);
-        
-        // Restart timer if there was time remaining
-        if (timeRemaining !== null && timeRemaining > 0 && !timerExpired) {
-          // Timer will restart automatically via useEffect
-        }
-        
-        alert("❌ Submission failed. Please try again or contact your teacher.");
-      }
-    } finally {
-      setLoading(false);
-      isSubmittingRef.current = false;
-    }
+      if (err.response?.data?.alreadySubmitted) alert("❌ You have already submitted this quiz.");
+      else { setSubmitted(false); alert("❌ Submission failed. Please try again."); }
+    } finally { setLoading(false); isSubmittingRef.current = false; }
   };
 
-  const cancelSubmit = () => {
-    setShowSubmitConfirm(false);
-  };
-
-  // Helper function to format time remaining
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    
-    if (hrs > 0) {
-      return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    if (hrs > 0) return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Early returns
-  if (!quiz) return <div className="loading">Loading quiz...</div>;
+  if (!quiz) return <div className="loading-screen"><div className="spinner"></div><p>Loading your quiz...</p></div>;
 
   if (submitted && feedback) {
     return <QuizFeedback feedback={feedback} quiz={quiz} quizCode={quizCode} />;
@@ -456,189 +374,161 @@ export default function StudentQuiz() {
 
   if (!quiz.content) {
     return (
-      <div className="error">
-        ⚠️ Quiz content is missing or not yet generated for this code.
-        <br />
-        <Link to="/">← Go Back</Link>
+      <div className="error-screen fade-in">
+        <FiAlertTriangle className="error-icon" />
+        <h2>Quiz Not Ready</h2>
+        <p>Quiz content is missing or not yet generated for this code.</p>
+        <Link to="/" className="btn-secondary"><FiArrowLeft/> Go Back</Link>
       </div>
     );
   }
 
-  // Show start screen before quiz begins
+  // --- START SCREEN ---
   if (!quizStarted) {
     return (
-      <div className="quiz-start-container">
+      <div className="quiz-start-container fade-in">
         <div className="quiz-start-card">
-          <h1>🔒 Secure Quiz Mode</h1>
-          <h2>{quiz.subject} - {quiz.topic}</h2>
-          
-          <div className="quiz-info">
-            <p><strong>Difficulty:</strong> {quiz.difficulty}</p>
-            {quiz.timeLimit && quiz.timeLimit > 0 && (
-              <p><strong>Time Limit:</strong> {quiz.timeLimit} minutes</p>
-            )}
-            <p><strong>Focus Loss Limit:</strong> {quiz.tabLimit || 1} violation(s)</p>
+          <div className="start-icon"><FiShield /></div>
+          <h1>Secure Assessment</h1>
+          <h2 className="subject-title">{quiz.subject} - {quiz.topic}</h2>
+
+          <div className="quiz-info-grid">
+            <div className="info-box">
+              <span className="info-label">Difficulty</span>
+              <span className="info-value">{quiz.difficulty}</span>
+            </div>
+            <div className="info-box">
+              <span className="info-label">Time Limit</span>
+              <span className="info-value">{quiz.timeLimit && quiz.timeLimit > 0 ? `${quiz.timeLimit} mins` : 'None'}</span>
+            </div>
+            <div className="info-box">
+              <span className="info-label">Focus Limit</span>
+              <span className="info-value">{quiz.tabLimit || 1} violations</span>
+            </div>
           </div>
 
           <div className="security-notice">
-            <h3>⚠️ Important Security Rules:</h3>
+            <h3><FiAlertTriangle style={{marginBottom: '-2px'}}/> Rules & Requirements</h3>
             <ul>
-              <li>✅ Quiz will open in <strong>fullscreen mode</strong></li>
-              <li>✅ You <strong>cannot</strong> switch tabs, windows, or apps</li>
-              <li>✅ Right-click, copy, and paste are <strong>disabled</strong></li>
-              <li>✅ Exiting fullscreen will <strong>auto-submit</strong> your quiz</li>
-              <li>✅ Timer will start when you click "Start Quiz"</li>
-              <li>✅ Focus violations will be <strong>tracked and reported</strong></li>
+              <li>Opens in strict <strong>fullscreen mode</strong>.</li>
+              <li>Do not switch tabs, windows, or applications.</li>
+              <li>Copy, paste, and right-click are disabled.</li>
+              <li>Exiting fullscreen automatically submits the quiz.</li>
             </ul>
           </div>
 
-          <button 
-            className="start-quiz-btn" 
-            onClick={startQuizInFullscreen}
-          >
-            🚀 Start Quiz in Fullscreen
-          </button>
-          
-          <Link to="/" className="back-btn">← Cancel and Go Back</Link>
+          <div className="start-actions">
+            <Link to="/" className="btn-secondary">Cancel</Link>
+            <button className="btn-primary start-btn" onClick={startQuizInFullscreen}>
+              Enter Secure Mode
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  const questions = quiz.content.split(/\n(?=\d+\.)/);
+  // --- QUIZ TAKING INTERFACE ---
+  const questions = parseQuestions(quiz.content);
   const maxTabSwitches = quiz.tabLimit || 1;
-  const violationsRemaining = maxTabSwitches - tabViolations;
 
   return (
-    <div className="student-quiz-container">
-      <header className="quiz-header">
-        <div className="header-top">
-          <div className="header-left">
-            <h1>{quiz.subject} Quiz</h1>
-            <h2>{quiz.topic}</h2>
-            <p>Difficulty: <strong>{quiz.difficulty}</strong></p>
+    <div className="student-quiz-container fade-in">
+      <header className="modern-quiz-header">
+        <div className="header-main">
+          <div className="header-titles">
+            <h1>{quiz.subject}</h1>
+            <span className="topic-badge">{quiz.topic}</span>
           </div>
-          
-          {/* Timer display */}
+
           {timeRemaining !== null && quiz.timeLimit > 0 && (
-            <div className={`timer-display ${timeRemaining < 300 ? 'warning' : ''} ${timeRemaining < 60 ? 'critical' : ''}`}>
-              <span className="timer-icon">⏱️</span>
-              <span className="timer-text">Time Remaining: </span>
-              <span className="timer-value">{formatTime(timeRemaining)}</span>
+            <div className={`timer-pill ${timeRemaining < 60 ? 'critical' : timeRemaining < 300 ? 'warning' : ''}`}>
+              <FiClock className="timer-icon" />
+              <span>{formatTime(timeRemaining)}</span>
             </div>
           )}
         </div>
 
-        <div className={`security-status ${!fullscreenActive ? 'violation' : ''}`}>
-          <span className="status-icon">{fullscreenActive ? '🔒' : '⚠️'}</span>
-          <span className="status-text">
-            {fullscreenActive ? 'Secure Mode Active' : 'Security Violation Detected'}
-          </span>
-        </div>
-
-        <div className={`tab-warning ${tabViolations > 0 ? 'active' : ''} ${tabViolations > maxTabSwitches ? 'critical' : ''}`}>
-          {tabViolations === 0 ? (
-            <p>✅ No violations detected</p>
-          ) : tabViolations > maxTabSwitches ? (
-            <p className="critical-text">
-              🚨 LIMIT EXCEEDED - Quiz will be auto-submitted
-            </p>
-          ) : (
-            <p className="warning-text">
-              ⚠️ Warning: {tabViolations} violation(s) detected. {violationsRemaining} remaining before auto-submit.
-            </p>
-          )}
-        </div>
+        {tabViolations > 0 && (
+          <div className="violation-banner">
+            <FiAlertTriangle />
+            Warning: {tabViolations} violation(s) detected. Limit: {maxTabSwitches}.
+          </div>
+        )}
       </header>
 
-      <div className="quiz-questions">
-        {questions.map((q, idx) => {
-          const lines = q.split("\n").filter((l) => l.trim());
-          const questionText = lines[0]?.replace(/^\d+\.\s*/, "");
-          const options = lines.filter((line) => /^[A-D]\)/.test(line.trim()));
-          const isMultipleChoice = options.length > 0;
-
-          return (
-            <div key={idx} className="student-question-card">
-              <div className="question-header">
-                <span className={`question-badge ${isMultipleChoice ? "" : "structured-badge"}`}>
-                  {isMultipleChoice ? "Multiple Choice" : "Structured"}
-                </span>
-                <h3>{idx + 1}. {questionText}</h3>
-              </div>
-
-              {isMultipleChoice ? (
-                <ul className="option-list">
-                  {options.map((opt, i) => (
-                    <li key={i} className="option">
-                      <label>
-                        <input
-                          type="radio"
-                          name={`q${idx}`}
-                          value={opt}
-                          checked={answers[idx] === opt}
-                          onChange={() => handleChange(idx, opt)}
-                        />
-                        <span>{opt}</span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="structured-answer-wrapper">
-                  <textarea
-                    className="structured-answer"
-                    placeholder="Write your answer here..."
-                    value={answers[idx] || ""}
-                    onChange={(e) => handleChange(idx, e.target.value)}
-                  />
-                </div>
-              )}
+      <div className="quiz-questions-wrapper">
+        {questions.map((q, idx) => (
+          <div key={idx} className="student-question-card">
+            <div className="question-meta-row">
+              <span className={`q-type-badge ${q.options.length > 0 ? 'mcq' : 'structured'}`}>
+                {q.options.length > 0 ? 'Multiple Choice' : 'Structured'}
+              </span>
+              {q.marks && <span className="marks-badge">{q.marks} Marks</span>}
             </div>
-          );
-        })}
+
+            <h3 className="q-text">
+              <span className="q-number">{q.number}.</span> <MathText text={q.text} />
+            </h3>
+
+            {q.lines.length > 0 && (
+              <div className="q-context">
+                {q.lines.map((line, i) => <p key={i}><MathText text={line} /></p>)}
+              </div>
+            )}
+
+            {q.options.length > 0 ? (
+              <div className="options-grid">
+                {q.options.map((opt, i) => (
+                  <label key={i} className={`option-label ${answers[idx] === opt ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      name={`q${idx}`}
+                      value={opt}
+                      checked={answers[idx] === opt}
+                      onChange={() => handleChange(idx, opt)}
+                      className="hidden-radio"
+                    />
+                    <div className="custom-radio"></div>
+                    <span className="option-text"><MathText text={opt} /></span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <textarea
+                className="modern-textarea"
+                placeholder="Type your comprehensive answer here..."
+                value={answers[idx] || ""}
+                onChange={(e) => handleChange(idx, e.target.value)}
+              />
+            )}
+          </div>
+        ))}
       </div>
 
-      <button 
-        className="submit-btn" 
-        onClick={handleSubmit}
-        disabled={loading || Object.keys(answers).length === 0}
-      >
-        {loading ? "Submitting & Grading..." : "Submit Quiz"}
-      </button>
+      <div className="quiz-footer-actions">
+        <button className="btn-primary submit-final-btn" onClick={() => setShowSubmitConfirm(true)} disabled={loading || Object.keys(answers).length === 0}>
+          {loading ? "Submitting..." : <><FiSend /> Finish & Submit Assessment</>}
+        </button>
+      </div>
 
-      {/* Custom Submit Confirmation Modal */}
       {showSubmitConfirm && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h2>⚠️ Submit Quiz?</h2>
+        <div className="modal-overlay fade-in">
+          <div className="modern-modal">
+            <div className="modal-icon"><FiInfo /></div>
+            <h2>Ready to Submit?</h2>
+            <p>Once submitted, you cannot change your answers.</p>
+            
+            <div className="modal-progress">
+              You answered <strong>{Object.keys(answers).length}</strong> out of <strong>{questions.length}</strong> questions.
             </div>
-            <div className="modal-body">
-              <p>Are you sure you want to submit your quiz?</p>
-              <p className="modal-warning">
-                You <strong>cannot change your answers</strong> after submission.
-              </p>
-              {Object.keys(answers).length < questions.length && (
-                <p className="modal-alert">
-                  ⚠️ You have answered {Object.keys(answers).length} out of {questions.length} questions.
-                </p>
-              )}
-            </div>
+
             <div className="modal-actions">
-              <button 
-                className="modal-btn cancel-btn" 
-                onClick={cancelSubmit}
-                disabled={loading}
-              >
-                ← Go Back
+              <button className="btn-secondary" onClick={() => setShowSubmitConfirm(false)} disabled={loading}>
+                Continue Checking
               </button>
-              <button 
-                className="modal-btn confirm-btn" 
-                onClick={confirmSubmit}
-                disabled={loading}
-              >
-                {loading ? "Submitting..." : "Yes, Submit Quiz"}
+              <button className="btn-primary confirm" onClick={confirmSubmit} disabled={loading}>
+                {loading ? "Processing..." : "Yes, Submit Now"}
               </button>
             </div>
           </div>
@@ -648,85 +538,72 @@ export default function StudentQuiz() {
   );
 }
 
-// Feedback component
+// --- FEEDBACK COMPONENT ---
 function QuizFeedback({ feedback, quiz, quizCode }) {
-  const wasAutoSubmitted = feedback.autoSubmitted || false;
-  const timeExpired = feedback.timeExpired || false;
-  const tabViolations = feedback.tabViolations || 0;
-  const tabLimit = quiz.tabLimit || 1;
+  const isPass = feedback.score >= 60;
 
   return (
-    <div className="quiz-feedback-container">
+    <div className="feedback-container fade-in">
       <header className="feedback-header">
-        <h1>📊 Quiz Results</h1>
+        <div className="feedback-status-icon">
+          {isPass ? <FiCheckCircle className="pass-icon" /> : <FiXCircle className="fail-icon" />}
+        </div>
+        <h1>Assessment Complete</h1>
 
-        {timeExpired && (
-          <div className="auto-submit-alert time-expired">
-            ⏰ <strong>Time's up!</strong> This quiz was automatically submitted when the time limit was reached.
+        {(feedback.timeExpired || feedback.autoSubmitted) && (
+          <div className="auto-submit-banner">
+            <FiAlertTriangle />
+            {feedback.timeExpired 
+              ? "Time limit reached. Quiz auto-submitted." 
+              : `Security violations exceeded (${feedback.tabViolations} / ${quiz.tabLimit}). Quiz auto-submitted.`}
           </div>
         )}
 
-        {wasAutoSubmitted && !timeExpired && (
-          <div className="auto-submit-alert">
-            🚨 <strong>This quiz was automatically submitted</strong> due to security violations 
-            ({tabViolations}/{tabLimit} violations).
-            Your teacher has been notified.
+        <div className="score-widget">
+          <div className={`circular-score ${isPass ? 'pass' : 'fail'}`}>
+            <span>{feedback.score}%</span>
           </div>
-        )}
-
-        <div className="score-display">
-          <div className="score-circle">
-            <span className="score-number">{feedback.score}%</span>
-          </div>
-          <p className="score-breakdown">
-            {feedback.earnedPoints} / {feedback.totalPoints} points
-          </p>
+          <p>{feedback.earnedPoints} of {feedback.totalPoints} Points Earned</p>
         </div>
       </header>
 
-      <div className="feedback-questions">
+      <div className="feedback-list">
         {feedback.feedback.map((item, idx) => (
-          <div key={idx} className={`feedback-card ${item.isCorrect !== undefined ? (item.isCorrect ? 'correct' : 'incorrect') : 'structured'}`}>
-            <div className="feedback-header-section">
-              <span className="question-number">Question {item.questionNumber}</span>
-              <span className="points-badge">
-                {item.pointsEarned}/{item.pointsPossible} points
-              </span>
+          <div key={idx} className={`result-card ${item.isCorrect !== undefined ? (item.isCorrect ? 'correct' : 'incorrect') : 'structured'}`}>
+            <div className="result-card-header">
+              <span className="q-num">Question {item.questionNumber}</span>
+              <span className="pts-badge">{item.pointsEarned}/{item.pointsPossible} pts</span>
             </div>
 
-            <h3 className="feedback-question">{item.question}</h3>
+            <h3 className="result-q-text"><MathText text={item.question} /></h3>
 
-            <div className="answer-section">
-              <p className="student-answer-label">Your Answer:</p>
-              <div className="student-answer-display">
-                {item.studentAnswer}
-              </div>
+            <div className="student-response-box">
+              <span className="response-label">Your Answer:</span>
+              <div className="response-content"><MathText text={item.studentAnswer} /></div>
             </div>
 
-            {item.type === 'multiple-choice' && (
-              <div className={`correct-answer-section ${item.isCorrect ? 'match' : 'mismatch'}`}>
+            {item.type === "multiple-choice" && (
+              <div className={`validation-box ${item.isCorrect ? 'match' : 'mismatch'}`}>
                 {item.isCorrect ? (
-                  <p className="correct-indicator">✅ Correct!</p>
+                  <><FiCheckCircle /> Correct Answer</>
                 ) : (
-                  <p className="incorrect-indicator">
-                    ❌ Incorrect. Correct answer: <strong>{item.correctAnswer}</strong>
-                  </p>
+                  <><FiXCircle /> Incorrect. Correct is: <strong><MathText text={item.correctAnswer} /></strong></>
                 )}
               </div>
             )}
 
-            <div className="ai-feedback-section">
-              <h4>💬 Teacher Feedback:</h4>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <div className="ai-insight-box">
+              <h4>Teacher Insight</h4>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
                 {item.explanation}
               </ReactMarkdown>
             </div>
 
             {item.markScheme && (
-              <details className="mark-scheme-details">
-                <summary>📋 View Mark Scheme</summary>
-                <div className="mark-scheme-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <details className="modern-details">
+                <summary>View Grading Criteria</summary>
+                <div className="details-content">
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
                     {item.markScheme}
                   </ReactMarkdown>
                 </div>
@@ -736,16 +613,9 @@ function QuizFeedback({ feedback, quiz, quizCode }) {
         ))}
       </div>
 
-      <div className="feedback-actions">
-        <Link to="/" className="btn-primary">
-          ← Back To Learning
-        </Link>
-        <button 
-          className="btn-secondary"
-          onClick={() => window.print()}
-        >
-          🖨️ Print Results
-        </button>
+      <div className="feedback-footer">
+        <Link to="/" className="btn-primary"><FiArrowLeft /> Return to Learning</Link>
+        <button className="btn-secondary" onClick={() => window.print()}><FiPrinter /> Print Results</button>
       </div>
     </div>
   );

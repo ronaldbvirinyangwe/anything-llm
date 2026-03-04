@@ -1,39 +1,65 @@
+/* --- Fade In Animation --- */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- Base Container --- */
 .result-detail-container {
   max-width: 1000px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: clamp(1rem, 5vw, 2.5rem);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: #0f172a;
+  /* Apply the animation here */
+  animation: fadeInUp 0.6s ease-out forwards;
 }
 
+/* --- Navigation --- */
 .detail-nav {
   margin-bottom: 2rem;
 }
 
 .back-btn {
-  display: inline-block;
-  padding: 0.5rem 1rem;
-  background: #f0f0f0;
-  border: none;
-  border-radius: 8px;
-  text-decoration: none;
-  color: #333;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.2rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  color: #0f172a;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.3s;
-  font-size: 1rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease-in-out;
+  text-decoration: none;
 }
 
 .back-btn:hover {
-  background: #e0e0e0;
+  background: #f8fafc;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
 }
 
+/* --- Modern Header --- */
 .detail-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #1e1b4b 0%, #4f46e5 100%);
   color: white;
-  padding: 2rem;
-  border-radius: 12px;
-  margin-bottom: 2rem;
+  padding: 2.5rem;
+  border-radius: 16px;
+  margin-bottom: 3rem;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  gap: 2rem;
 }
 
 .header-content {
@@ -41,236 +67,288 @@
 }
 
 .student-info h1 {
-  margin: 0 0 0.3rem 0;
-  font-size: 2rem;
+  margin: 0 0 0.5rem 0;
+  font-size: 2.2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: white;
 }
 
 .student-grade {
-  font-size: 1rem;
-  opacity: 0.9;
-  margin: 0 0 1.5rem 0;
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.2rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 1.5rem;
 }
 
 .quiz-info h2 {
-  margin: 0 0 0.5rem 0;
-  font-size: 1.5rem;
+  margin: 0 0 0.8rem 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #f8fafc;
 }
 
-.detail-subject {
-  font-size: 1.1rem;
-  opacity: 0.9;
-  margin: 0.3rem 0;
+.quiz-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
 }
 
-.detail-difficulty,
-.detail-code,
+.meta-item {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.3rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
 .detail-date {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   opacity: 0.8;
-  margin: 0.2rem 0;
+  margin: 0;
 }
 
-.score-summary {
+/* --- Score Summary Circle --- */
+.score-circle {
+  background: white;
+  padding: 2rem;
+  border-radius: 50%;
+  width: 160px;
+  height: 160px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
   text-align: center;
-  margin-left: 2rem;
 }
 
 .final-score {
-  font-size: 3.5rem;
-  font-weight: bold;
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1;
   margin-bottom: 0.5rem;
 }
 
-.final-score.pass {
-  color: #d4edda;
-}
+.final-score.pass { color: #166534; }
+.final-score.fail { color: #991b1b; }
 
-.final-score.fail {
-  color: #f8d7da;
-}
-
-.score-summary p {
+.score-text {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 600;
 }
 
-.feedback-section {
-  margin-top: 2rem;
-}
-
-.feedback-section h2 {
+/* --- Feedback Section --- */
+.section-title {
   font-size: 1.8rem;
-  margin-bottom: 1.5rem;
-  color: #333;
+  color: #0f172a;
+  font-weight: 700;
 }
 
 .feedback-card {
-  background: white;
-  border: 2px solid #e0e0e0;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
-  transition: box-shadow 0.3s;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease-in-out;
+  /* Stagger animation delay slightly for cards if you want */
+  animation: fadeInUp 0.6s ease-out forwards;
 }
 
 .feedback-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  border-color: #cbd5e1;
 }
 
 .question-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #f0f0f0;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  gap: 1rem;
 }
 
-.question-header h3 {
-  margin: 0;
-  color: #667eea;
-  font-size: 1.2rem;
-}
-
-.question-meta {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
+.question-title-group h3 {
+  margin: 0 0 0.5rem 0;
+  color: #4f46e5;
+  font-size: 1.3rem;
 }
 
 .question-type {
-  background: #e0e0e0;
-  padding: 0.3rem 0.6rem;
-  border-radius: 4px;
-  font-size: 0.85rem;
+  display: inline-block;
+  background: #f8fafc;
+  color: #64748b;
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
   font-weight: 600;
-  text-transform: capitalize;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .points-badge {
-  padding: 0.3rem 0.8rem;
+  padding: 0.4rem 1rem;
   border-radius: 20px;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.9rem;
+  white-space: nowrap;
 }
 
 .points-badge.full-points {
-  background: #d4edda;
-  color: #155724;
+  background: #dcfce7;
+  color: #166534;
 }
 
 .points-badge.partial-points {
-  background: #fff3cd;
-  color: #856404;
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .question-content {
-  margin: 1rem 0;
+  margin: 1.5rem 0;
 }
 
 .question-text {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 500;
   margin: 0;
   line-height: 1.6;
+  color: #0f172a;
 }
 
+/* --- Answers & Feedback --- */
 .answer-section {
-  background: #f8f9fa;
-  padding: 1rem;
-  border-radius: 8px;
-  margin: 1rem 0;
+  background: #f8fafc;
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin: 1.5rem 0;
+  border: 1px solid #e2e8f0;
 }
 
 .student-answer strong {
   display: block;
-  margin-bottom: 0.5rem;
-  color: #333;
+  margin-bottom: 0.8rem;
+  color: #64748b;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.student-answer p {
+.answer-box p {
   margin: 0;
-  padding: 0.8rem;
-  background: white;
-  border-radius: 4px;
-  border-left: 4px solid #667eea;
+  padding: 1rem;
+  background: #ffffff;
+  border-radius: 8px;
+  border-left: 4px solid #4f46e5;
+  font-size: 1.05rem;
+  line-height: 1.5;
 }
 
 .correctness {
-  margin-top: 0.8rem;
-  padding: 0.6rem;
-  border-radius: 4px;
+  margin-top: 1rem;
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
 }
 
 .correctness.correct {
-  background: #d4edda;
-  color: #155724;
+  background: #dcfce7;
+  color: #166534;
 }
 
 .correctness.incorrect {
-  background: #f8d7da;
-  color: #721c24;
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .ai-feedback {
-  margin-top: 1rem;
-  padding: 1rem;
-  background: #f0f4ff;
-  border-radius: 8px;
-  border-left: 4px solid #667eea;
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background: linear-gradient(to right, #f0f4ff, #ffffff);
+  border-radius: 12px;
+  border-left: 4px solid #4f46e5;
+  border-right: 1px solid #e2e8f0;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .ai-feedback strong {
   display: block;
-  margin-bottom: 0.5rem;
-  color: #667eea;
-  font-size: 1rem;
+  margin-bottom: 1rem;
+  color: #4f46e5;
+  font-size: 1.05rem;
 }
 
-.ai-feedback p {
+/* --- Markdown Rendering Styles --- */
+.markdown-content {
   line-height: 1.7;
-  color: #444;
-  margin: 0;
+  color: #334155;
 }
 
+.markdown-content p { margin-top: 0; margin-bottom: 1rem; }
+.markdown-content p:last-child { margin-bottom: 0; }
+.markdown-content h1, .markdown-content h2, .markdown-content h3 {
+  margin-top: 1.5rem; margin-bottom: 0.8rem; color: #0f172a;
+}
+.markdown-content ul, .markdown-content ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+.markdown-content li { margin-bottom: 0.5rem; }
+.markdown-content strong { color: #0f172a; font-weight: 700; }
+
+/* --- Mark Scheme Toggle --- */
 .mark-scheme {
-  margin-top: 1rem;
-  border-top: 2px solid #f0f0f0;
-  padding-top: 1rem;
+  margin-top: 1.5rem;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 1.5rem;
 }
 
 .mark-scheme summary {
   cursor: pointer;
   font-weight: 600;
-  color: #667eea;
+  color: #64748b;
   padding: 0.5rem 0;
+  transition: all 0.2s ease-in-out;
+  display: inline-block;
 }
 
 .mark-scheme summary:hover {
-  color: #5568d3;
+  color: #4f46e5;
 }
 
-.mark-scheme pre {
-  background: #f8f9fa;
-  padding: 1rem;
-  border-radius: 4px;
-  white-space: pre-wrap;
-  font-size: 0.9rem;
-  margin-top: 0.5rem;
-  line-height: 1.5;
-}
-
-.teacher-actions {
-  margin-top: 3rem;
+.mark-scheme-content {
+  background: #f8fafc;
   padding: 1.5rem;
-  background: #f8f9fa;
   border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  margin-top: 1rem;
+  font-size: 0.95rem;
+}
+
+/* --- Actions --- */
+.teacher-actions {
+  margin-top: 4rem;
+  padding: 2rem;
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  animation: fadeInUp 0.6s ease-out forwards;
 }
 
 .teacher-actions h3 {
-  margin: 0 0 1rem 0;
-  color: #333;
+  margin: 0 0 1.5rem 0;
+  color: #0f172a;
 }
 
 .action-buttons {
@@ -280,37 +358,113 @@
 }
 
 .action-btn {
-  padding: 0.8rem 1.5rem;
-  background: #667eea;
-  color: white;
+  padding: 0.8rem 1.8rem;
   border: none;
   border-radius: 8px;
   cursor: pointer;
   font-size: 1rem;
   font-weight: 600;
-  transition: background 0.3s;
+  transition: all 0.2s ease-in-out;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.action-btn:hover {
-  background: #5568d3;
+.action-btn.primary {
+  background: #4f46e5;
+  color: white;
 }
 
-@media print {
-  .detail-nav,
-  .teacher-actions {
-    display: none;
+.action-btn.primary:hover {
+  background: #4338ca;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.action-btn.secondary {
+  background: #f8fafc;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+}
+
+.action-btn.secondary:hover {
+  background: #e2e8f0;
+}
+
+/* --- Loaders --- */
+.loading-screen, .error-message {
+  text-align: center;
+  padding: 5rem 2rem;
+  font-size: 1.2rem;
+  color: #64748b;
+  animation: fadeInUp 0.6s ease-out forwards;
+}
+
+/* =========================================
+   Responsive Media Queries
+   ========================================= */
+@media (max-width: 768px) {
+  .detail-header {
+    flex-direction: column;
+    text-align: center;
+    padding: 2rem 1.5rem;
+    gap: 1.5rem;
+  }
+
+  .quiz-meta {
+    justify-content: center;
+  }
+
+  .score-circle {
+    width: 130px;
+    height: 130px;
+    padding: 1.5rem;
   }
   
-  .detail-header {
-    background: #667eea !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+  .final-score {
+    font-size: 2.2rem;
+  }
+
+  .feedback-card {
+    padding: 1.5rem;
+  }
+
+  .question-header {
+    flex-direction: column;
+  }
+
+  .action-buttons {
+    flex-direction: column;
+  }
+  
+  .action-btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 
-.loading-screen,
-.error-message {
-  text-align: center;
-  padding: 3rem;
-  font-size: 1.2rem;
+/* --- Print Styles --- */
+@media print {
+  .detail-nav, .teacher-actions, details summary {
+    display: none !important;
+  }
+  
+  .result-detail-container {
+    padding: 0;
+    max-width: 100%;
+    animation: none !important; /* Disable fade-in for print */
+  }
+
+  .detail-header {
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: 2px solid #000;
+    page-break-inside: avoid;
+  }
+
+  .student-info h1 { color: #000; }
+  .quiz-info h2 { color: #000; }
+  .score-circle { box-shadow: none; border: 2px solid #000; }
+  .feedback-card { box-shadow: none; border: 1px solid #ccc; page-break-inside: avoid; }
 }

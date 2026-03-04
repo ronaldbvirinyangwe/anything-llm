@@ -40,13 +40,13 @@
   flex-shrink: 0;
   width: 2.5rem;
   height: 2.5rem;
-  background-color: #3b82f6;
-  color: white;
-  border-radius: 9999px;
+  background-color: transparent;  /* was #3b82f6 — mascot has its own circle */
+  border-radius: 0;               /* was 9999px — not needed */
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.25rem;
+  overflow: visible;   
 }
 
 /* 💬 Text section */
@@ -114,10 +114,11 @@
     gap: 0.5rem;
   }
 
-  .notification-icon {
+   .notification-icon {
     width: 2rem;
     height: 2rem;
-    font-size: 1rem;
+    background-color: transparent;
+    border-radius: 0;
   }
 
   .notification-button {
@@ -143,10 +144,11 @@
     gap: 0.5rem;
   }
 
-  .notification-icon {
+ .notification-icon {
     width: 2rem;
     height: 2rem;
-    font-size: 1rem;
+    background-color: transparent;
+    border-radius: 0;
   }
 
   .notification-button {

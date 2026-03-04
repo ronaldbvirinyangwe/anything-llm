@@ -7,7 +7,56 @@ const {
 const { tokenizeString } = require("../../../utils/tokenizer");
 const { default: slugify } = require("slugify");
 const PDFLoader = require("./PDFLoader");
-const OCRLoader = require("../../../utils/OCRLoader");
+const { analyzeImageWithVision } = require('../../../../server/endpoints/Imageextractor');
+const { execSync } = require('child_process');
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
+
+const isGarbage = (text) => {
+  const cleaned = text.replace(/\s/g, '');
+  const unique = new Set(cleaned.match(/.{1,10}/g) || []);
+  return cleaned.length > 0 && unique.size < 5;
+};
+
+const isScanned = (text) => {
+  const cleaned = text.replace(/\s/g, '');
+  return cleaned.length < 200;
+};
+
+async function extractTextViaVision(fullFilePath) {
+  const tempDir = path.join(os.tmpdir(), `pdf_pages_${Date.now()}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  try {
+    // Convert PDF pages to images
+    try {
+      execSync(`pdftoppm -r 150 -png "${fullFilePath}" "${tempDir}/page"`, { timeout: 60000 });
+    } catch (e) {
+      console.error('❌ pdftoppm failed:', e.message);
+      execSync(`convert -density 150 "${fullFilePath}" "${tempDir}/page-%d.png"`, { timeout: 60000 });
+    }
+
+    const pageImages = fs.readdirSync(tempDir)
+      .filter(f => f.endsWith('.png'))
+      .sort()
+      .map(f => path.join(tempDir, f));
+
+    console.log(`📄 Vision analyzing ${pageImages.length} scanned pages...`);
+
+    const pageTexts = [];
+    for (const imagePath of pageImages) {
+      const analysis = await analyzeImageWithVision(imagePath, path.basename(imagePath));
+      if (analysis?.description) {
+        pageTexts.push(analysis.description);
+      }
+    }
+
+    return pageTexts.join('\n\n');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
 
 async function asPdf({
   fullFilePath = "",
@@ -15,6 +64,7 @@ async function asPdf({
   options = {},
   metadata = {},
 }) {
+  console.log("asPDF options received:", JSON.stringify(options));
   const pdfLoader = new PDFLoader(fullFilePath, {
     splitPages: true,
   });
@@ -23,13 +73,20 @@ async function asPdf({
   const pageContent = [];
   let docs = await pdfLoader.load();
 
-  if (docs.length === 0) {
-    console.log(
-      `[asPDF] No text content found for ${filename}. Will attempt OCR parse.`
-    );
-    docs = await new OCRLoader({
-      targetLanguages: options?.ocr?.langList,
-    }).ocrPDF(fullFilePath);
+  const extractedText = docs.map(d => d.pageContent).join('');
+
+  // If text layer is garbage or empty, route directly to vision (skip Tesseract)
+  if (docs.length === 0 || isGarbage(extractedText) || isScanned(extractedText)) {
+    console.log('🔍 Scanned PDF detected — routing directly to vision analysis...');
+    try {
+      const visionText = await extractTextViaVision(fullFilePath);
+      if (visionText && visionText.trim().length > 100) {
+        console.log(`✅ Vision extracted ${visionText.length} characters`);
+        docs = [{ pageContent: visionText, metadata: { source: fullFilePath } }];
+      }
+    } catch (e) {
+      console.error('❌ Vision failed:', e.message);
+    }
   }
 
   for (const doc of docs) {
@@ -80,7 +137,7 @@ async function asPdf({
   });
   trashFile(fullFilePath);
   console.log(`[SUCCESS]: ${filename} converted & ready for embedding.\n`);
-  return { success: true, reason: null, documents: [document] };
+ return { success: true, reason: null, documents: [{ ...document, pageContent: content }] };
 }
 
 module.exports = asPdf;

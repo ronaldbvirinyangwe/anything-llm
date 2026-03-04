@@ -377,7 +377,7 @@ const PGVector = {
 
     const embedding = `[${queryVector.map(Number).join(",")}]`;
     const response = await client.query(
-      `SELECT embedding ${this.operator.cosine} $1 AS _distance, metadata FROM "${PGVector.tableName()}" WHERE namespace = $2 ORDER BY _distance ASC LIMIT $3`,
+      `SELECT id, embedding ${this.operator.cosine} $1 AS _distance, metadata FROM "${PGVector.tableName()}" WHERE namespace = $2 ORDER BY _distance ASC LIMIT $3`,
       [embedding, namespace, topN]
     );
     response.rows.forEach((item) => {
@@ -393,6 +393,7 @@ const PGVector = {
       result.contextTexts.push(item.metadata.text);
       result.sourceDocuments.push({
         ...item.metadata,
+        id: item.id, // unique per-chunk UUID from the primary key column
         score: this.distanceToSimilarity(item._distance),
       });
       result.scores.push(this.distanceToSimilarity(item._distance));

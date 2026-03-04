@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, useRef } from "react";
+import { useState, useEffect, useContext, useRef, useCallback } from "react";
 import ChatHistory from "./ChatHistory";
 import { CLEAR_ATTACHMENTS_EVENT, DndUploaderContext } from "./DnDWrapper";
 import PromptInput, {
@@ -28,6 +28,8 @@ import Test from "../../../pages/QuizPage/Test";
 import "./chatLayout.css";
 import Flashcards from "../../../pages/Flashcards/Flashcards";
 import { useSubscriptionGuard } from "@/hooks/useSubscriptionGuard";
+import { NotificationMessage } from "./ChatHistory";
+import { MASCOT_EXPRESSIONS, ChikoroMascot } from "@/components/ChikoroMascot";
 
 export default function ChatContainer({ workspace, knownHistory = [] }) {
   const { threadSlug = null } = useParams();
@@ -35,8 +37,8 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
   const [loadingResponse, setLoadingResponse] = useState(false);
   const [chatHistory, setChatHistory] = useState(knownHistory);
   const [socketId, setSocketId] = useState(null);
-  const [agentWebsocket, setAgentWebsocket] = useState(null); // ✅ Renamed for agent
-  const [notificationWebsocket, setNotificationWebsocket] = useState(null); // ✅ New for notifications
+  const [agentWebsocket, setAgentWebsocket] = useState(null);
+  const [notificationWebsocket, setNotificationWebsocket] = useState(null);
   const { files, parseAttachments } = useContext(DndUploaderContext);
 
   const [subject, setSubject] = useState("");
@@ -50,17 +52,69 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
   const [quizData, setQuizData] = useState(null);
   const [showFlashcards, setShowFlashcards] = useState(false);
   const [flashcardData, setFlashcardData] = useState(null);
-  const { isLoading, hasAccess, subscriptionStatus, subscriptionExpiry } = 
+  const { isLoading, hasAccess, subscriptionStatus, subscriptionExpiry } =
     useSubscriptionGuard(true);
 
-  useEffect(() => {
-    console.log("🔄 showFlashcards changed to:", showFlashcards);
-    console.log("🔄 flashcardData:", flashcardData);
-  }, [showFlashcards, flashcardData]);
+  // ═══════════════════════════════════════════════════════════
+  // 🤖 MASCOT STATE — drives expression across the chat page
+  // ═══════════════════════════════════════════════════════════
+  const [mascotExpression, setMascotExpression] = useState(MASCOT_EXPRESSIONS.waving);
 
-const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
-  
-  // 🧠 Fetch user profile info (curriculum, grade, etc.)
+  // Derive mascot expression from app state
+  useEffect(() => {
+    if (loadingResponse) {
+      setMascotExpression(MASCOT_EXPRESSIONS.thinking);
+    } else if (showQuiz) {
+      setMascotExpression(MASCOT_EXPRESSIONS.quizzing);
+    } else if (showFlashcards) {
+      setMascotExpression(MASCOT_EXPRESSIONS.studying);
+    } else if (chatHistory.filter((m) => m.role !== "notification").length === 0) {
+      setMascotExpression(MASCOT_EXPRESSIONS.waving);
+    } else {
+      setMascotExpression(MASCOT_EXPRESSIONS.happy);
+    }
+  }, [loadingResponse, showQuiz, showFlashcards, chatHistory]);
+
+  // Briefly show "explaining" when a new assistant message completes streaming
+  useEffect(() => {
+    const lastMsg = chatHistory[chatHistory.length - 1];
+    if (
+      lastMsg?.role === "assistant" &&
+      !lastMsg.pending &&
+      !lastMsg.animate &&
+      lastMsg.content &&
+      !loadingResponse
+    ) {
+      setMascotExpression(MASCOT_EXPRESSIONS.explaining);
+      const timer = setTimeout(() => {
+        setMascotExpression(MASCOT_EXPRESSIONS.happy);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [chatHistory, loadingResponse]);
+
+  // ═══════════════════════════════════════════════════════════
+
+  const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
+
+  const chatAreaRef = useRef(null);
+  const chatHistoryRef = useRef(chatHistory);
+  useEffect(() => {
+    chatHistoryRef.current = chatHistory;
+  }, [chatHistory]);
+
+  const subjectRef = useRef(subject);
+  const curriculumRef = useRef(curriculum);
+  const academicLevelRef = useRef(academicLevel);
+  const gradeRef = useRef(grade);
+  const ageRef = useRef(age);
+  useEffect(() => { subjectRef.current = subject; }, [subject]);
+  useEffect(() => { curriculumRef.current = curriculum; }, [curriculum]);
+  useEffect(() => { academicLevelRef.current = academicLevel; }, [academicLevel]);
+  useEffect(() => { gradeRef.current = grade; }, [grade]);
+  useEffect(() => { ageRef.current = age; }, [age]);
+
+  // 🧠 Fetch user profile info
   useEffect(() => {
     async function fetchProfileById() {
       try {
@@ -77,6 +131,13 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
           },
         });
 
+        if (res.status === 404) {
+          console.error("❌ Ghost User Detected (ID mismatch). Auto-clearing session.");
+          localStorage.removeItem("chikoroai_authToken");
+          window.location.href = "/login";
+          return;
+        }
+
         if (!res.ok) {
           console.error("Profile fetch failed:", await res.text());
           return;
@@ -84,7 +145,6 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
 
         const { success, profile } = await res.json();
         if (success && profile) {
-          console.log("✅ Profile fetched:", profile);
           setAge(profile.age || "");
           setGrade(profile.grade || "");
           setCurriculum(profile.curriculum || "");
@@ -103,39 +163,27 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
   // Listen for quiz creation events
   useEffect(() => {
     const handleQuizCreated = (event) => {
-      console.log("🧠 Quiz event received in ChatContainer:", event.detail.quiz);
       if (event.detail?.quiz?.questions?.length > 0) {
         openQuizPanel(event.detail.quiz);
+        // 🤖 Mascot reacts to quiz creation
+        setMascotExpression(MASCOT_EXPRESSIONS.quizzing);
       }
     };
-
     window.addEventListener("QUIZ_CREATED", handleQuizCreated);
-    
-    return () => {
-      window.removeEventListener("QUIZ_CREATED", handleQuizCreated);
-    };
+    return () => window.removeEventListener("QUIZ_CREATED", handleQuizCreated);
   }, []);
 
   useEffect(() => {
     const handleFlashcardCreated = (event) => {
-      console.log("🎴 Flashcard event received:", event.detail);
-      console.log("🎴 Flashcards object:", event.detail?.flashcards);
-      console.log("🎴 Cards array:", event.detail?.flashcards?.cards);
-      
       if (event.detail?.flashcards?.cards?.length > 0) {
-        console.log("✅ Opening flashcard panel with", event.detail.flashcards.cards.length, "cards");
         setFlashcardData(event.detail.flashcards);
         setShowFlashcards(true);
-      } else {
-        console.error("❌ No cards found");
+        // 🤖 Mascot reacts to flashcard creation
+        setMascotExpression(MASCOT_EXPRESSIONS.studying);
       }
     };
-
     window.addEventListener("FLASHCARD_CREATED", handleFlashcardCreated);
-    
-    return () => {
-      window.removeEventListener("FLASHCARD_CREATED", handleFlashcardCreated);
-    };
+    return () => window.removeEventListener("FLASHCARD_CREATED", handleFlashcardCreated);
   }, []);
 
   const { listening, resetTranscript } = useSpeechRecognition({
@@ -162,17 +210,50 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
     setShowQuiz(true);
   }
 
-  // 🧩 Helper — builds context string for the model only
-  const buildContextPrefix = () => {
+  const buildContextPrefix = useCallback(() => {
     return [
-      subject && `[Subject: ${subject}]`,
-      curriculum && `[Curriculum: ${curriculum}]`,
-      academicLevel && `[Academic Level: ${academicLevel}]`,
-      grade && `[Grade: ${grade}]`,
-      age && `[Age: ${age}]`,
+      subjectRef.current && `[Subject: ${subjectRef.current}]`,
+      curriculumRef.current && `[Curriculum: ${curriculumRef.current}]`,
+      academicLevelRef.current && `[Academic Level: ${academicLevelRef.current}]`,
+      gradeRef.current && `[Grade: ${gradeRef.current}]`,
+      ageRef.current && `[Age: ${ageRef.current}]`,
     ]
       .filter(Boolean)
       .join(" ");
+  }, []);
+
+  const handleMessageClick = async (message) => {
+    const token = localStorage.getItem("chikoroai_authToken");
+
+    if (message.savedQuizId) {
+      try {
+        const res = await fetch(`${API_BASE}/agent-flows/quiz/${message.savedQuizId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const { success, quiz } = await res.json();
+        if (success) {
+          setQuizData({ ...quiz, questions: quiz.questions });
+          setShowQuiz(true);
+        }
+      } catch (e) {
+        console.error("Failed to load saved quiz:", e);
+      }
+    }
+
+    if (message.savedFlashcardSetId) {
+      try {
+        const res = await fetch(`${API_BASE}/agent-flows/flashcard/${message.savedFlashcardSetId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const { success, flashcardSet } = await res.json();
+        if (success) {
+          setFlashcardData({ ...flashcardSet, cards: flashcardSet.cards });
+          setShowFlashcards(true);
+        }
+      } catch (e) {
+        console.error("Failed to load saved flashcards:", e);
+      }
+    }
   };
 
   const handleSubmit = async (event) => {
@@ -181,18 +262,23 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
 
     const contextPrefix = buildContextPrefix();
     const contextualMessage = `${contextPrefix} ${message}`.trim();
-    const displayMessage = message; // <-- what we show in chat
+    const displayMessage = message;
+
+    const userUuid = v4();
+    const assistantUuid = v4();
 
     const prevChatHistory = [
-      ...chatHistory,
+      ...chatHistoryRef.current,
       {
-        content: displayMessage,       // shown in UI
-        userMessage: contextualMessage, // sent to model
+        uuid: userUuid,
+        content: displayMessage,
+        userMessage: contextualMessage,
         role: "user",
         attachments: parseAttachments(),
       },
       {
-        content: "", // assistant placeholder shown as pending
+        uuid: assistantUuid,
+        content: "",
         role: "assistant",
         pending: true,
         userMessage: contextualMessage,
@@ -201,7 +287,6 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
     ];
 
     if (listening) endSTTSession();
-
     setChatHistory(prevChatHistory);
     setMessageEmit("");
     setLoadingResponse(true);
@@ -212,8 +297,9 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
     resetTranscript();
   }
 
-  const regenerateAssistantMessage = (chatId) => {
-    const updatedHistory = chatHistory.slice(0, -1);
+  const regenerateAssistantMessage = useCallback((chatId) => {
+    const currentHistory = chatHistoryRef.current;
+    const updatedHistory = currentHistory.slice(0, -1);
     const lastUserMessage = updatedHistory.slice(-1)[0];
     Workspace.deleteChats(workspace.slug, [chatId])
       .then(() =>
@@ -225,9 +311,9 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
         })
       )
       .catch((e) => console.error(e));
-  };
+  }, [workspace.slug]);
 
-  const sendCommand = async ({
+  const sendCommand = useCallback(async ({
     text = "",
     autoSubmit = false,
     history = [],
@@ -250,57 +336,46 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
     const contextualText = `${contextPrefix} ${text}`.trim();
     const displayText = text;
 
-    let prevChatHistory;
-    if (history.length > 0) {
-      prevChatHistory = [
-        ...history,
-        {
-          content: displayText,
-          userMessage: contextualText,
-          role: "user",
-          attachments: attachments,
-        },
-        {
-          content: "",
-          role: "assistant",
-          pending: true,
-          userMessage: contextualText,
-          attachments,
-          animate: true,
-        },
-      ];
-    } else {
-      prevChatHistory = [
-        ...chatHistory,
-        {
-          content: displayText,
-          userMessage: contextualText,
-          role: "user",
-          attachments,
-        },
-        {
-          content: "",
-          role: "assistant",
-          pending: true,
-          userMessage: contextualText,
-          attachments,
-          animate: true,
-        },
-      ];
-    }
+    const userUuid = v4();
+    const assistantUuid = v4();
+
+    const baseHistory = history.length > 0 ? history : chatHistoryRef.current;
+
+    const prevChatHistory = [
+      ...baseHistory,
+      {
+        uuid: userUuid,
+        content: displayText,
+        userMessage: contextualText,
+        role: "user",
+        attachments,
+      },
+      {
+        uuid: assistantUuid,
+        content: "",
+        role: "assistant",
+        pending: true,
+        userMessage: contextualText,
+        attachments,
+        animate: true,
+      },
+    ];
+
     setChatHistory(prevChatHistory);
     setMessageEmit("");
     setLoadingResponse(true);
-  };
+  }, [buildContextPrefix]);
 
   useEffect(() => {
+    if (!loadingResponse) return;
+
     async function fetchReply() {
+      const currentHistory = chatHistoryRef.current;
       const promptMessage =
-        chatHistory.length > 0 ? chatHistory[chatHistory.length - 1] : null;
-      const remHistory = chatHistory.length > 0 ? chatHistory.slice(0, -1) : [];
+        currentHistory.length > 0 ? currentHistory[currentHistory.length - 1] : null;
+      const remHistory = currentHistory.length > 0 ? currentHistory.slice(0, -1) : [];
       var _chatHistory = [...remHistory];
 
-      // ✅ Check agentWebsocket instead of websocket
       if (!!agentWebsocket) {
         if (!promptMessage || !promptMessage?.userMessage) return false;
         window.dispatchEvent(new CustomEvent(CLEAR_ATTACHMENTS_EVENT));
@@ -333,16 +408,16 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
           ),
         attachments,
       });
-      return;
     }
-    loadingResponse === true && fetchReply();
-  }, [loadingResponse, chatHistory, workspace]);
 
-  // ✅ Agent WebSocket useEffect
+    fetchReply();
+  }, [loadingResponse]);
+
+  // Agent WebSocket useEffect
   useEffect(() => {
     function handleWSS() {
       try {
-        if (!socketId || !!agentWebsocket) return; // ✅ Check agentWebsocket
+        if (!socketId || !!agentWebsocket) return;
         const socket = new WebSocket(
           `${websocketURI()}/api/agent-invocation/${socketId}`
         );
@@ -350,7 +425,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
 
         window.addEventListener(ABORT_STREAM_EVENT, () => {
           window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
-          if (agentWebsocket) agentWebsocket.close(); // ✅ Use agentWebsocket
+          if (agentWebsocket) agentWebsocket.close();
         });
 
         socket.addEventListener("message", (event) => {
@@ -358,14 +433,15 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
           try {
             const parsed = JSON.parse(event.data);
 
-            // 🧠 Detect tool calls and enrich them
             if (parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0) {
               openQuizPanel(parsed.quiz);
-              parsed.display_message = `✅ Quiz generated successfully on **${parsed.parameters?.subject || "a subject"}** for **${parsed.parameters?.grade || "students"}** (${parsed.quiz.questions.length} questions).`;
+              setMascotExpression(MASCOT_EXPRESSIONS.quizzing);
+              parsed.display_message = `✅ Quiz generated on **${parsed.parameters?.subject || "a subject"}** (${parsed.quiz.questions.length} questions). Click to reopen.`;
             }
 
             if (parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0) {
-              parsed.display_message = `🎴 Flashcards created successfully — ${parsed.flashcards.cards.length} cards ready for study.`;
+              setMascotExpression(MASCOT_EXPRESSIONS.studying);
+              parsed.display_message = `🎴 Flashcards created — ${parsed.flashcards.cards.length} cards ready. Click to reopen.`;
             }
 
             handleSocketResponse(socket, event, setChatHistory, parsed);
@@ -394,10 +470,10 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
             },
           ]);
           setLoadingResponse(false);
-          setAgentWebsocket(null); // ✅ Clear agentWebsocket
+          setAgentWebsocket(null);
           setSocketId(null);
         });
-        setAgentWebsocket(socket); // ✅ Set agentWebsocket
+        setAgentWebsocket(socket);
         window.dispatchEvent(new CustomEvent(AGENT_SESSION_START));
         window.dispatchEvent(new CustomEvent(CLEAR_ATTACHMENTS_EVENT));
       } catch (e) {
@@ -416,57 +492,40 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
           },
         ]);
         setLoadingResponse(false);
-        setAgentWebsocket(null); // ✅ Clear agentWebsocket
+        setAgentWebsocket(null);
         setSocketId(null);
       }
     }
     handleWSS();
   }, [socketId]);
 
-  // ✅ Notification WebSocket useEffect
+  // Notification WebSocket useEffect
   useEffect(() => {
-    console.log("🔍 Notification WebSocket useEffect triggered");
-    console.log("🔍 User ID:", user?.id);
-    
-    if (!user?.id) {
-      console.log("❌ No user ID, skipping WebSocket connection");
-      return;
-    }
+    if (!user?.id) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.host.includes("localhost") 
-      ? "localhost:3001" 
+    const host = window.location.host.includes("localhost")
+      ? "localhost:3001"
       : window.location.host;
     const wsUrl = `${protocol}//${host}/ws/notifications`;
 
-    console.log("🔌 Connecting to notifications WebSocket:", wsUrl);
-    
     let ws;
     try {
       ws = new WebSocket(wsUrl);
-      setNotificationWebsocket(ws); // ✅ Use notificationWebsocket
-      console.log("🔌 Notification WebSocket object created");
+      setNotificationWebsocket(ws);
     } catch (error) {
       console.error("❌ Failed to create notification WebSocket:", error);
       return;
     }
 
     ws.onopen = () => {
-      console.log("✅ Connected to Notifications WebSocket");
-      const registerMsg = JSON.stringify({ 
-        type: "register", 
-        userId: user.id 
-      });
-      console.log("📝 Sending registration:", registerMsg);
-      ws.send(registerMsg);
+      ws.send(JSON.stringify({ type: "register", userId: user.id }));
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log("📢 Notification received:", data);
 
-        // Handle quiz assignments
         if (data.type === "quiz_assigned") {
           setChatHistory((prev) => [
             ...prev,
@@ -482,13 +541,16 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
             },
           ]);
 
+          // 🤖 Mascot reacts to notification
+          setMascotExpression(MASCOT_EXPRESSIONS.encouraging);
+          setTimeout(() => setMascotExpression(MASCOT_EXPRESSIONS.happy), 4000);
+
           if ("Notification" in window && Notification.permission === "granted") {
             const browserNotif = new Notification("New Quiz Assigned", {
               body: data.message,
               icon: "/logo.png",
               tag: "quiz-notification",
             });
-
             browserNotif.onclick = () => {
               window.focus();
               window.location.href = data.link;
@@ -497,10 +559,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
           }
         }
 
-        // Handle subscription status updates
         if (data.type === "subscription_status") {
-          console.log("📢 Subscription status received:", data);
-
           setChatHistory((prev) => [
             ...prev,
             {
@@ -515,9 +574,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
             },
           ]);
 
-          if (data.redirect) {
-            window.location.href = data.redirect;
-          }
+          if (data.redirect) window.location.href = data.redirect;
 
           if ("Notification" in window && Notification.permission === "granted") {
             const notif = new Notification("Subscription Update", {
@@ -536,23 +593,14 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
       }
     };
 
-    ws.onerror = (error) => {
-      console.error("❌ Notification WebSocket error:", error);
-    };
+    ws.onerror = (error) => console.error("❌ Notification WebSocket error:", error);
+    ws.onclose = (event) => console.log("🔌 Notification WebSocket closed", event.code, event.reason);
 
-    ws.onclose = (event) => {
-      console.log("🔌 Notification WebSocket closed", event.code, event.reason);
-    };
-
-    // Request notification permission on mount
     if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().then((permission) => {
-        console.log("🔔 Notification permission:", permission);
-      });
+      Notification.requestPermission();
     }
 
     return () => {
-      console.log("🧹 Cleaning up notification WebSocket");
       if (ws) ws.close();
     };
   }, [user?.id]);
@@ -571,18 +619,13 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
           },
         });
 
-        if (!res.ok) {
-          console.log("⚠️ Failed to fetch notifications:", res.status);
-          return;
-        }
+        if (!res.ok) return;
 
         const { success, notifications } = await res.json();
-        
+
         if (success && notifications.length > 0) {
-          console.log("📬 Loaded", notifications.length, "unread notifications");
-          
-          const notificationMessages = notifications.map(notif => ({
-            uuid: v4(),
+          const notificationMessages = notifications.map((notif) => ({
+            uuid: `notif-${notif.id}`,
             content: notif.message,
             role: "notification",
             type: notif.type,
@@ -593,18 +636,37 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
             createdAt: notif.createdAt,
           }));
 
-          setChatHistory(prev => [...notificationMessages, ...prev]);
+          setChatHistory((prev) => {
+            const existingIds = new Set(
+              prev.filter((m) => m.notificationId).map((m) => m.notificationId)
+            );
+            const newNotifs = notificationMessages.filter(
+              (n) => !existingIds.has(n.notificationId)
+            );
+            return [...newNotifs, ...prev];
+          });
         }
       } catch (err) {
-        console.error("❌ Failed to fetch notifications:", err);
+        console.error("Failed to fetch notifications:", err);
       }
     };
 
     fetchUnreadNotifications();
   }, [user?.id, API_BASE]);
 
-  console.log("🎨 Rendering ChatContainer:", { showQuiz, showFlashcards, hasFlashcardData: !!flashcardData });
-  console.log("📊 Profile state:", { curriculum, grade, age, academicLevel });
+  const isInitialMount = useRef(true);
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    setChatHistory((prev) => {
+      const nonChatMessages = prev.filter((m) => m.role === "notification");
+      return [...nonChatMessages, ...knownHistory];
+    });
+  }, [knownHistory]);
 
   if (isLoading) {
     return (
@@ -621,24 +683,28 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
     return null;
   }
 
+  const notifications = chatHistory.filter((m) => m.role === "notification");
+  const chatMessages = chatHistory.filter((m) => m.role !== "notification");
+
   return (
     <div className={`chat-layout ${showQuiz ? "with-quiz" : ""} ${showFlashcards ? "with-flashcards" : ""}`}>
-      {subscriptionExpiry && 
-       new Date(subscriptionExpiry.getTime() - 3 * 24 * 60 * 60 * 1000) < new Date() && (
-        <div className="bg-yellow-500/20 text-yellow-300 px-4 py-2 text-sm border-b border-yellow-500/30">
-          ⚠️ Your subscription expires on {subscriptionExpiry.toLocaleDateString()}. 
-          <a href="/payment" className="underline ml-2">Renew now</a>
-        </div>
-      )}
-      
+      {subscriptionExpiry &&
+        new Date(subscriptionExpiry.getTime() - 3 * 24 * 60 * 60 * 1000) < new Date() && (
+          <div className="bg-yellow-500/20 text-yellow-300 px-4 py-2 text-sm border-b border-yellow-500/30">
+            ⚠️ Your subscription expires on {subscriptionExpiry.toLocaleDateString()}.
+            <a href="/payment" className="underline ml-2">Renew now</a>
+          </div>
+        )}
+
       <div
+        ref={chatAreaRef}
         style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
         className="transition-all duration-500 relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px]
                    bg-theme-bg-secondary w-full h-full overflow-y-scroll no-scroll z-[2]"
       >
         {isMobile && <SidebarMobileHeader />}
-        <SubjectSelector 
-          subject={subject} 
+        <SubjectSelector
+          subject={subject}
           setSubject={setSubject}
           curriculum={curriculum}
           grade={grade}
@@ -646,13 +712,25 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
 
         <DnDFileUploaderWrapper>
           <MetricsProvider>
+            {notifications.length > 0 && (
+              <div className="notification-banner-container px-4 py-2 space-y-2">
+                {notifications.map((notif) => (
+                  <NotificationMessage
+                    key={notif.uuid || notif.notificationId}
+                    message={notif}
+                  />
+                ))}
+              </div>
+            )}
             <ChatHistory
-              history={chatHistory}
+              history={chatMessages}
               workspace={workspace}
               sendCommand={sendCommand}
               updateHistory={setChatHistory}
               regenerateAssistantMessage={regenerateAssistantMessage}
               hasAttachments={files.length > 0}
+              onMessageClick={handleMessageClick}
+              mascotExpression={mascotExpression}
             />
           </MetricsProvider>
           <PromptInput
@@ -668,21 +746,34 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
 
       {showQuiz && (
         <aside className="quiz-panel">
+          <div className="chk-panel-header">
+            <ChikoroMascot expression={mascotExpression} size={32} animate={true} />
+            <span className="chk-panel-title">Quiz Mode</span>
+            <button className="close-quiz" onClick={() => {
+              setShowQuiz(false);
+              setLoadingResponse(false);
+              window.dispatchEvent(new CustomEvent(ABORT_STREAM_EVENT));
+            }}>
+              ✕
+            </button>
+          </div>
           <Test externalTest={quizData} />
-          <button className="close-quiz" onClick={() => setShowQuiz(false)}>
-            ✕
-          </button>
         </aside>
       )}
 
       {showFlashcards && flashcardData && (
         <aside className="quiz-panel flashcard-panel">
-          <button className="close-quiz" onClick={() => {
-            console.log("❌ Closing flashcards");
-            setShowFlashcards(false);
-          }}>
-            ✕
-          </button>
+          <div className="chk-panel-header">
+            <ChikoroMascot expression={mascotExpression} size={32} animate={true} />
+            <span className="chk-panel-title">Flashcards</span>
+            <button className="close-quiz" onClick={() => {
+              setShowFlashcards(false);
+              setLoadingResponse(false);
+              window.dispatchEvent(new CustomEvent(ABORT_STREAM_EVENT));
+            }}>
+              ✕
+            </button>
+          </div>
           <Flashcards flashcardData={flashcardData} />
         </aside>
       )}

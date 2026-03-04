@@ -14,7 +14,7 @@ import TextSizeButton from "./TextSizeMenu";
 import LLMSelectorAction from "./LLMSelector/action";
 import SpeechToText from "./SpeechToText";
 import { Tooltip } from "react-tooltip";
-import AttachmentManager from "./Attachments";
+import    AttachmentManager from "./Attachments";
 import AttachItem from "./AttachItem";
 import {
   ATTACHMENTS_PROCESSED_EVENT,

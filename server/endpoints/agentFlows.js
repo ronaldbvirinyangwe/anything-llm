@@ -218,19 +218,21 @@ app.post(
     }
   );
 
-  // 🎓 Quiz Creation Agent (automated test builder)
-// 🎓 Quiz Creation Agent (automated test builder)
 app.post("/agent-flows/quiz/create", [validatedRequest], async (req, res) => {
   try {
-    const { 
-      subject, 
-      grade, 
-      numQuestions = 5, 
+    const {
+      subject,
+      topic = "",
+      grade,
+      numQuestions = 5,
       difficulty = "medium",
       userMessage = "",
       userId = null,
       workspaceSlug = null
     } = req.body;
+
+    // topic is the specific concept from the conversation; fall back to userMessage
+    const quizTopic = topic || userMessage || "general curriculum topics";
 
     if (!subject || !grade) {
       return res.status(400).json({
@@ -281,6 +283,9 @@ app.post("/agent-flows/quiz/create", [validatedRequest], async (req, res) => {
     // === AI Prompt ===
     const prompt = `You are Chikoro AI — a Zimbabwean AI tutor aligned with ZIMSEC and Cambridge curricula.
 
+TASK: Create ${numQuestions} questions STRICTLY about "${quizTopic}" for ${subject}, Grade ${grade}, difficulty: ${difficulty}.
+ALL questions must be about "${quizTopic}" only. Do not generate questions on any other topic.
+
 CRITICAL RULES:
 1. Return ONLY valid JSON
 2. NO text before the opening {
@@ -291,46 +296,47 @@ CRITICAL RULES:
 EXACT JSON FORMAT REQUIRED:
 {
   "subject": "${subject}",
+  "topic": "${quizTopic}",
   "grade": "${grade}",
   "difficulty": "${difficulty}",
-  "userMessage": "${userMessage}",
   "questions": [
     {
       "type": "MCQ",
-      "question": "Example question here?",
+      "question": "Example question about ${quizTopic}?",
       "options": ["A. First option", "B. Second option", "C. Third option", "D. Fourth option"],
       "correct_answer": "B. Second option"
     }
   ]
 }
 
-Task: Create ${numQuestions} questions for ${subject} (Grade ${grade})
 - ${Math.ceil(numQuestions/2)} MCQ questions (4 options each, labeled A-D)
 - ${Math.floor(numQuestions/2)} short-answer questions
-- Difficulty: ${difficulty}
-- Topic: ${userMessage || 'general curriculum topics'}
-${wantsHistoryBased ? '- Base on recent conversation' : ''}
+- Use Zimbabwean context and ZIMSEC/Cambridge curriculum alignment where relevant
+${wantsHistoryBased ? '- Base on recent conversation context below' : ''}
 ${contextInfo}
 
 Remember: Return ONLY the JSON object. Start with { and end with }.`;
 
-    const ollamaRes = await fetch("http://localhost:11434/api/generate", {
+    const ollamaRes = await fetch(`${process.env.VLLM_BASE_PATH}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        model: "gpt-oss:20b-cloud",
-        prompt,
-        stream: false, // ✅ Don't stream for easier parsing
-        format: "json" // ✅ Request JSON format
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY || "EMPTY"}`,
+      },
+      body: JSON.stringify({
+        model: process.env.OLLAMA_MODEL_PREF || "gpt-oss:20b",
+        messages: [{ role: "user", content: prompt }],
+        stream: false,
+        temperature: 0.3,
       }),
     });
 
-    if (!ollamaRes.ok) throw new Error("Ollama did not respond properly.");
+    if (!ollamaRes.ok) throw new Error(`vLLM did not respond properly: ${ollamaRes.status}`);
 
     const ollamaData = await ollamaRes.json();
-    let raw = ollamaData.response || "";
+    let raw = ollamaData.choices?.[0]?.message?.content || "";
 
-    console.log("🔍 Raw Ollama response:", raw.substring(0, 200));
+    console.log("🔍 Raw vLLM response:", raw.substring(0, 200));
 
     // === Enhanced JSON parsing ===
     function safeParseQuizJSON(raw) {
@@ -393,6 +399,37 @@ Remember: Return ONLY the JSON object. Start with { and end with }.`;
 
     console.log(`✅ Quiz generated with ${quiz.questions.length} questions`);
 
+    if (userId) {
+      // Save to chat history for persistence
+try {
+  const { WorkspaceChats } = require("../models/workspaceChats");
+  const { Workspace } = require("../models/workspace");
+  if (workspaceSlug) {
+    const workspace = await Workspace.get({ slug: workspaceSlug });
+    if (workspace) {
+      await WorkspaceChats.new({
+        workspaceId: workspace.id,
+        prompt: userMessage || `Create a ${subject} quiz`,
+        response: {
+          text: `Quiz created successfully on ${subject} for Grade ${grade}!`,
+          sources: [],
+          type: "chat",
+          attachments: [],
+          metrics: {},
+          tool_call: "quiz_create",
+          quizData: quiz,
+        },
+        threadId: null,
+        user: userId ? { id: parseInt(userId) } : null,
+      });
+      console.log("💾 Quiz saved to chat history");
+    }
+  }
+} catch (chatErr) {
+  console.warn("⚠️ Failed to save quiz to chat history:", chatErr.message);
+}
+    }
+
     return res.status(200).json({
       success: true,
       tool: "quiz_create",
@@ -407,18 +444,21 @@ Remember: Return ONLY the JSON object. Start with { and end with }.`;
   }
 });
 
-// 🎴 Flashcard Creation Agent (automated flashcard builder)
+
 app.post("/agent-flows/flashcard/create", [validatedRequest], async (req, res) => {
   try {
-    const { 
-      subject, 
-      grade, 
-      numCards = 10, 
+    const {
+      subject,
+      topic = "",
+      grade,
+      numCards = 10,
       difficulty = "medium",
       userMessage = "",
       userId = null,
       workspaceSlug = null
     } = req.body;
+
+    const flashcardTopic = topic || userMessage || "general curriculum topics";
 
     if (!subject || !grade) {
       return res.status(400).json({
@@ -468,58 +508,56 @@ app.post("/agent-flows/flashcard/create", [validatedRequest], async (req, res) =
     // === AI Prompt ===
     const prompt = `You are Chikoro AI — a Zimbabwean AI tutor aligned with ZIMSEC and Cambridge curricula.
 
+TASK: Create ${numCards} flashcards STRICTLY about "${flashcardTopic}" for ${subject}, Grade ${grade}, difficulty: ${difficulty}.
+ALL cards must be about "${flashcardTopic}" only. Do not generate cards on any other topic.
+
 CRITICAL: Your response must be ONLY valid JSON. No text before or after. No markdown. No explanations.
 
 Create flashcards with this EXACT structure:
 {
   "subject": "${subject}",
-  "userMessage": "${userMessage}",
+  "topic": "${flashcardTopic}",
   "grade": "${grade}",
   "cards": [
     {
-      "front": "What is photosynthesis?",
-      "back": "The process by which plants convert light energy into chemical energy (glucose) using chlorophyll, carbon dioxide, and water.",
-      "category": "Biology Basics"
-    },
-    {
-      "front": "Name the capital of Zimbabwe",
-      "back": "Harare",
-      "category": "Geography"
+      "front": "What is ${flashcardTopic}?",
+      "back": "A detailed answer about ${flashcardTopic} here.",
+      "category": "${flashcardTopic}"
     }
   ]
 }
 
-User's request: "${userMessage}"
-
-Create ${numCards} flashcards for ${subject} containing "${userMessage}" at ${difficulty} difficulty level for Grade ${grade}.
-Use Zimbabwean context, local examples, and ZIMSEC/Cambridge curriculum alignment.
-Each card should have:
-- front: A clear, concise question or prompt
-- back: A detailed, educational answer
-- category: A subtopic or theme (e.g., "World War 1", "Photosynthesis", "Algebra")
+Each card must:
+- front: A clear, concise question about "${flashcardTopic}"
+- back: A detailed, educational answer about "${flashcardTopic}"
+- category: A subtopic within "${flashcardTopic}"
+Use Zimbabwean context, local examples, and ZIMSEC/Cambridge curriculum alignment where relevant.
 
 ${wantsHistoryBased ? 'Base flashcards on the topics discussed in the recent conversation.' : ''}
 ${contextInfo}
 
 Return ONLY the JSON object. Start with { and end with }. No other text.`;
 
-    const ollamaRes = await fetch("http://localhost:11434/api/generate", {
+    const ollamaRes = await fetch(`${process.env.VLLM_BASE_PATH}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        model: "gpt-oss:20b-cloud", 
-        prompt,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY || "EMPTY"}`,
+      },
+      body: JSON.stringify({
+        model: process.env.OLLAMA_MODEL_PREF || "gpt-oss:20b",
+        messages: [{ role: "user", content: prompt }],
         stream: false,
-        format: "json"
+        temperature: 0.3,
       }),
     });
 
-    if (!ollamaRes.ok) throw new Error("Ollama did not respond properly.");
+    if (!ollamaRes.ok) throw new Error(`vLLM did not respond properly: ${ollamaRes.status}`);
 
     const ollamaData = await ollamaRes.json();
-    let raw = ollamaData.response || "";
+    let raw = ollamaData.choices?.[0]?.message?.content || "";
 
-    console.log("🔍 Raw Ollama response:", raw.substring(0, 200));
+    console.log("🔍 Raw vLLM response:", raw.substring(0, 200));
 
     // === Enhanced JSON parsing ===
     function safeParseFlashcardJSON(raw) {
@@ -576,6 +614,37 @@ Return ONLY the JSON object. Start with { and end with }. No other text.`;
 
     console.log(`✅ Flashcards generated with ${flashcards.cards.length} cards`);
 
+    // ✅ Save to database
+if (userId) {
+  try {
+  const { WorkspaceChats } = require("../models/workspaceChats");
+  const { Workspace } = require("../models/workspace");
+  if (workspaceSlug) {
+    const workspace = await Workspace.get({ slug: workspaceSlug });
+    if (workspace) {
+      await WorkspaceChats.new({
+        workspaceId: workspace.id,
+        prompt: userMessage || `Create ${subject} flashcards`,
+        response: {
+          text: `Flashcards created successfully on ${subject} for Grade ${grade}!`,
+          sources: [],
+          type: "chat",
+          attachments: [],
+          metrics: {},
+          tool_call: "flashcard_create",
+          flashcardData: flashcards,
+        },
+        threadId: null,
+        user: userId ? { id: parseInt(userId) } : null,
+      });
+      console.log("💾 Flashcards saved to chat history");
+    }
+  }
+} catch (chatErr) {
+  console.warn("⚠️ Failed to save flashcards to chat history:", chatErr.message);
+}
+}
+
     return res.status(200).json({
       success: true,
       tool: "flashcard_create",
@@ -591,9 +660,9 @@ Return ONLY the JSON object. Start with { and end with }. No other text.`;
 });
 
 // 🔍 Web Search Tool
-app.post("/agent-tools/web-search", [validatedRequest], async (req, res) => {
+app.post("/agent-flows/web-search", [validatedRequest], async (req, res) => {
   try {
-    const { query, provider = "duckduckgo", numResults = 10 } = req.body;
+    const { query, provider = "tavily", numResults = 5 } = req.body;
 
     if (!query) {
       return res.status(400).json({
@@ -605,16 +674,16 @@ app.post("/agent-tools/web-search", [validatedRequest], async (req, res) => {
     let results = [];
 
     switch (provider) {
-      case "duckduckgo":
-        results = await require("../utils/search/duckduckgo")(query, numResults);
+       case "tavily":
+        results = await require("../utils/search/tavily")(query, numResults);
         break;
+
+      // case "duckduckgo":
+      //   results = await require("../utils/search/duckduckgo")(query, numResults);
+      //   break;
 
       case "serper":
         results = await require("../utils/search/serper")(query, numResults);
-        break;
-
-      case "tavily":
-        results = await require("../utils/search/tavily")(query, numResults);
         break;
 
       default:
@@ -636,6 +705,38 @@ app.post("/agent-tools/web-search", [validatedRequest], async (req, res) => {
       success: false,
       error: err.message,
     });
+  }
+});
+
+// Get saved quizzes for a user
+app.get("/agent-flows/quiz/history/:userId", [validatedRequest], async (req, res) => {
+  try {
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    const quizzes = await prisma.savedQuiz.findMany({
+      where: { userId: parseInt(req.params.userId) },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    return res.status(200).json({ success: true, quizzes });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get saved flashcard sets for a user
+app.get("/agent-flows/flashcard/history/:userId", [validatedRequest], async (req, res) => {
+  try {
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    const flashcardSets = await prisma.savedFlashcardSet.findMany({
+      where: { userId: parseInt(req.params.userId) },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    return res.status(200).json({ success: true, flashcardSets });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 

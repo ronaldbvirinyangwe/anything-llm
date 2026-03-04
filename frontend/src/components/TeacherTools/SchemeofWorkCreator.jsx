@@ -6,7 +6,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import "./lessonplanner.css"; // Reuse same styles
+import { 
+  FiArrowLeft, FiFileText, FiDownload, FiBook, FiCalendar, FiClock, FiLayers 
+} from "react-icons/fi";
+import "./lessonplanner.css"; // Uses the newly modernized CSS!
 import { useTheme } from "@/hooks/useTheme";
 
 const cleanMarkdown = (text) => {
@@ -112,61 +115,70 @@ export default function SchemeOfWorkCreator() {
 
   const saveAsPdf = async () => {
     if (!planRef.current) return;
-    const canvas = await html2canvas(planRef.current, { scale: 2 });
-    const img = canvas.toDataURL("image/png");
+    const element = planRef.current;
+    
+    // Add class for clean PDF rendering
+    element.classList.add('pdf-export-mode');
+    
+    const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#ffffff' });
+    const imgData = canvas.toDataURL("image/png");
     const pdf = new jsPDF("p", "mm", "a4");
-    const width = pdf.internal.pageSize.getWidth();
-    const height = (canvas.height * width) / canvas.width;
-    pdf.addImage(img, "PNG", 0, 0, width, height);
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+    
+    pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
     pdf.save(
-      `${formData.subject}_SchemeOfWork_${new Date()
-        .toISOString()
-        .slice(0, 10)}.pdf`
+      `${formData.subject}_SchemeOfWork_${new Date().toISOString().slice(0, 10)}.pdf`
     );
+    
+    element.classList.remove('pdf-export-mode');
   };
 
   return (
-    <div className={`tool-container ${theme}`}>
+    <div className={`lesson-planner-container ${theme}`}>
       <nav className="tool-nav">
-        <Link to="/teacher-dashboard">&larr; Back to Dashboard</Link>
+        <Link to="/teacher-dashboard" className="back-btn">
+          <FiArrowLeft /> Back to Dashboard
+        </Link>
       </nav>
 
-      <header className="tool-header">
+      <header className="tool-header modern-header">
         <h1>📚 AI Scheme of Work Creator</h1>
         <p>
-          Automatically generate a detailed scheme of work for your subject and term using Chikoro AI.
+          Automatically generate a detailed, week-by-week scheme of work for your subject and term in seconds.
         </p>
       </header>
 
-      <div className="lesson-planner-content">
-        <div className="planner-form-section">
-          <form onSubmit={handleSubmit}>
-            <div className="form-grid">
-              <div className="form-group">
-                <label>Subject</label>
-                <input
-                  type="text"
-                  value={formData.subject}
-                  onChange={(e) => setFormField("subject", e.target.value)}
-                  placeholder="e.g. Mathematics"
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Grade / Form</label>
-                <input
-                  type="text"
-                  value={formData.grade}
-                  onChange={(e) => setFormField("grade", e.target.value)}
-                  placeholder="e.g. Form 3"
-                  required
-                />
-              </div>
+      <div className="planner-layout">
+        {/* --- Sidebar Form --- */}
+        <div className="planner-sidebar">
+          <form className="modern-form" onSubmit={handleSubmit}>
+            <h2 className="form-title">Scheme Details</h2>
+            
+            <div className="form-group">
+              <label><FiBook /> Subject</label>
+              <input
+                type="text"
+                value={formData.subject}
+                onChange={(e) => setFormField("subject", e.target.value)}
+                placeholder="e.g. Mathematics"
+                required
+              />
             </div>
 
             <div className="form-group">
-              <label>Term</label>
+              <label>Grade / Form</label>
+              <input
+                type="text"
+                value={formData.grade}
+                onChange={(e) => setFormField("grade", e.target.value)}
+                placeholder="e.g. Form 3"
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label><FiCalendar /> Term</label>
               <select
                 value={formData.term}
                 onChange={(e) => setFormField("term", e.target.value)}
@@ -180,18 +192,18 @@ export default function SchemeOfWorkCreator() {
             </div>
 
             <div className="form-group">
-              <label>Number of Weeks</label>
+              <label><FiClock /> Number of Weeks</label>
               <input
                 type="number"
                 min="1"
                 max="15"
                 value={formData.weeks}
-                onChange={(e) => setFormField("weeks", e.target.value)}
+                onChange={(e) => setFormField("weeks", parseInt(e.target.value) || "")}
               />
             </div>
 
             <div className="form-group">
-              <label>Curriculum (Optional)</label>
+              <label><FiLayers /> Curriculum (Optional)</label>
               <input
                 type="text"
                 placeholder="e.g. ZIMSEC, Cambridge"
@@ -201,57 +213,58 @@ export default function SchemeOfWorkCreator() {
             </div>
 
             <div className="form-group">
-              <label>Additional Notes (Optional)</label>
+              <label><FiFileText /> Additional Notes (Optional)</label>
               <textarea
                 rows="3"
-                placeholder="e.g. Focus on practical topics this term"
+                placeholder="e.g. Focus on practical experiments this term"
                 value={formData.notes}
                 onChange={(e) => setFormField("notes", e.target.value)}
               ></textarea>
             </div>
 
-            <div className="button-group">
-              <button
-                type="submit"
-                className="generate-btn"
-                disabled={isLoading}
-              >
-                {isLoading ? "Generating..." : "Generate Scheme of Work"}
-              </button>
-
-              {scheme && !isLoading && (
-                <button
-                  type="button"
-                  onClick={saveAsPdf}
-                  className="generate-btn secondary"
-                >
-                  Save as PDF
-                </button>
+            <button type="submit" disabled={isLoading} className="action-btn primary full-width">
+              {isLoading ? (
+                <><span className="spinner-small"></span> Generating...</>
+              ) : (
+                <><FiFileText /> Generate Scheme</>
               )}
-            </div>
+            </button>
           </form>
         </div>
 
-        <div className="planner-output-section">
+        {/* --- Output Area --- */}
+        <div className="planner-main">
           {isLoading && (
-            <div className="loading-overlay">
-              <div className="spinner"></div>
-              <p>Generating your scheme of work...</p>
+            <div className="loading-state">
+              <div className="spinner-large"></div>
+              <p>Mapping out your term schedule...</p>
             </div>
           )}
-          {error && <div className="error-message">{error}</div>}
-          {scheme && !isLoading ? (
-            <div className="generated-plan markdown-body" ref={planRef}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {scheme}
-              </ReactMarkdown>
-            </div>
-          ) : (
-            !isLoading && (
-              <div className="placeholder-text">
-                Your generated scheme of work will appear here.
+          
+          {error && <div className="error-alert">⚠️ {error}</div>}
+
+          {scheme && !isLoading && (
+            <div className="output-card fade-in">
+              <div className="output-actions">
+                <button type="button" onClick={saveAsPdf} className="export-btn pdf">
+                  <FiDownload /> Save as PDF
+                </button>
               </div>
-            )
+
+              <div className="generated-plan markdown-body" ref={planRef}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {scheme}
+                </ReactMarkdown>
+              </div>
+            </div>
+          )}
+
+          {!scheme && !isLoading && !error && (
+            <div className="empty-state-card">
+              <div className="empty-icon">📅</div>
+              <h3>Plan Your Term</h3>
+              <p>Fill out the details on the left and hit generate to create a comprehensive scheme of work.</p>
+            </div>
           )}
         </div>
       </div>

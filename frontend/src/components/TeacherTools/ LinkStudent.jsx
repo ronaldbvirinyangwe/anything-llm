@@ -2,6 +2,9 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
+import { 
+  FiArrowLeft, FiLink, FiCopy, FiCheck, FiUsers, FiBook, FiUserPlus 
+} from "react-icons/fi";
 import "./linkstudent.css";
 
 export default function LinkStudent() {
@@ -14,40 +17,39 @@ export default function LinkStudent() {
   const [error, setError] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
   const [subjectName, setSubjectName] = useState(""); 
+  const [copied, setCopied] = useState(false); // 🆕 State for copy button
 
- // 🧠 Fetch linked students
-const fetchLinkedStudents = async () => {
-  try {
-    const token = localStorage.getItem("chikoroai_authToken");
-    const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
-    const teacherId = storedUser?.id;
+  // 🧠 Fetch linked students
+  const fetchLinkedStudents = async () => {
+    try {
+      const token = localStorage.getItem("chikoroai_authToken");
+      const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
+      const teacherId = storedUser?.id;
 
-    if (!teacherId) {
-      console.warn("Teacher ID not found in localStorage");
-      return;
-    }
-
-    const res = await axios.get(
-      `https://api.chikoro-ai.com/api/system/teacher/my-students/${teacherId}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
+      if (!teacherId) {
+        console.warn("Teacher ID not found in localStorage");
+        return;
       }
-    );
 
-    if (res.data.success) setStudents(res.data.students);
-    else console.warn("Failed to fetch linked students:", res.data);
-  } catch (err) {
-    console.error("Error fetching linked students:", err);
-  }
-};
+      const res = await axios.get(
+        `https://api.chikoro-ai.com/api/system/teacher/my-students/${teacherId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (res.data.success) setStudents(res.data.students);
+      else console.warn("Failed to fetch linked students:", res.data);
+    } catch (err) {
+      console.error("Error fetching linked students:", err);
+    }
+  };
 
   // 🧠 Fetch all students (for dropdown search)
   const fetchAllStudents = async () => {
     try {
       const token = localStorage.getItem("chikoroai_authToken");
-      const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
-      const teacherId = storedUser?.id;
-      const res = await axios.get( `https://api.chikoro-ai.com/api/system/students`, {
+      const res = await axios.get(`https://api.chikoro-ai.com/api/system/students`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.data.success) setAvailableStudents(res.data.students);
@@ -61,177 +63,139 @@ const fetchLinkedStudents = async () => {
     fetchAllStudents();
   }, []);
 
- const handleLink = async (e) => {
-  e.preventDefault();
-  if (!form.studentId || !form.subject) {
-    setError("Please select a student and subject.");
-    return;
-  }
-
-  setLoading(true);
-  setSuccess("");
-  setError("");
-
-  try {
-    const token = localStorage.getItem("chikoroai_authToken");
-    const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
-    const teacherId = storedUser?.id;   // ✅ reliable source of teacher ID
-
-    const res = await axios.post(
-      `https://api.chikoro-ai.com/api/system/link-student/${teacherId}`,
-      { studentId: parseInt(form.studentId), subject: form.subject }, // ✅ clean body
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-
-    if (res.data.success) {
-      setSuccess("✅ Student linked successfully!");
-      setForm({ studentId: "", subject: "" });
-      fetchLinkedStudents();
-    } else {
-      setError(res.data.error || "Failed to link student.");
-    }
-  } catch (err) {
-    console.error("Error linking student:", err);
-    setError("Error linking student.");
-  } finally {
-    setLoading(false);
-  }
-};
+  const handleCopyLink = () => {
+    if (!generatedLink) return;
+    navigator.clipboard.writeText(generatedLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className={`linkstudent-container ${theme}`}>
       <nav className="tool-nav">
-        <Link to="/teacher-dashboard">&larr; Back to Dashboard</Link>
+        <Link to="/teacher-dashboard" className="back-btn">
+          <FiArrowLeft /> Back to Dashboard
+        </Link>
       </nav>
 
-      <header className="tool-header">
-        <h1>👩‍🏫 Link Student to Teacher</h1>
-        <p>Connect your students to your profile to monitor their progress and generate reports.</p>
+      <header className="modern-header">
+        <h1>👩‍🏫 Manage Your Classes</h1>
+        <p>Generate shareable class links and view the students currently connected to your profile.</p>
       </header>
 
-      {/* <section className="link-form-section">
-        <form onSubmit={handleLink}>
-          <div className="form-group">
-            <label>Select Student</label>
-            <select
-              value={form.studentId}
-              onChange={(e) => setForm({ ...form, studentId: e.target.value })}
-            >
-              <option value="">-- Choose a student --</option>
-              {availableStudents.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.grade})
-                </option>
-              ))}
-            </select>
+      <div className="dashboard-grid">
+        
+        {/* --- LEFT COLUMN: Generate Link --- */}
+        <section className="action-panel fade-in">
+          <div className="panel-card">
+            <div className="panel-header">
+              <div className="panel-icon"><FiLink /></div>
+              <h2>Generate Class Join Link</h2>
+            </div>
+            <p className="panel-desc">
+              Enter a subject name to create a unique, shareable link. When students click this link, they will be automatically enrolled in your class.
+            </p>
+
+            <div className="generate-form">
+              <div className="form-group">
+                <label><FiBook /> Subject Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Mathematics Form 3"
+                  value={subjectName}
+                  onChange={(e) => setSubjectName(e.target.value)}
+                  className="modern-input"
+                />
+              </div>
+              
+              <button
+                className="action-btn primary full-width"
+                onClick={async () => {
+                  if (!subjectName.trim()) {
+                    alert("⚠️ Please enter a subject name!");
+                    return;
+                  }
+                  try {
+                    const token = localStorage.getItem("chikoroai_authToken");
+                    const res = await axios.post(
+                      `https://api.chikoro-ai.com/api/system/teacher/create-class-link`,
+                      { subject: subjectName },
+                      { headers: { Authorization: `Bearer ${token}` } }
+                    );
+
+                    if (res.data.success) {
+                      setGeneratedLink(res.data.classLink.joinUrl);
+                      setCopied(false);
+                    } else {
+                      alert(`⚠️ Failed: ${res.data.error || "Could not generate link"}`);
+                    }
+                  } catch (err) {
+                    console.error("Error generating class link:", err);
+                    alert("❌ Error generating class link.");
+                  }
+                }}
+              >
+                <FiUserPlus /> Generate Invite Link
+              </button>
+            </div>
+
+            {generatedLink && (
+              <div className="generated-link-box fade-in">
+                <p className="success-label">✅ Link Generated Successfully!</p>
+                <div className="link-copier">
+                  <input
+                    type="text"
+                    value={generatedLink}
+                    readOnly
+                    className="link-display"
+                    onClick={(e) => e.target.select()}
+                  />
+                  <button className={`copy-btn ${copied ? 'copied' : ''}`} onClick={handleCopyLink}>
+                    {copied ? <FiCheck /> : <FiCopy />}
+                  </button>
+                </div>
+                <p className="link-hint">Share this link directly with your students via WhatsApp, email, or Google Classroom.</p>
+              </div>
+            )}
           </div>
+        </section>
 
-          <div className="form-group">
-            <label>Subject</label>
-            <input
-              type="text"
-              placeholder="e.g. Mathematics"
-              value={form.subject}
-              onChange={(e) => setForm({ ...form, subject: e.target.value })}
-            />
+        {/* --- RIGHT COLUMN: Linked Students --- */}
+        <section className="list-panel fade-in" style={{ animationDelay: '0.1s' }}>
+          <div className="panel-card h-full">
+            <div className="panel-header">
+              <div className="panel-icon purple"><FiUsers /></div>
+              <h2>Linked Students <span className="count-badge">{students.length}</span></h2>
+            </div>
+            
+            {students.length > 0 ? (
+              <div className="students-grid">
+                {students.map((s) => (
+                  <div key={s.id} className="student-card">
+                    <div className="student-avatar">
+                      {s.name ? s.name.charAt(0).toUpperCase() : "🎓"}
+                    </div>
+                    <div className="student-info">
+                      <h3>{s.name}</h3>
+                      <div className="student-meta">
+                        <span className="meta-item subject">{s.subject}</span>
+                        <span className="meta-item grade">{s.grade}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state-box">
+                <div className="empty-icon">📭</div>
+                <h3>No Students Yet</h3>
+                <p>Generate a link on the left and share it with your class to get started.</p>
+              </div>
+            )}
           </div>
+        </section>
 
-          <button type="submit" className="generate-btn" disabled={loading}>
-            {loading ? "Linking..." : "Link Student"}
-          </button>
-
-          {success && <p className="success-message">{success}</p>}
-          {error && <p className="error-message">{error}</p>}
-        </form>
-      </section> */}
-
-      <section className="generate-class-link">
-  <h2>🔗 Generate Class Join Link</h2>
-  <p>
-    Enter a subject name and create a shareable class link. Students can click
-    this link to automatically join your class.
-  </p>
-
-  <div className="generate-form">
-    <input
-      type="text"
-      placeholder="Enter subject name (e.g. Mathematics)"
-      value={subjectName}
-      onChange={(e) => setSubjectName(e.target.value)}
-      className="subject-input"
-    />
-    <button
-      className="generate-btn secondary"
-      onClick={async () => {
-        if (!subjectName.trim()) {
-          alert("⚠️ Please enter a subject name!");
-          return;
-        }
-
-        try {
-          const token = localStorage.getItem("chikoroai_authToken");
-          const user = JSON.parse(localStorage.getItem("chikoroai_user"));
-          const teacherId = user?.id;
-
-          const res = await axios.post(
-            `https://api.chikoro-ai.com/api/system/teacher/create-class-link`,
-            { subject: subjectName },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-
-          if (res.data.success) {
-            const link = res.data.classLink.joinUrl;
-            setGeneratedLink(link); // Save link to state
-          } else {
-            alert(`⚠️ Failed: ${res.data.error || "Could not generate link"}`);
-          }
-        } catch (err) {
-          console.error("Error generating class link:", err);
-          alert("❌ Error generating class link. Check console for details.");
-        }
-      }}
-    >
-      Generate Class Link
-    </button>
-  </div>
-
-  {generatedLink && (
-    <div className="generated-link-box">
-      <p><strong>Class Join Link:</strong></p>
-      <input
-        type="text"
-        value={generatedLink}
-        readOnly
-        className="link-display"
-        onClick={(e) => e.target.select()}
-      />
-      <button
-        className="copy-btn"
-        onClick={() => {
-          navigator.clipboard.writeText(generatedLink);
-          alert("✅ Link copied to clipboard!");
-        }}
-      >
-        Copy Link
-      </button>
-    </div>
-  )}
-</section>
-
-      <section className="linked-students-section">
-        <h2>🎓 Linked Students</h2>
-        {students.length > 0 ? (
-          <ul className="students-list">
-            {students.map((s) => (
-              <li key={s.id}>
-                <span>{s.name}</span> <em>{s.subject}</em> <strong>{s.grade}</strong>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No students linked yet.</p>
-        )}
-      </section>
+      </div>
     </div>
   );
 }

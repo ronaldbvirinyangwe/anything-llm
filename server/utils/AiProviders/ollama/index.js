@@ -76,7 +76,7 @@ class OllamaAILLM {
     }
 
     const defaultCtx =
-      Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT) || 8192;
+      Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT) || 128000;
 
     const model = process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b";
 
@@ -189,97 +189,176 @@ class OllamaAILLM {
     };
   }
 
-  async getChatCompletion(messages, { temperature = 0.7 }) {
-    const measured =
-      await LLMPerformanceMonitor.measureAsyncFunction(
-        this.client.chat.completions.create({
-          model: this.model,
-          messages,
-          temperature,
-        })
-      );
+ async getChatCompletion(messages, { temperature = 0.7, tools = null, tool_choice = "auto" } = {}) {
+  const completionParams = {
+    model: this.model,
+    messages,
+    temperature,
+  };
 
-    const msg = measured.output.choices[0].message.content;
+  // ✅ Add tools if provided
+  if (tools && Array.isArray(tools) && tools.length > 0) {
+    completionParams.tools = tools;
+    completionParams.tool_choice = tool_choice;
+  }
 
+  const measured = await LLMPerformanceMonitor.measureAsyncFunction(
+    this.client.chat.completions.create(completionParams)
+  );
+
+  const choice = measured.output.choices[0];
+  const msg = choice.message;
+
+  // ✅ Check if this is a tool call response
+  if (msg.tool_calls && msg.tool_calls.length > 0) {
     return {
-      textResponse: msg,
+      textResponse: msg, // Return full message object with tool_calls
       metrics: {
         prompt_tokens: measured.output.usage.prompt_tokens,
         completion_tokens: measured.output.usage.completion_tokens,
         total_tokens: measured.output.usage.total_tokens,
-        outputTps:
-          measured.output.usage.completion_tokens /
-          measured.duration,
+        outputTps: measured.output.usage.completion_tokens / measured.duration,
         duration: measured.duration,
       },
     };
   }
 
-  async streamGetChatCompletion(messages, { temperature = 0.2 }) {
-    return await LLMPerformanceMonitor.measureStream(
-      this.client.chat.completions.create({
-        model: this.model,
-        messages,
-        temperature,
-        stream: true,
-      }),
-      messages,
-      false
-    );
+  // ✅ Regular text response
+  return {
+    textResponse: msg.content,
+    metrics: {
+      prompt_tokens: measured.output.usage.prompt_tokens,
+      completion_tokens: measured.output.usage.completion_tokens,
+      total_tokens: measured.output.usage.total_tokens,
+      outputTps: measured.output.usage.completion_tokens / measured.duration,
+      duration: measured.duration,
+    },
+  };
+}
+
+async streamGetChatCompletion(messages, { temperature = 0.2, tools = null, tool_choice = "auto" } = {}) {
+  const completionParams = {
+    model: this.model,
+    messages,
+    temperature,
+    stream: true,
+  };
+
+  // ✅ Only add tools if explicitly provided AND not empty
+  if (tools && Array.isArray(tools) && tools.length > 0) {
+    completionParams.tools = tools;
+    completionParams.tool_choice = tool_choice;
   }
 
-  handleStream(response, stream, responseProps) {
-    const { uuid = uuidv4(), sources = [] } = responseProps;
+  return await LLMPerformanceMonitor.measureStream(
+    this.client.chat.completions.create(completionParams),
+    messages,
+    false
+  );
+}
 
-    return new Promise(async (resolve) => {
-      let fullText = "";
-      let usage = {};
+handleStream(response, stream, responseProps) {
+  const { uuid = uuidv4(), sources = [] } = responseProps;
 
-      const handleAbort = () => {
-        clientAbortedHandler(resolve, fullText);
-      };
-      response.on("close", handleAbort);
+  return new Promise(async (resolve) => {
+    let fullText = "";
+    let toolCallsMap = {}; // ✅ Use map to accumulate by index
+    let usage = {};
 
-      try {
-        for await (const chunk of stream) {
-          const delta = chunk.choices?.[0]?.delta?.content;
-          if (!delta) continue;
+    const handleAbort = () => {
+      clientAbortedHandler(resolve, fullText);
+    };
+    response.on("close", handleAbort);
 
-          fullText += delta;
-          writeResponseChunk(response, {
-            uuid,
-            sources,
-            type: "textResponseChunk",
-            textResponse: delta,
-            close: false,
-            error: false,
-          });
+    try {
+      for await (const chunk of stream) {
+        // ✅ Accumulate tool calls from deltas
+        if (chunk.choices?.[0]?.delta?.tool_calls) {
+          const toolCallDeltas = chunk.choices[0].delta.tool_calls;
+          
+          for (const delta of toolCallDeltas) {
+            const index = delta.index || 0;
+            
+            // Initialize tool call object if first time seeing this index
+            if (!toolCallsMap[index]) {
+              toolCallsMap[index] = {
+                id: delta.id || `tool_${index}`,
+                type: 'function',
+                function: {
+                  name: '',
+                  arguments: ''
+                }
+              };
+            }
+            
+            // Accumulate function name (usually comes in first chunk)
+            if (delta.function?.name) {
+              toolCallsMap[index].function.name += delta.function.name;
+            }
+            
+            // ✅ KEY FIX: Accumulate arguments chunk by chunk
+            if (delta.function?.arguments) {
+              toolCallsMap[index].function.arguments += delta.function.arguments;
+              console.log("🧩 Tool call detected in stream:", toolCallDeltas);
+            }
+          }
+          
+          continue; // Don't write to response - let streamChatWithWorkspace handle it
         }
 
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (!delta) continue;
+
+        fullText += delta;
         writeResponseChunk(response, {
           uuid,
           sources,
           type: "textResponseChunk",
-          textResponse: "",
-          close: true,
+          textResponse: delta,
+          close: false,
           error: false,
         });
-
-        response.removeListener("close", handleAbort);
-        resolve(fullText);
-      } catch (e) {
-        writeResponseChunk(response, {
-          uuid,
-          sources: [],
-          type: "textResponseChunk",
-          textResponse: "",
-          close: true,
-          error: `vLLM stream error: ${e.message}`,
-        });
-        resolve(fullText);
       }
-    });
-  }
+
+      // ✅ Convert map to array and return tool calls if any were accumulated
+      const toolCallsArray = Object.values(toolCallsMap);
+      if (toolCallsArray.length > 0) {
+        console.log(`✅ Tool call fully accumulated: ${toolCallsArray[0].function.name}`);
+        console.log(`✅ Complete arguments: ${toolCallsArray[0].function.arguments}`);
+        
+        response.removeListener("close", handleAbort);
+        resolve({ 
+          tool_calls: toolCallsArray, 
+          fullText 
+        });
+        return;
+      }
+
+      writeResponseChunk(response, {
+        uuid,
+        sources,
+        type: "textResponseChunk",
+        textResponse: "",
+        close: true,
+        error: false,
+      });
+
+      response.removeListener("close", handleAbort);
+      resolve(fullText);
+    } catch (e) {
+      writeResponseChunk(response, {
+        uuid,
+        sources: [],
+        type: "textResponseChunk",
+        textResponse: "",
+        close: true,
+        error: `vLLM stream error: ${e.message}`,
+      });
+      response.removeListener("close", handleAbort);
+      resolve(fullText);
+    }
+  });
+}
 
   async embedTextInput(text) {
     return this.embedder.embedTextInput(text);

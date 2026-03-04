@@ -1,4 +1,5 @@
-const WATCH_DIRECTORY = require("path").resolve(__dirname, "../hotdir");
+const WATCH_DIRECTORY = process.env.WATCH_DIRECTORY || 
+  require("path").resolve(__dirname, "../hotdir");
 
 const ACCEPTED_MIMES = {
   "text/plain": [".txt", ".md", ".org", ".adoc", ".rst"],
@@ -38,41 +39,31 @@ const ACCEPTED_MIMES = {
 };
 
 const SUPPORTED_FILETYPE_CONVERTERS = {
-  ".txt": "./convert/asTxt.js",
-  ".md": "./convert/asTxt.js",
-  ".org": "./convert/asTxt.js",
-  ".adoc": "./convert/asTxt.js",
-  ".rst": "./convert/asTxt.js",
-  ".csv": "./convert/asTxt.js",
-  ".json": "./convert/asTxt.js",
+  ".txt":  "../processSingleFile/convert/asTxt.js",
+  ".md":   "../processSingleFile/convert/asTxt.js",
+  ".org":  "../processSingleFile/convert/asTxt.js",
+  ".adoc": "../processSingleFile/convert/asTxt.js",
+  ".rst":  "../processSingleFile/convert/asTxt.js",
+  ".csv":  "../processSingleFile/convert/asTxt.js",
+  ".json": "../processSingleFile/convert/asTxt.js",
+  ".html": "../processSingleFile/convert/asTxt.js",
 
-  ".html": "./convert/asTxt.js",
-  ".pdf": "./convert/asPDF/index.js",
-
-  ".docx": "./convert/asDocx.js",
-  // TODO: Create asDoc.js that works for standard MS Word files.
-  // ".doc": "./convert/asDoc.js",
-
-  ".pptx": "./convert/asOfficeMime.js",
-
-  ".odt": "./convert/asOfficeMime.js",
-  ".odp": "./convert/asOfficeMime.js",
-
-  ".xlsx": "./convert/asXlsx.js",
-
-  ".mbox": "./convert/asMbox.js",
-
-  ".epub": "./convert/asEPub.js",
-
-  ".mp3": "./convert/asAudio.js",
-  ".wav": "./convert/asAudio.js",
-  ".mp4": "./convert/asAudio.js",
-  ".mpeg": "./convert/asAudio.js",
-
-  ".png": "./convert/asImage.js",
-  ".jpg": "./convert/asImage.js",
-  ".jpeg": "./convert/asImage.js",
-  ".webp": "./convert/asImage.js",
+  ".pdf":  "../processSingleFile/convert/asPDF/index.js",
+  ".docx": "../processSingleFile/convert/asDocx.js",
+  ".pptx": "../processSingleFile/convert/asOfficeMime.js",
+  ".odt":  "../processSingleFile/convert/asOfficeMime.js",
+  ".odp":  "../processSingleFile/convert/asOfficeMime.js",
+  ".xlsx": "../processSingleFile/convert/asXlsx.js",
+  ".mbox": "../processSingleFile/convert/asMbox.js",
+  ".epub": "../processSingleFile/convert/asEPub.js",
+  ".mp3":  "../processSingleFile/convert/asAudio.js",
+  ".wav":  "../processSingleFile/convert/asAudio.js",
+  ".mp4":  "../processSingleFile/convert/asAudio.js",
+  ".mpeg": "../processSingleFile/convert/asAudio.js",
+  ".png":  "../processSingleFile/convert/asImage.js",
+  ".jpg":  "../processSingleFile/convert/asImage.js",
+  ".jpeg": "../processSingleFile/convert/asImage.js",
+  ".webp": "../processSingleFile/convert/asImage.js",
 };
 
 module.exports = {

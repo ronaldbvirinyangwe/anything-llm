@@ -1,3 +1,5 @@
+const path = require("path");
+const fs = require("fs");
 const { reqBody, multiUserMode, userFromSession } = require("../utils/http");
 const { handleFileUpload } = require("../utils/files/multer");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
@@ -11,6 +13,52 @@ const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { CollectorApi } = require("../utils/collectorApi");
 const { WorkspaceThread } = require("../models/workspaceThread");
 const { WorkspaceParsedFiles } = require("../models/workspaceParsedFiles");
+const { Document } = require("../models/documents");
+const { v4: uuidv4 } = require("uuid");
+
+/**
+ * Split exam paper text into per-question chunks
+ * Detects patterns like "1     The diagram..." or "2     Which row..."
+ */
+function splitByQuestion(text, filename) {
+  // More strict: question numbers must be at start of line after blank line
+  // and followed by 4+ spaces then a capital letter
+  // Negative lookbehind prevents matching mid-sentence numbers
+  const questionRegex = /\n\n(\d{1,2})\s{4,}(?=[A-Z])/g;
+  const matches = [...text.matchAll(questionRegex)];
+
+  if (matches.length < 3) return null;
+
+  // Additional validation: question numbers must be sequential
+  const validMatches = [];
+  let expectedNext = 1;
+  
+  for (const match of matches) {
+    const num = parseInt(match[1]);
+    // Accept if it's the expected next number or close to it (allow gaps)
+    if (num === expectedNext || num === expectedNext + 1) {
+      validMatches.push(match);
+      expectedNext = num + 1;
+    }
+    // Skip if number is way out of sequence (it's a list item, not a question)
+  }
+
+  if (validMatches.length < 3) return null;
+
+  const chunks = [];
+  for (let i = 0; i < validMatches.length; i++) {
+    const start = validMatches[i].index;
+    const end = validMatches[i + 1]?.index ?? text.length;
+    const questionNum = parseInt(validMatches[i][1]);
+    chunks.push({
+      questionNumber: questionNum,
+      content: text.slice(start, end).trim(),
+      title: `${filename} - Question ${questionNum}`
+    });
+  }
+
+  return chunks;
+}
 
 function workspaceParsedFilesEndpoints(app) {
   if (!app) return;
@@ -65,7 +113,6 @@ function workspaceParsedFilesEndpoints(app) {
     "/workspace/:slug/embed-parsed-file/:fileId",
     [
       validatedRequest,
-      // Embed is still an admin/manager only feature
       flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
     ],
@@ -135,7 +182,8 @@ function workspaceParsedFilesEndpoints(app) {
         }
 
         const { success, reason, documents } =
-          await Collector.parseDocument(originalname);
+          await Collector.processDocument(originalname);
+
         if (!success || !documents?.[0]) {
           return response.status(500).json({
             success: false,
@@ -143,7 +191,41 @@ function workspaceParsedFilesEndpoints(app) {
           });
         }
 
-        // Get thread ID if we have a slug
+        // Try to split exam papers by question number
+        let finalDocuments = documents;
+        const pageContent = documents[0]?.pageContent;
+        if (pageContent) {
+          const questionChunks = splitByQuestion(pageContent, originalname);
+          if (questionChunks && questionChunks.length >= 3) {
+            console.log(
+              `📝 Exam paper detected: splitting into ${questionChunks.length} question chunks`
+            );
+            finalDocuments = questionChunks.map((chunk) => ({
+              ...documents[0],
+              id: uuidv4(),
+              pageContent: chunk.content,
+              title: chunk.title,
+              questionNumber: chunk.questionNumber,
+            }));
+          }
+        }
+
+        // Write each chunk to storage and embed into workspace
+        const storageDir = process.env.STORAGE_DIR ||
+          path.resolve(__dirname, "../../server/storage");
+        const customDocsDir = path.join(storageDir, "documents", "custom-documents");
+        if (!fs.existsSync(customDocsDir)) fs.mkdirSync(customDocsDir, { recursive: true });
+
+        for (const doc of finalDocuments) {
+          const chunkFilename = `${originalname}-q${doc.questionNumber || "full"}-${doc.id}`;
+          const chunkPath = path.join(customDocsDir, `${chunkFilename}.json`);
+          fs.writeFileSync(chunkPath, JSON.stringify(doc, null, 2));
+          await Document.addDocuments(workspace, [
+            `custom-documents/${chunkFilename}.json`,
+          ]);
+        }
+
+        // Get thread ID if provided
         const { threadSlug = null } = reqBody(request);
         const thread = threadSlug
           ? await WorkspaceThread.get({
@@ -152,10 +234,11 @@ function workspaceParsedFilesEndpoints(app) {
               user_id: user?.id || null,
             })
           : null;
+
+        // Save parsed file records for UI display
         const files = await Promise.all(
           documents.map(async (doc) => {
             const metadata = { ...doc };
-            // Strip out pageContent
             delete metadata.pageContent;
             const filename = `${originalname}-${doc.id}.json`;
             const { file, error: dbError } = await WorkspaceParsedFiles.create({
@@ -166,7 +249,6 @@ function workspaceParsedFilesEndpoints(app) {
               metadata: JSON.stringify(metadata),
               tokenCountEstimate: doc.token_count_estimate || 0,
             });
-
             if (dbError) throw new Error(dbError);
             return file;
           })

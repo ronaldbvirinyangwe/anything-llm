@@ -37,6 +37,9 @@ const HistoricalMessage = ({
   forkThread,
   metrics = {},
   alignmentCls = "",
+  tool_call = null,
+  quizData = null,
+  flashcardData = null,
 }) => {
   const { t } = useTranslation();
   const { isEditing } = useEditMessage({ chatId, role });
@@ -117,6 +120,29 @@ const HistoricalMessage = ({
                 message={message}
                 expanded={isLastMessage}
               />
+              {tool_call === "quiz_create" && quizData && (
+  <button
+    onClick={() => window.dispatchEvent(
+      new CustomEvent("QUIZ_CREATED", { detail: { quiz: quizData } })
+    )}
+    className="flex items-center gap-x-2 bg-purple-600 hover:bg-purple-700
+               text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+  >
+    📝 View Quiz — {quizData.topic || quizData.subject || "Quiz"}
+  </button>
+)}
+
+{tool_call === "flashcard_create" && flashcardData && (
+  <button
+    onClick={() => window.dispatchEvent(
+      new CustomEvent("FLASHCARD_CREATED", { detail: { flashcards: flashcardData } })
+    )}
+    className="flex items-center gap-x-2 bg-blue-600 hover:bg-blue-700
+               text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+  >
+    🎴 View Flashcards — {flashcardData.topic || flashcardData.subject || "Flashcards"}
+  </button>
+)}
               {isRefusalMessage && (
                 <Link
                   data-tooltip-id="query-refusal-info"

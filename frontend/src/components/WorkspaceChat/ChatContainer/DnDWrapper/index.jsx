@@ -189,15 +189,14 @@ async function onDrop(acceptedFiles, _rejections) {
         analysis: null, // ← Will store vision model output
       });
     } else if (file.type === "application/pdf") {
-      // ✅ NEW: PDFs will be analyzed by vision model
+      // PDFs go through the parse/embed flow (not vision analysis)
       newAccepted.push({
         uid: v4(),
         file,
         contentString: null,
-        status: "analyzing",
+        status: "in_progress",
         error: null,
         type: "upload",
-        analysis: null,
       });
     } else {
       // Other documents: existing flow
@@ -225,10 +224,9 @@ async function onDrop(acceptedFiles, _rejections) {
  * ✅ NEW: Analyze images/PDFs with vision model before chat
  */
 async function analyzeVisualAttachments(attachments = []) {
+  // Only analyze images — PDFs go through the parse/embed flow and have no contentString
   const visualAttachments = attachments.filter(
-    (att) =>
-      att.file.type.startsWith("image/") ||
-      att.file.type === "application/pdf"
+    (att) => att.file.type.startsWith("image/") && att.contentString
   );
 
   if (visualAttachments.length === 0) return;

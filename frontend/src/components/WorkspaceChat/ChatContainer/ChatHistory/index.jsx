@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback, memo } from "react";
 import HistoricalMessage from "./HistoricalMessage";
 import PromptReply from "./PromptReply";
 import StatusResponse from "./StatusResponse";
@@ -17,18 +17,37 @@ import { v4 } from "uuid";
 import { useTranslation } from "react-i18next";
 import { useChatMessageAlignment } from "@/hooks/useChatMessageAlignment";
 import { useNavigate } from "react-router-dom";
-import './notification.css'
+import './notification.css';
+import { useVirtualizer } from "@tanstack/react-virtual";
+import  { MascotWithBubble, ChikoroMascot, MascotSpeechBubble, MASCOT_EXPRESSIONS } from "@/components/ChikoroMascot";
 
-function NotificationMessage({ message }) {
+// ═══════════════════════════════════════════════════════════════
+// NOTIFICATION MESSAGE — now with mascot based on notification type
+// ═══════════════════════════════════════════════════════════════
+
+function getNotificationExpression(type) {
+  switch (type) {
+    case "quiz_assigned":
+      return MASCOT_EXPRESSIONS.quizzing;
+    case "subscription_status":
+      return MASCOT_EXPRESSIONS.comeback;
+    case "streak_broken":
+      return MASCOT_EXPRESSIONS.disappointed;
+    case "inactive_reminder":
+      return MASCOT_EXPRESSIONS.sleeping;
+    default:
+      return MASCOT_EXPRESSIONS.encouraging;
+  }
+}
+
+export const NotificationMessage = memo(function NotificationMessage({ message }) {
   const navigate = useNavigate();
-const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
+  const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 
   const handleTakeQuiz = async () => {
-    // Mark notification as read
     if (message.notificationId) {
       try {
         const token = localStorage.getItem("chikoroai_authToken");
-        
         await fetch(`${API_BASE}/system/notifications/${message.notificationId}/read`, {
           method: 'PATCH',
           headers: {
@@ -36,23 +55,27 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
             Authorization: `Bearer ${token}`,
           },
         });
-        
-        console.log("✅ Marked notification as read:", message.notificationId);
       } catch (err) {
         console.error("❌ Failed to mark notification as read:", err);
       }
     }
-    
-    // Navigate to quiz
+
     if (message.link) {
       navigate(message.link);
     }
   };
 
-  return (
-     <div className={`notification-card ${message.darkMode ? 'dark' : ''}`}>
-      <div className="notification-icon">📚</div>
+  const mascotExpr = getNotificationExpression(message.type);
 
+  return (
+    <div className={`notification-card ${message.darkMode ? 'dark' : ''}`}>
+      <div className="notification-icon">
+        <ChikoroMascot
+          expression={mascotExpr}
+          size={36}
+          animate={true}
+        />
+      </div>
       <div className="notification-content">
         <p className="notification-message">{message.content}</p>
         <p className="notification-time">
@@ -61,21 +84,18 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/ap
             : 'Just now'}
         </p>
       </div>
-
       {message.link && (
-        <button
-          onClick={handleTakeQuiz}
-          className="notification-button"
-        >
+        <button onClick={handleTakeQuiz} className="notification-button">
           Take Quiz
         </button>
       )}
     </div>
   );
-}
+});
 
-
-
+// ═══════════════════════════════════════════════════════════════
+// CHAT HISTORY — now with mascot integration
+// ═══════════════════════════════════════════════════════════════
 export default function ChatHistory({
   history = [],
   workspace,
@@ -83,6 +103,8 @@ export default function ChatHistory({
   updateHistory,
   regenerateAssistantMessage,
   hasAttachments = false,
+  onMessageClick,
+  mascotExpression = MASCOT_EXPRESSIONS.happy, // 🤖 NEW PROP
 }) {
   const { t } = useTranslation();
   const lastScrollTopRef = useRef(0);
@@ -97,9 +119,14 @@ export default function ChatHistory({
   const { textSizeClass } = useTextSize();
   const { getMessageAlignment } = useChatMessageAlignment();
 
+  const historyRef = useRef(history);
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+
   useEffect(() => {
     if (!isUserScrolling && (isAtBottom || isStreaming)) {
-      scrollToBottom(false); // Use instant scroll for auto-scrolling
+      scrollToBottom(false);
     }
   }, [history, isAtBottom, isStreaming, isUserScrolling]);
 
@@ -107,7 +134,6 @@ export default function ChatHistory({
     const { scrollTop, scrollHeight, clientHeight } = e.target;
     const isBottom = scrollHeight - scrollTop === clientHeight;
 
-    // Detect if this is a user-initiated scroll
     if (Math.abs(scrollTop - lastScrollTopRef.current) > 10) {
       setIsUserScrolling(!isBottom);
     }
@@ -131,10 +157,6 @@ export default function ChatHistory({
     if (chatHistoryRef.current) {
       chatHistoryRef.current.scrollTo({
         top: chatHistoryRef.current.scrollHeight,
-
-        // Smooth is on when user clicks the button but disabled during auto scroll
-        // We must disable this during auto scroll because it causes issues with
-        // detecting when we are at the bottom of the chat.
         ...(smooth ? { behavior: "smooth" } : {}),
       });
     }
@@ -144,27 +166,21 @@ export default function ChatHistory({
     sendCommand({ text: `${heading} ${message}`, autoSubmit: true });
   };
 
-  const saveEditedMessage = async ({
+  const saveEditedMessage = useCallback(async ({
     editedMessage,
     chatId,
     role,
     attachments = [],
   }) => {
-    if (!editedMessage) return; // Don't save empty edits.
+    if (!editedMessage) return;
+    const currentHistory = historyRef.current;
 
-    // if the edit was a user message, we will auto-regenerate the response and delete all
-    // messages post modified message
     if (role === "user") {
-      // remove all messages after the edited message
-      // technically there are two chatIds per-message pair, this will split the first.
-      const updatedHistory = history.slice(
+      const updatedHistory = currentHistory.slice(
         0,
-        history.findIndex((msg) => msg.chatId === chatId) + 1
+        currentHistory.findIndex((msg) => msg.chatId === chatId) + 1
       );
-
-      // update last message in history to edited message
       updatedHistory[updatedHistory.length - 1].content = editedMessage;
-      // remove all edited messages after the edited message in backend
       await Workspace.deleteEditedChats(workspace.slug, threadSlug, chatId);
       sendCommand({
         text: editedMessage,
@@ -175,10 +191,9 @@ export default function ChatHistory({
       return;
     }
 
-    // If role is an assistant we simply want to update the comment and save on the backend as an edit.
     if (role === "assistant") {
-      const updatedHistory = [...history];
-      const targetIdx = history.findIndex(
+      const updatedHistory = [...currentHistory];
+      const targetIdx = currentHistory.findIndex(
         (msg) => msg.chatId === chatId && msg.role === role
       );
       if (targetIdx < 0) return;
@@ -192,19 +207,16 @@ export default function ChatHistory({
       );
       return;
     }
-  };
+  }, [workspace.slug, threadSlug, sendCommand, updateHistory]);
 
-  const forkThread = async (chatId) => {
+  const forkThread = useCallback(async (chatId) => {
     const newThreadSlug = await Workspace.forkThread(
       workspace.slug,
       threadSlug,
       chatId
     );
-    window.location.href = paths.workspace.thread(
-      workspace.slug,
-      newThreadSlug
-    );
-  };
+    window.location.href = paths.workspace.thread(workspace.slug, newThreadSlug);
+  }, [workspace.slug, threadSlug]);
 
   const compiledHistory = useMemo(
     () =>
@@ -215,6 +227,7 @@ export default function ChatHistory({
         saveEditedMessage,
         forkThread,
         getMessageAlignment,
+        onMessageClick,
       }),
     [
       workspace,
@@ -222,9 +235,13 @@ export default function ChatHistory({
       regenerateAssistantMessage,
       saveEditedMessage,
       forkThread,
+      getMessageAlignment,
+      onMessageClick,
     ]
   );
+
   const lastMessageInfo = useMemo(() => getLastMessageInfo(history), [history]);
+
   const renderStatusResponse = useCallback(
     (item, index) => {
       const hasSubsequentMessages = index < compiledHistory.length - 1;
@@ -239,42 +256,55 @@ export default function ChatHistory({
     [compiledHistory.length, lastMessageInfo]
   );
 
+  const rowVirtualizer = useVirtualizer({
+    count: compiledHistory.length,
+    getScrollElement: () => chatHistoryRef.current,
+    estimateSize: () => 120,
+    overscan: 5,
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // 🤖 EMPTY STATE — Mascot welcome screen with suggestions
+  // ═══════════════════════════════════════════════════════════
   if (history.length === 0 && !hasAttachments) {
     return (
       <div className="flex flex-col h-full md:mt-0 pb-44 md:pb-40 w-full justify-end items-center">
-        {/* <div className="flex flex-col items-center md:items-start md:max-w-[600px] w-full px-4">
-          <p className="text-white/60 text-lg font-base py-4">
-            {t("chat_window.welcome")}
-          </p>
-          {!user || user.role !== "default" ? (
-            <p className="w-full items-center text-white/60 text-lg font-base flex flex-col md:flex-row gap-x-1">
-              {t("chat_window.get_started")}
-              <span
-                className="underline font-medium cursor-pointer"
-                onClick={showModal}
-              >
-                {t("chat_window.upload")}
-              </span>
-              {t("chat_window.or")}{" "}
-              <b className="font-medium italic">{t("chat_window.send_chat")}</b>
-            </p>
-          ) : (
-            <p className="w-full items-center text-white/60 text-lg font-base flex flex-col md:flex-row gap-x-1">
-              {t("chat_window.get_started_default")}{" "}
-              <b className="font-medium italic">{t("chat_window.send_chat")}</b>
-            </p>
-          )}
-          <WorkspaceChatSuggestions
-            suggestions={workspace?.suggestedMessages ?? []}
-            sendSuggestion={handleSendSuggestedMessage}
-          />
-        </div> */}
         {showing && (
           <ManageWorkspace
             hideModal={hideModal}
             providedSlug={workspace.slug}
           />
         )}
+
+        {/* 🤖 Mascot Welcome */}
+        <div className="chk-welcome-mascot">
+          <MascotWithBubble
+            expression={MASCOT_EXPRESSIONS.waving}
+            size={120}
+            showBubble={true}
+            bubblePosition="bottom"
+          />
+
+          {/* Suggested messages */}
+          {workspace?.suggestedMessages?.length > 0 && (
+            <div className="chk-welcome-suggestions">
+              {workspace.suggestedMessages.slice(0, 4).map((suggestion, idx) => (
+                <button
+                  key={idx}
+                  onClick={() =>
+                    handleSendSuggestedMessage(
+                      suggestion.heading,
+                      suggestion.message
+                    )
+                  }
+                >
+                  <strong>{suggestion.heading}</strong>
+                  {suggestion.message}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -286,12 +316,38 @@ export default function ChatHistory({
       ref={chatHistoryRef}
       onScroll={handleScroll}
     >
-      {compiledHistory.map((item, index) =>
-        Array.isArray(item) ? renderStatusResponse(item, index) : item
-      )}
+      {/* Virtual list container */}
+      <div
+        style={{
+          height: `${rowVirtualizer.getTotalSize()}px`,
+          width: "100%",
+          position: "relative",
+        }}
+      >
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => (
+          <div
+            key={virtualRow.index}
+            ref={rowVirtualizer.measureElement}
+            data-index={virtualRow.index}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              transform: `translateY(${virtualRow.start}px)`,
+            }}
+          >
+            {Array.isArray(compiledHistory[virtualRow.index])
+              ? renderStatusResponse(compiledHistory[virtualRow.index], virtualRow.index)
+              : compiledHistory[virtualRow.index]}
+          </div>
+        ))}
+      </div>
+
       {showing && (
         <ManageWorkspace hideModal={hideModal} providedSlug={workspace.slug} />
       )}
+
       {!isAtBottom && (
         <div className="fixed bottom-40 right-10 md:right-20 z-50 cursor-pointer animate-pulse">
           <div className="flex flex-col items-center">
@@ -339,18 +395,7 @@ function WorkspaceChatSuggestions({ suggestions = [], sendSuggestion }) {
 
 /**
  * Builds the history of messages for the chat.
- * This is mostly useful for rendering the history in a way that is easy to understand.
- * as well as compensating for agent thinking and other messages that are not part of the history, but
- * are still part of the chat.
- *
- * @param {Object} param0 - The parameters for building the messages.
- * @param {Array} param0.history - The history of messages.
- * @param {Object} param0.workspace - The workspace object.
- * @param {Function} param0.regenerateAssistantMessage - The function to regenerate the assistant message.
- * @param {Function} param0.saveEditedMessage - The function to save the edited message.
- * @param {Function} param0.forkThread - The function to fork the thread.
- * @param {Function} param0.getMessageAlignment - The function to get the alignment of the message (returns class).
- * @returns {Array} The compiled history of messages.
+ * Now includes an inline thinking mascot before the streaming reply.
  */
 function buildMessages({
   history,
@@ -359,66 +404,87 @@ function buildMessages({
   saveEditedMessage,
   forkThread,
   getMessageAlignment,
+  onMessageClick,
 }) {
   return history.reduce((acc, props, index) => {
     const isLastBotReply =
       index === history.length - 1 && props.role === "assistant";
 
-      if (props.role === "notification") {
+    if (props.role === "notification") {
       acc.push(
-        <NotificationMessage key={props.uuid || v4()} message={props} />
+        <NotificationMessage key={props.uuid || `notif-${index}`} message={props} />
       );
       return acc;
     }
-    
-    {history
-  .filter((msg) => msg.role === "notification")
-  .length > 0 && (
-    <div className="notification-list">
-      {history
-        .filter((msg) => msg.role === "notification")
-        .map((msg) => (
-          <NotificationMessage key={msg.uuid || v4()} message={msg} />
-        ))}
-    </div>
-  )}
+
+    const isClickable = !!(props.savedQuizId || props.savedFlashcardSetId);
 
     if (props.type === "rechartVisualize" && !!props.content) {
       acc.push(
         <Chartable key={props.uuid} workspace={workspace} props={props} />
       );
     } else if (isLastBotReply && props.animate) {
+      // 🤖 Show mascot inline during the entire streaming phase
+      // - "thinking" when pending with no content yet
+      // - "explaining" once tokens start streaming in
+      const mascotExpr = (!props.content || props.pending)
+        ? MASCOT_EXPRESSIONS.thinking
+        : MASCOT_EXPRESSIONS.explaining;
+
       acc.push(
-        <PromptReply
-          key={props.uuid || v4()}
-          uuid={props.uuid}
-          reply={props.content}
-          pending={props.pending}
-          sources={props.sources}
-          error={props.error}
-          workspace={workspace}
-          closed={props.closed}
-        />
+        <div key={`mascot-reply-${props.uuid}`}>
+          <div className="chk-thinking-inline">
+            <ChikoroMascot
+              expression={mascotExpr}
+              size={36}
+              animate={true}
+            />
+            <MascotSpeechBubble
+              message={mascotExpr === "thinking" ? "Let me think..." : "Here's what I found..."}
+              visible={!props.content}
+              position="right"
+            />
+          </div>
+          <PromptReply
+            key={props.uuid || `reply-${index}`}
+            uuid={props.uuid}
+            reply={props.content}
+            pending={props.pending}
+            sources={props.sources}
+            error={props.error}
+            workspace={workspace}
+            closed={props.closed}
+          />
+        </div>
       );
     } else {
       acc.push(
-        <HistoricalMessage
-          key={index}
-          message={props.content}
-          role={props.role}
-          workspace={workspace}
-          sources={props.sources}
-          feedbackScore={props.feedbackScore}
-          chatId={props.chatId}
-          error={props.error}
-          attachments={props.attachments}
-          regenerateMessage={regenerateAssistantMessage}
-          isLastMessage={isLastBotReply}
-          saveEditedMessage={saveEditedMessage}
-          forkThread={forkThread}
-          metrics={props.metrics}
-          alignmentCls={getMessageAlignment?.(props.role)}
-        />
+        <div
+          key={props.chatId || `msg-${index}`}
+          onClick={() => isClickable && onMessageClick?.(props)}
+          className={isClickable ? "cursor-pointer ring-1 ring-transparent hover:ring-blue-400 rounded-xl transition-all" : ""}
+          title={isClickable ? "Click to reopen" : undefined}
+        >
+          <HistoricalMessage
+            message={props.content}
+            role={props.role}
+            workspace={workspace}
+            sources={props.sources}
+            feedbackScore={props.feedbackScore}
+            chatId={props.chatId}
+            error={props.error}
+            attachments={props.attachments}
+            regenerateMessage={regenerateAssistantMessage}
+            isLastMessage={isLastBotReply}
+            saveEditedMessage={saveEditedMessage}
+            forkThread={forkThread}
+            metrics={props.metrics}
+            alignmentCls={getMessageAlignment?.(props.role)}
+            tool_call={props.tool_call}
+            quizData={props.quizData}
+            flashcardData={props.flashcardData}
+          />
+        </div>
       );
     }
     return acc;

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import System from "@/models/system";
 import showToast from "@/utils/toast";
 import { t } from "i18next";
@@ -10,8 +10,33 @@ export default function Register() {
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Validation state
+  const [requirements, setRequirements] = useState({
+    length: false,
+    uppercase: false,
+    lowercase: false,
+    number: false,
+    special: false,
+  });
+
+  // Check requirements whenever password changes
+  useEffect(() => {
+    setRequirements({
+      length: password.length >= 8,
+      uppercase: /[A-Z]/.test(password),
+      lowercase: /[a-z]/.test(password),
+      number: /[0-9]/.test(password),
+      special: /[!@#$%^&*(),.?":{}|<>]/.test(password),
+    });
+  }, [password]);
+
+  const isPasswordValid = Object.values(requirements).every(Boolean);
+
   const handleRegister = async (e) => {
     e.preventDefault();
+
+    if (!isPasswordValid)
+      return showToast("Password does not meet requirements", "error");
 
     if (password !== confirm)
       return showToast("Passwords do not match", "error", { clear: true });
@@ -30,6 +55,24 @@ export default function Register() {
       showToast(error || "Registration failed", "error");
     }
   };
+
+  // Helper component for requirement bullets
+  const Requirement = ({ met, text }) => (
+    <div className="flex items-center gap-x-2 transition-all duration-300">
+      <div
+        className={`w-2 h-2 rounded-full ${
+          met ? "bg-green-500" : "bg-theme-text-secondary opacity-50"
+        }`}
+      />
+      <span
+        className={`text-[10px] md:text-xs ${
+          met ? "text-green-400" : "text-theme-text-secondary"
+        }`}
+      >
+        {text}
+      </span>
+    </div>
+  );
 
   return (
     <div className="min-h-screen flex flex-col justify-center items-center md:justify-end md:items-end p-6 md:p-12 bg-theme-bg-primary">
@@ -72,6 +115,15 @@ export default function Register() {
                 required
                 className="border-none bg-theme-settings-input-bg text-theme-text-primary placeholder:text-theme-settings-input-placeholder focus:outline-primary-button active:outline-primary-button outline-none text-sm rounded-md p-2.5 w-full h-[48px] md:w-[300px] md:h-[34px]"
               />
+              
+              {/* Password Requirements UI */}
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1 mt-3 px-1">
+                <Requirement met={requirements.length} text="8+ Characters" />
+                <Requirement met={requirements.uppercase} text="Uppercase" />
+                <Requirement met={requirements.lowercase} text="Lowercase" />
+                <Requirement met={requirements.number} text="Number" />
+                <Requirement met={requirements.special} text="Special Char" />
+              </div>
             </div>
 
             <div className="w-screen md:w-full md:px-0 px-6">
@@ -91,8 +143,8 @@ export default function Register() {
         <div className="flex items-center md:p-12 px-10 mt-12 md:mt-0 space-x-2 border-gray-600 w-full flex-col gap-y-8">
           <button
             type="submit"
-            disabled={loading}
-            className="md:text-primary-button md:bg-transparent text-dark-text text-sm font-bold focus:ring-4 focus:outline-none rounded-md border-[1.5px] border-primary-button md:h-[34px] h-[48px] md:hover:text-white md:hover:bg-primary-button bg-primary-button focus:z-10 w-full md:w-[300px]"
+            disabled={loading || (!isPasswordValid && password.length > 0)}
+            className="md:text-primary-button md:bg-transparent text-dark-text text-sm font-bold focus:ring-4 focus:outline-none rounded-md border-[1.5px] border-primary-button md:h-[34px] h-[48px] md:hover:text-white md:hover:bg-primary-button bg-primary-button focus:z-10 w-full md:w-[300px] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? "Creating Account..." : "Create Account"}
           </button>

@@ -11,8 +11,8 @@ const { Workspace } = require("../models/workspace");
 const { Document } = require("../models/documents");
 const { DocumentVectors } = require("../models/vectors");
 const { WorkspaceChats } = require("../models/workspaceChats");
-const { getVectorDbClass, getLLMProvider } = require("../utils/helpers"); // Added getLLMProvider here
-const { handleFileUpload, handlePfpUpload,handleExamUpload } = require("../utils/files/multer");
+const { getVectorDbClass, getLLMProvider } = require("../utils/helpers");
+const { handleFileUpload, handlePfpUpload, handleExamUpload } = require("../utils/files/multer");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { Telemetry } = require("../models/telemetry");
 const {
@@ -32,12 +32,167 @@ const {
 } = require("../utils/files/pfp");
 const { getTTSProvider } = require("../utils/TextToSpeech");
 const { WorkspaceThread } = require("../models/workspaceThread");
-
 const truncate = require("truncate");
 const { purgeDocument } = require("../utils/files/purgeDocument");
 const { getModelTag } = require("./utils");
 const { searchWorkspaceAndThreads } = require("../utils/helpers/search");
 const { workspaceParsedFilesEndpoints } = require("./workspacesParsedFiles");
+const {
+  extractQuestionsInChunks,
+  mergeQuestionsWithMarkScheme,
+  parseQuestionsWithMetadata,
+} = require("./questionExtractor");
+const {
+  analyzeImageWithVision,
+  generateEmbeddableContent,
+} = require("./Imageextractor");
+
+// ============================================================
+// 🔧 SHARED HELPER: Embed per-question chunks with metadata
+//
+// Called after any standard PDF upload to add question-level
+// metadata so metadataSearch can find specific questions by number.
+// Runs fire-and-forget — does not block the upload response.
+// ============================================================
+async function embedQuestionsWithMetadata(workspace, document, originalname, userId) {
+  try {
+    // FIX: asPdf calls writeToServerDocuments which writes pageContent to a JSON file on
+    // disk and returns only { id, location }. So document.pageContent is always undefined
+    // at this point. We must read the content back from the stored JSON file on disk.
+    let examContent =
+      document.pageContent ||
+      (Array.isArray(document)
+        ? document.map((d) => d.pageContent).filter(Boolean).join("\n\n")
+        : "");
+
+    if ((!examContent || examContent.trim().length < 100) && document.location) {
+      try {
+        const { documentsPath } = require("../utils/files");
+        const docFilePath = path.join(documentsPath, document.location);
+        if (fs.existsSync(docFilePath)) {
+          const raw = fs.readFileSync(docFilePath, "utf-8");
+          const parsed = JSON.parse(raw);
+          examContent = parsed.pageContent || parsed.content || "";
+          console.log("Read pageContent from disk: " + examContent.length + " chars");
+        } else {
+          console.log("embedQuestionsWithMetadata: doc file not found at " + docFilePath);
+        }
+      } catch (readErr) {
+        console.error("embedQuestionsWithMetadata: failed reading from disk:", readErr.message);
+      }
+    }
+
+    if (!examContent || examContent.trim().length < 100) {
+      console.log("embedQuestionsWithMetadata: no content for \"" + originalname + "\" — skipping.");
+      console.log("document keys: " + Object.keys(document || {}).join(", "));
+      return;
+    }
+
+    console.log("embedQuestionsWithMetadata: extracting from " + examContent.length + " chars");
+
+    const extracted = await extractQuestionsInChunks(examContent, "exam");
+    const parsedQuestions = parseQuestionsWithMetadata(extracted);
+
+    if (!parsedQuestions?.length) {
+      console.log("ℹ️ No questions extracted — skipping per-question embedding");
+      return;
+    }
+
+    const VectorDb = getVectorDbClass();
+
+    for (const question of parsedQuestions) {
+      const questionText = `Question ${question.questionNumber}: ${question.text}`;
+      const fullContext =
+        question.type === "multiple_choice"
+          ? `${questionText}\n${question.options
+              .map((o) => `${o.letter}) ${o.text}`)
+              .join("\n")}`
+          : `${questionText}\n${
+              question.markScheme?.length > 0
+                ? "Mark Scheme:\n" + question.markScheme.join("\n")
+                : ""
+            }`;
+
+      await VectorDb.addDocumentToNamespace(
+        workspace.slug,
+        {
+          content: fullContext,
+          metadata: {
+            questionNumber: question.questionNumber,
+            type: question.type,
+            source: originalname,
+            workspaceId: workspace.id,
+            userId,
+            questionData: JSON.stringify(question),
+          },
+        },
+        originalname
+      );
+    }
+
+    console.log(
+      `✅ Embedded ${parsedQuestions.length} questions with metadata for "${originalname}"`
+    );
+  } catch (err) {
+    console.error("embedQuestionsWithMetadata error:", err.message);
+  }
+}
+
+// ============================================================
+// 🔧 SHARED HELPER: Get or create teacher workspace
+// ============================================================
+async function getTeacherWorkspace(user) {
+  if (!user || user.role !== "teacher") return null;
+
+  let workspace = await Workspace.get({ slug: `teacher-${user.id}` });
+
+  if (!workspace) {
+    const { workspace: newWorkspace, message } = await Workspace.new(
+      `${user.username}'s Teaching Workspace`,
+      user.id
+    );
+
+    if (!newWorkspace) {
+      console.error("Failed to create teacher workspace:", message);
+      return null;
+    }
+
+    const updateResult = await Workspace.update(newWorkspace.id, {
+      slug: `teacher-${user.id}`,
+    });
+
+    if (!updateResult.workspace) {
+      console.error("Failed to update workspace slug:", updateResult.message);
+      return null;
+    }
+
+    workspace = await Workspace.get({ id: newWorkspace.id });
+  }
+
+  return workspace;
+}
+
+// ============================================================
+// 🔧 FIXED: processFileAsync — removed undefined notifyUser/userId
+// ============================================================
+async function processFileAsync(slug, originalname, userId = null) {
+  try {
+    const Collector = new CollectorApi();
+    const { success, documents } = await Collector.processDocument(originalname);
+
+    if (success && documents?.length > 0) {
+      const workspace = await Workspace.get({ slug });
+      if (!workspace) {
+        console.error(`processFileAsync: workspace not found for slug "${slug}"`);
+        return;
+      }
+      await Document.addDocuments(workspace, [documents[0].location], userId);
+      console.log(`✅ processFileAsync: embedded "${originalname}" into workspace "${slug}"`);
+    }
+  } catch (err) {
+    console.error(`❌ processFileAsync failed for "${originalname}":`, err.message);
+  }
+}
 
 function workspaceEndpoints(app) {
   if (!app) return;
@@ -63,17 +218,13 @@ function workspaceEndpoints(app) {
           },
           user?.id
         );
-
         await EventLogs.logEvent(
           "workspace_created",
-          {
-            workspaceName: workspace?.name || "Unknown Workspace",
-          },
+          { workspaceName: workspace?.name || "Unknown Workspace" },
           user?.id
         );
         if (onboardingComplete === true)
           await Telemetry.sendTelemetry("onboarding_complete");
-
         response.status(200).json({ workspace, message });
       } catch (e) {
         console.error(e.message, e);
@@ -100,10 +251,7 @@ function workspaceEndpoints(app) {
         }
 
         await Workspace.trackChange(currWorkspace, data, user);
-        const { workspace, message } = await Workspace.update(
-          currWorkspace.id,
-          data
-        );
+        const { workspace, message } = await Workspace.update(currWorkspace.id, data);
         response.status(200).json({ workspace, message });
       } catch (e) {
         console.error(e.message, e);
@@ -112,13 +260,9 @@ function workspaceEndpoints(app) {
     }
   );
 
-app.post(
+  app.post(
     "/workspace/:slug/upload",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      handleFileUpload,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), handleFileUpload],
     async function (request, response) {
       try {
         const { slug } = request.params;
@@ -178,14 +322,10 @@ app.post(
         const processingOnline = await Collector.online();
 
         if (!processingOnline) {
-          response
-            .status(500)
-            .json({
-              success: false,
-              error: `Document processing API is not online. Link ${link} will not be processed automatically.`,
-            })
-            .end();
-          return;
+          return response.status(500).json({
+            success: false,
+            error: `Document processing API is not online. Link ${link} will not be processed automatically.`,
+          });
         }
 
         const { success, reason } = await Collector.processLink(link);
@@ -194,15 +334,9 @@ app.post(
           return;
         }
 
-        Collector.log(
-          `Link ${link} uploaded processed and successfully. It is now available in documents.`
-        );
+        Collector.log(`Link ${link} uploaded processed and successfully. It is now available in documents.`);
         await Telemetry.sendTelemetry("link_uploaded");
-        await EventLogs.logEvent(
-          "link_uploaded",
-          { link },
-          response.locals?.user?.id
-        );
+        await EventLogs.logEvent("link_uploaded", { link }, response.locals?.user?.id);
         response.status(200).json({ success: true, error: null });
       } catch (e) {
         console.error(e.message, e);
@@ -228,11 +362,7 @@ app.post(
           return;
         }
 
-        await Document.removeDocuments(
-          currWorkspace,
-          deletes,
-          response.locals?.user?.id
-        );
+        await Document.removeDocuments(currWorkspace, deletes, response.locals?.user?.id);
         const { failedToEmbed = [], errors = [] } = await Document.addDocuments(
           currWorkspace,
           adds,
@@ -243,9 +373,7 @@ app.post(
           workspace: updatedWorkspace,
           message:
             failedToEmbed.length > 0
-              ? `${failedToEmbed.length} documents failed to add.\n\n${errors
-                  .map((msg) => `${msg}`)
-                  .join("\n\n")}`
+              ? `${failedToEmbed.length} documents failed to add.\n\n${errors.map((msg) => `${msg}`).join("\n\n")}`
               : null,
         });
       } catch (e) {
@@ -279,9 +407,7 @@ app.post(
 
         await EventLogs.logEvent(
           "workspace_deleted",
-          {
-            workspaceName: workspace?.name || "Unknown Workspace",
-          },
+          { workspaceName: workspace?.name || "Unknown Workspace" },
           response.locals?.user?.id
         );
 
@@ -320,9 +446,7 @@ app.post(
 
         await EventLogs.logEvent(
           "workspace_vectors_reset",
-          {
-            workspaceName: workspace?.name || "Unknown Workspace",
-          },
+          { workspaceName: workspace?.name || "Unknown Workspace" },
           response.locals?.user?.id
         );
 
@@ -348,7 +472,6 @@ app.post(
         const workspaces = multiUserMode(response)
           ? await Workspace.whereWithUser(user)
           : await Workspace.where();
-
         response.status(200).json({ workspaces });
       } catch (e) {
         console.error(e.message, e);
@@ -367,7 +490,6 @@ app.post(
         const workspace = multiUserMode(response)
           ? await Workspace.getWithUser(user, { slug })
           : await Workspace.get({ slug });
-
         response.status(200).json({ workspace });
       } catch (e) {
         console.error(e.message, e);
@@ -417,9 +539,6 @@ app.post(
           return;
         }
 
-        // This works for both workspace and threads.
-        // we simplify this by just looking at workspace<>user overlap
-        // since they are all on the same table.
         await WorkspaceChats.delete({
           id: { in: chatIds.map((id) => Number(id)) },
           user_id: user?.id ?? null,
@@ -481,10 +600,7 @@ app.post(
         if (!chatResponse) throw new Error("Failed to parse chat response");
 
         await WorkspaceChats._update(existingChat.id, {
-          response: JSON.stringify({
-            ...chatResponse,
-            text: String(newText),
-          }),
+          response: JSON.stringify({ ...chatResponse, text: String(newText) }),
         });
 
         response.sendStatus(200).end();
@@ -512,10 +628,7 @@ app.post(
           return;
         }
 
-        const result = await WorkspaceChats.updateFeedbackScore(
-          chatId,
-          feedback
-        );
+        const result = await WorkspaceChats.updateFeedbackScore(chatId, feedback);
         response.status(200).json({ success: result });
       } catch (error) {
         console.error("Error updating chat feedback:", error);
@@ -530,14 +643,11 @@ app.post(
     async function (request, response) {
       try {
         const { slug } = request.params;
-        const suggestedMessages =
-          await WorkspaceSuggestedMessages.getMessages(slug);
+        const suggestedMessages = await WorkspaceSuggestedMessages.getMessages(slug);
         response.status(200).json({ success: true, suggestedMessages });
       } catch (error) {
         console.error("Error fetching suggested messages:", error);
-        response
-          .status(500)
-          .json({ success: false, message: "Internal server error" });
+        response.status(500).json({ success: false, message: "Internal server error" });
       }
     }
   );
@@ -573,11 +683,7 @@ app.post(
 
   app.post(
     "/workspace/:slug/update-pin",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const { docPath, pinStatus = false } = reqBody(request);
@@ -613,9 +719,7 @@ app.post(
 
         const cachedResponse = responseCache.get(cacheKey);
         if (cachedResponse) {
-          response.writeHead(200, {
-            "Content-Type": cachedResponse.mime || "audio/mpeg",
-          });
+          response.writeHead(200, { "Content-Type": cachedResponse.mime || "audio/mpeg" });
           response.end(cachedResponse.buffer);
           return;
         }
@@ -628,9 +732,7 @@ app.post(
         if (buffer === null) return response.sendStatus(204).end();
 
         responseCache.set(cacheKey, { buffer, mime: "audio/mpeg" });
-        response.writeHead(200, {
-          "Content-Type": "audio/mpeg",
-        });
+        response.writeHead(200, { "Content-Type": "audio/mpeg" });
         response.end(buffer);
         return;
       } catch (error) {
@@ -649,15 +751,12 @@ app.post(
         const cachedResponse = responseCache.get(slug);
 
         if (cachedResponse) {
-          response.writeHead(200, {
-            "Content-Type": cachedResponse.mime || "image/png",
-          });
+          response.writeHead(200, { "Content-Type": cachedResponse.mime || "image/png" });
           response.end(cachedResponse.buffer);
           return;
         }
 
         const pfpPath = await determineWorkspacePfpFilepath(slug);
-
         if (!pfpPath) {
           response.sendStatus(204).end();
           return;
@@ -670,10 +769,7 @@ app.post(
         }
 
         responseCache.set(slug, { buffer, mime });
-
-        response.writeHead(200, {
-          "Content-Type": mime || "image/png",
-        });
+        response.writeHead(200, { "Content-Type": mime || "image/png" });
         response.end(buffer);
         return;
       } catch (error) {
@@ -685,11 +781,7 @@ app.post(
 
   app.post(
     "/workspace/:slug/upload-pfp",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      handlePfpUpload,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), handlePfpUpload],
     async function (request, response) {
       try {
         const { slug } = request.params;
@@ -698,33 +790,22 @@ app.post(
           return response.status(400).json({ message: "File upload failed." });
         }
 
-        const workspaceRecord = await Workspace.get({
-          slug,
-        });
-
+        const workspaceRecord = await Workspace.get({ slug });
         const oldPfpFilename = workspaceRecord.pfpFilename;
         if (oldPfpFilename) {
           const storagePath = path.join(__dirname, "../storage/assets/pfp");
-          const oldPfpPath = path.join(
-            storagePath,
-            normalizePath(workspaceRecord.pfpFilename)
-          );
+          const oldPfpPath = path.join(storagePath, normalizePath(workspaceRecord.pfpFilename));
           if (!isWithin(path.resolve(storagePath), path.resolve(oldPfpPath)))
             throw new Error("Invalid path name");
           if (fs.existsSync(oldPfpPath)) fs.unlinkSync(oldPfpPath);
         }
 
-        const { workspace, message } = await Workspace._update(
-          workspaceRecord.id,
-          {
-            pfpFilename: uploadedFileName,
-          }
-        );
+        const { workspace, message } = await Workspace._update(workspaceRecord.id, {
+          pfpFilename: uploadedFileName,
+        });
 
         return response.status(workspace ? 200 : 500).json({
-          message: workspace
-            ? "Profile picture uploaded successfully."
-            : message,
+          message: workspace ? "Profile picture uploaded successfully." : message,
         });
       } catch (error) {
         console.error("Error processing the profile picture upload:", error);
@@ -739,36 +820,25 @@ app.post(
     async function (request, response) {
       try {
         const { slug } = request.params;
-        const workspaceRecord = await Workspace.get({
-          slug,
-        });
+        const workspaceRecord = await Workspace.get({ slug });
         const oldPfpFilename = workspaceRecord.pfpFilename;
 
         if (oldPfpFilename) {
           const storagePath = path.join(__dirname, "../storage/assets/pfp");
-          const oldPfpPath = path.join(
-            storagePath,
-            normalizePath(oldPfpFilename)
-          );
+          const oldPfpPath = path.join(storagePath, normalizePath(oldPfpFilename));
           if (!isWithin(path.resolve(storagePath), path.resolve(oldPfpPath)))
             throw new Error("Invalid path name");
           if (fs.existsSync(oldPfpPath)) fs.unlinkSync(oldPfpPath);
         }
 
-        const { workspace, message } = await Workspace._update(
-          workspaceRecord.id,
-          {
-            pfpFilename: null,
-          }
-        );
+        const { workspace, message } = await Workspace._update(workspaceRecord.id, {
+          pfpFilename: null,
+        });
 
-        // Clear the cache
         responseCache.delete(slug);
 
         return response.status(workspace ? 200 : 500).json({
-          message: workspace
-            ? "Profile picture removed successfully."
-            : message,
+          message: workspace ? "Profile picture removed successfully." : message,
         });
       } catch (error) {
         console.error("Error processing the profile picture removal:", error);
@@ -788,8 +858,6 @@ app.post(
         if (!chatId)
           return response.status(400).json({ message: "chatId is required" });
 
-        // Get threadId we are branching from if that request body is sent
-        // and is a valid thread slug.
         const threadId = !!threadSlug
           ? (
               await WorkspaceThread.get({
@@ -798,29 +866,30 @@ app.post(
               })
             )?.id ?? null
           : null;
+
         const chatsToFork = await WorkspaceChats.where(
           {
             workspaceId: workspace.id,
             user_id: user?.id,
-            include: true, // only duplicate visible chats
+            include: true,
             thread_id: threadId,
-            api_session_id: null, // Do not include API session chats.
+            api_session_id: null,
             id: { lte: Number(chatId) },
           },
           null,
           { id: "asc" }
         );
 
-        const { thread: newThread, message: threadError } =
-          await WorkspaceThread.new(workspace, user?.id);
-        if (threadError)
-          return response.status(500).json({ error: threadError });
+        const { thread: newThread, message: threadError } = await WorkspaceThread.new(
+          workspace,
+          user?.id
+        );
+        if (threadError) return response.status(500).json({ error: threadError });
 
         let lastMessageText = "";
         const chatsData = chatsToFork.map((chat) => {
           const chatResponse = safeJsonParse(chat.response, {});
           if (chatResponse?.text) lastMessageText = chatResponse.text;
-
           return {
             workspaceId: workspace.id,
             prompt: chat.prompt,
@@ -831,9 +900,7 @@ app.post(
         });
         await WorkspaceChats.bulkCreate(chatsData);
         await WorkspaceThread.update(newThread, {
-          name: !!lastMessageText
-            ? truncate(lastMessageText, 22)
-            : "Forked Thread",
+          name: !!lastMessageText ? truncate(lastMessageText, 22) : "Forked Thread",
         });
 
         await EventLogs.logEvent(
@@ -864,9 +931,7 @@ app.post(
           user_id: user?.id ?? null,
         });
         if (!validChat)
-          return response
-            .status(404)
-            .json({ success: false, error: "Chat not found." });
+          return response.status(404).json({ success: false, error: "Chat not found." });
 
         await WorkspaceChats._update(validChat.id, { include: false });
         response.json({ success: true, error: null });
@@ -877,14 +942,19 @@ app.post(
     }
   );
 
-  /** Handles the uploading and embedding in one-call by uploading via drag-and-drop in chat container. */
+  // ============================================================
+  // POST /workspace/:slug/upload-and-embed
+  //
+  // Used by chat drag-and-drop. Returns simple JSON (not SSE).
+  // Callers do NOT need to change — response shape is identical.
+  //
+  // UPGRADED: PDFs now trigger background question extraction so
+  // per-question metadata is available for intelligent retrieval.
+  // Images still go through vision analysis as before.
+  // ============================================================
   app.post(
     "/workspace/:slug/upload-and-embed",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      handleFileUpload,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), handleFileUpload],
     async function (request, response) {
       try {
         const { slug = null } = request.params;
@@ -899,36 +969,51 @@ app.post(
         }
 
         const Collector = new CollectorApi();
-        const { originalname } = request.file;
+        const { originalname, mimetype, path: filePath } = request.file;
         const processingOnline = await Collector.online();
 
         if (!processingOnline) {
-          response
-            .status(500)
-            .json({
-              success: false,
-              error: `Document processing API is not online. Document ${originalname} will not be processed automatically.`,
-            })
-            .end();
-          return;
+          return response.status(500).json({
+            success: false,
+            error: `Document processing API is not online.`,
+          });
         }
 
-        const { success, reason, documents } =
-          await Collector.processDocument(originalname);
+        // ============================================================
+        // 📸 IMAGE EXTRACTOR — unchanged
+        // ============================================================
+        let targetFilename = originalname;
+
+        if (mimetype.startsWith("image/")) {
+          console.log(`📸 Image detected (${originalname}). Running Vision Analysis...`);
+          const analysis = await analyzeImageWithVision(filePath, originalname);
+
+          if (analysis) {
+            const textContent = generateEmbeddableContent(analysis);
+            const analysisFilename = `${originalname}.analysis.txt`;
+            const analysisPath = `${filePath}.analysis.txt`;
+            fs.writeFileSync(analysisPath, textContent);
+            targetFilename = analysisFilename;
+            console.log(`✅ Image analyzed. Embedding description instead of raw image.`);
+          } else {
+            console.log(`⚠️ Vision analysis failed. Falling back to standard processing.`);
+          }
+        }
+        // ============================================================
+
+        const { success, reason, documents } = await Collector.processDocument(targetFilename);
+
         if (!success || documents?.length === 0) {
           response.status(500).json({ success: false, error: reason }).end();
           return;
         }
 
-        Collector.log(
-          `Document ${originalname} uploaded processed and successfully. It is now available in documents.`
-        );
+        Collector.log(`Document ${targetFilename} processed successfully.`);
+
         await Telemetry.sendTelemetry("document_uploaded");
         await EventLogs.logEvent(
           "document_uploaded",
-          {
-            documentName: originalname,
-          },
+          { documentName: originalname },
           response.locals?.user?.id
         );
 
@@ -939,10 +1024,24 @@ app.post(
           response.locals?.user?.id
         );
 
-        if (failedToEmbed.length > 0)
-          return response
-            .status(200)
-            .json({ success: false, error: errors?.[0], document: null });
+        if (failedToEmbed.length > 0) {
+          return response.status(200).json({ success: false, error: errors?.[0], document: null });
+        }
+
+        // ✅ UPGRADED: Synchronous question extraction for PDFs.
+        // We await this before responding so that per-question metadata is in the
+        // vector DB by the time the student can type their first question.
+        // Non-PDF files (images, text) skip this and respond immediately as before.
+        const isPdf = mimetype === "application/pdf" || originalname.toLowerCase().endsWith(".pdf");
+        if (isPdf && document.pageContent) {
+          try {
+            console.log(`📄 Extracting questions from "${originalname}" before responding...`);
+            await embedQuestionsWithMetadata(currWorkspace, document, originalname, user?.id);
+          } catch (err) {
+            // Non-fatal — log and continue. Student can still chat, semantic search is fallback.
+            console.error("⚠️ Question extraction failed (continuing anyway):", err.message);
+          }
+        }
 
         response.status(200).json({
           success: true,
@@ -956,13 +1055,19 @@ app.post(
     }
   );
 
+  // ============================================================
+  // REMOVED: /workspace/:slug/upload-and-embed-content
+  //
+  // This was a streaming SSE variant of upload-and-embed that did
+  // NOT include question extraction. It is fully replaced by
+  // /workspace/:slug/upload-exam-paper which does SSE + extraction.
+  // If you have a frontend caller using upload-and-embed-content,
+  // point it at upload-exam-paper instead and handle SSE events.
+  // ============================================================
+
   app.delete(
     "/workspace/:slug/remove-and-unembed",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
-      handleFileUpload,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager]), handleFileUpload],
     async function (request, response) {
       try {
         const { slug = null } = request.params;
@@ -975,7 +1080,6 @@ app.post(
         if (!currWorkspace || !body.documentLocation)
           return response.sendStatus(400).end();
 
-        // Will delete the document from the entire system + wil unembed it.
         await purgeDocument(body.documentLocation);
         response.status(200).end();
       } catch (e) {
@@ -1004,11 +1108,7 @@ app.post(
 
   app.delete(
     "/workspace/:slug/prompt-history",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager]), validWorkspaceSlug],
     async (_, response) => {
       try {
         response.status(200).json({
@@ -1025,11 +1125,7 @@ app.post(
 
   app.delete(
     "/workspace/prompt-history/:id",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const { id } = request.params;
@@ -1046,10 +1142,6 @@ app.post(
     }
   );
 
-  /**
-   * Searches for workspaces and threads by thread name or workspace name.
-   * Only returns assets owned by the user (if multi-user mode is enabled).
-   */
   app.post(
     "/workspace/search",
     [validatedRequest, flexUserRoleValid([ROLES.all])],
@@ -1073,227 +1165,177 @@ app.post(
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
-        const { name, mime, contentString } = reqBody(request);
-        const workspace = response.locals.workspace;
+        const { name, contentString } = reqBody(request);
 
         if (!contentString) {
-          return response.status(400).json({
-            success: false,
-            error: "No content provided",
-          });
+          return response.status(400).json({ success: false, error: "No content provided" });
         }
 
-        // Get vision-capable LLM
-        const LLMConnector = getLLMProvider({
-          provider: workspace?.chatProvider,
-          model: workspace?.chatModel,
-        });
+        const base64Data = contentString.replace(/^data:image\/\w+;base64,/, "");
+        const buffer = Buffer.from(base64Data, "base64");
+        const tempPath = path.join(__dirname, `../storage/tmp/${Date.now()}_${name}`);
 
-        // Use vision model to analyze
-        const analysis = await LLMConnector.analyzeVisualContent({
-          name,
-          mime,
-          contentString,
-        });
+        const tmpDir = path.dirname(tempPath);
+        if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+
+        fs.writeFileSync(tempPath, buffer);
+
+        const analysis = await analyzeImageWithVision(tempPath, name);
+
+        fs.unlinkSync(tempPath);
+
+        if (!analysis) {
+          return response.status(500).json({ success: false, error: "Failed to analyze image" });
+        }
 
         return response.json({
           success: true,
-          analysis,
+          analysis: {
+            description: analysis.description,
+            extractedText: analysis.extractedText,
+            tags: require("./Imageextractor").generateSearchTags(analysis),
+          },
         });
       } catch (error) {
         console.error("Vision analysis error:", error);
-        return response.status(500).json({
-          success: false,
-          error: error.message,
-        });
+        return response.status(500).json({ success: false, error: error.message });
       }
     }
   );
 
-async function getTeacherWorkspace(user) {
-  if (!user || user.role !== "teacher") return null;
+  // ============================================================
+  // POST /teacher/documents/upload
+  // ============================================================
+  app.post(
+    "/teacher/documents/upload",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher]), handleExamUpload],
+    async (request, response) => {
+      request.setTimeout(900000);
+      response.setTimeout(900000);
 
-  let workspace = await Workspace.get({
-    slug: `teacher-${user.id}`,
-  });
-
-  if (!workspace) {
-    // Use Workspace.new() instead of create()
-    const { workspace: newWorkspace, message } = await Workspace.new(
-      `${user.username}'s Teaching Workspace`,
-      user.id
-    );
-    
-    if (!newWorkspace) {
-      console.error("Failed to create teacher workspace:", message);
-      return null;
-    }
-
-    // Update the slug to be teacher-specific
-    await Workspace.update(newWorkspace.id, {
-      slug: `teacher-${user.id}`,
-    });
-    
-    // Fetch the updated workspace
-    workspace = await Workspace.get({ id: newWorkspace.id });
-  }
-
-  return workspace;
-}
-
-
-app.post(
-  "/teacher/documents/upload",
-  [
-    validatedRequest,
-    flexUserRoleValid([ROLES.teacher]),
-    handleExamUpload,
-  ],
-  async (request, response) => {
-    request.setTimeout(900000);
-    response.setTimeout(900000);
-
-    try {
-      const user = await userFromSession(request, response);
-      const workspace = await getTeacherWorkspace(user);
-
-      if (!workspace) {
-        return response.status(403).json({ 
-          success: false, 
-          error: "Teacher workspace not accessible" 
-        });
-      }
-
-      const examFile = request.files?.examPaper?.[0];
-      const markSchemeFile = request.files?.markScheme?.[0];
-
-      if (!examFile) {
-        return response.status(400).json({ 
-          success: false, 
-          error: "No exam paper uploaded" 
-        });
-      }
-
-      let metadata = {};
       try {
-        if (request.body.metadata) {
-          metadata = JSON.parse(request.body.metadata);
-        }
-      } catch (e) {
-        console.error("Error parsing metadata:", e);
-      }
+        const user = await userFromSession(request, response);
+        const workspace = await getTeacherWorkspace(user);
 
-      const Collector = new CollectorApi();
-      const processingOnline = await Collector.online();
-
-      if (!processingOnline) {
-        return response.status(500).json({
-          success: false,
-          error: `Document processing API is not online.`,
-        });
-      }
-
-      const examResult = await Collector.processDocument(examFile.originalname);
-      
-      if (!examResult.success || !examResult.documents?.length) {
-        return response.status(500).json({ 
-          success: false, 
-          error: examResult.reason || "Failed to process exam paper"
-        });
-      }
-
-      let markSchemeContent = "";
-      
-      if (markSchemeFile) {
-        const schemeResult = await Collector.processDocument(markSchemeFile.originalname);
-        
-        if (schemeResult.success && schemeResult.documents?.length) {
-          markSchemeContent = schemeResult.documents[0].pageContent || 
-            schemeResult.documents.map(d => d.pageContent).join('\n\n');
-        }
-      }
-
-      const allDocLocations = examResult.documents.map(d => d.location);
-      const { failedToEmbed = [], errors = [] } = await Document.addDocuments(
-        workspace,
-        allDocLocations,
-        user.id
-      );
-
-      if (failedToEmbed.length > 0) {
-        return response.status(500).json({
-          success: false,
-          error: errors.join(", "),
-        });
-      }
-
-      const LLMConnector = getLLMProvider({
-        provider: process.env.LLM_PROVIDER,
-        model: process.env.LLM_MODEL,
-      });
-
-      const examContent = examResult.documents[0].pageContent || 
-        examResult.documents.map(d => d.pageContent).join('\n\n');
-
-      console.log(`Exam content length: ${examContent.length} chars`);
-      console.log(`Mark scheme length: ${markSchemeContent.length} chars`);
-
-      // ✅ OPTIMIZED CHUNKING with parallel processing
-      function smartChunk(content, maxChunkSize = 10000) {
-        if (content.length <= maxChunkSize) {
-          return [content];
+        if (!workspace) {
+          return response.status(403).json({
+            success: false,
+            error: "Teacher workspace not accessible",
+          });
         }
 
-        const chunks = [];
-        let currentChunk = '';
-        const sections = content.split(/\n\n+/);
-        
-        for (const section of sections) {
-          if (currentChunk.length + section.length > maxChunkSize && currentChunk.length > 0) {
-            chunks.push(currentChunk.trim());
-            currentChunk = '';
+        const examFile = request.files?.examPaper?.[0];
+        const markSchemeFile = request.files?.markScheme?.[0];
+
+        if (!examFile) {
+          return response.status(400).json({
+            success: false,
+            error: "No exam paper uploaded",
+          });
+        }
+
+        let metadata = {};
+        try {
+          if (request.body.metadata) metadata = JSON.parse(request.body.metadata);
+        } catch (e) {
+          console.error("Error parsing metadata:", e);
+        }
+
+        const Collector = new CollectorApi();
+        const processingOnline = await Collector.online();
+
+        if (!processingOnline) {
+          return response.status(500).json({
+            success: false,
+            error: `Document processing API is not online.`,
+          });
+        }
+
+        const examResult = await Collector.processDocument(examFile.originalname);
+
+        if (!examResult.success || !examResult.documents?.length) {
+          return response.status(500).json({
+            success: false,
+            error: examResult.reason || "Failed to process exam paper",
+          });
+        }
+
+        let markSchemeContent = "";
+        if (markSchemeFile) {
+          const schemeResult = await Collector.processDocument(markSchemeFile.originalname);
+          if (schemeResult.success && schemeResult.documents?.length) {
+            markSchemeContent =
+              schemeResult.documents[0].pageContent ||
+              schemeResult.documents.map((d) => d.pageContent).join("\n\n");
           }
-          
-          if (section.length > maxChunkSize) {
-            if (currentChunk.length > 0) {
+        }
+
+        const allDocLocations = examResult.documents.map((d) => d.location);
+        const { failedToEmbed = [], errors = [] } = await Document.addDocuments(
+          workspace,
+          allDocLocations,
+          user.id
+        );
+
+        if (failedToEmbed.length > 0) {
+          return response.status(500).json({ success: false, error: errors.join(", ") });
+        }
+
+        const LLMConnector = getLLMProvider({
+          provider: process.env.LLM_PROVIDER,
+          model: process.env.LLM_MODEL,
+        });
+
+        const examContent =
+          examResult.documents[0].pageContent ||
+          examResult.documents.map((d) => d.pageContent).join("\n\n");
+
+        console.log(`Exam content length: ${examContent.length} chars`);
+        console.log(`Mark scheme length: ${markSchemeContent.length} chars`);
+
+        function smartChunk(content, maxChunkSize = 10000) {
+          if (content.length <= maxChunkSize) return [content];
+
+          const chunks = [];
+          let currentChunk = "";
+          const sections = content.split(/\n\n+/);
+
+          for (const section of sections) {
+            if (currentChunk.length + section.length > maxChunkSize && currentChunk.length > 0) {
               chunks.push(currentChunk.trim());
-              currentChunk = '';
+              currentChunk = "";
             }
-            
-            let remaining = section;
-            while (remaining.length > maxChunkSize) {
-              chunks.push(remaining.substring(0, maxChunkSize).trim());
-              remaining = remaining.substring(maxChunkSize);
+
+            if (section.length > maxChunkSize) {
+              if (currentChunk.length > 0) {
+                chunks.push(currentChunk.trim());
+                currentChunk = "";
+              }
+              let remaining = section;
+              while (remaining.length > maxChunkSize) {
+                chunks.push(remaining.substring(0, maxChunkSize).trim());
+                remaining = remaining.substring(maxChunkSize);
+              }
+              if (remaining.length > 0) currentChunk = remaining;
+            } else {
+              currentChunk += (currentChunk.length > 0 ? "\n\n" : "") + section;
             }
-            if (remaining.length > 0) {
-              currentChunk = remaining;
-            }
-          } else {
-            currentChunk += (currentChunk.length > 0 ? '\n\n' : '') + section;
           }
-        }
-        
-        if (currentChunk.trim().length > 0) {
-          chunks.push(currentChunk.trim());
-        }
-        
-        return chunks;
-      }
 
-      // ✅ Process chunks in PARALLEL
-      async function extractQuestionsInChunks(content, type = 'exam') {
-        const MAX_CHUNK_SIZE = 10000; // Larger chunks = fewer API calls
-        const chunks = smartChunk(content, MAX_CHUNK_SIZE);
-        
-        console.log(`Processing ${type} in ${chunks.length} chunk(s)...`);
-        
-        // ✅ Process all chunks in parallel using Promise.all
-        const chunkPromises = chunks.map(async (chunk, i) => {
-          console.log(`Processing ${type} chunk ${i + 1}/${chunks.length} (${chunk.length} chars)...`);
-          
-          const chunkPrompt = `You are an expert at extracting exam questions from documents.
+          if (currentChunk.trim().length > 0) chunks.push(currentChunk.trim());
+          return chunks;
+        }
 
-${type === 'mark_scheme' ? 'This is a MARK SCHEME. Extract questions AND marking criteria.' : 'This is an EXAM PAPER. Extract questions.'}
+        async function extractTeacherQuestionsInChunks(content, type = "exam") {
+          const MAX_CHUNK_SIZE = 10000;
+          const chunks = smartChunk(content, MAX_CHUNK_SIZE);
+
+          console.log(`Processing ${type} in ${chunks.length} chunk(s)...`);
+
+          const chunkPromises = chunks.map(async (chunk, i) => {
+            const chunkPrompt = `You are an expert at extracting exam questions from documents.
+
+${type === "mark_scheme" ? "This is a MARK SCHEME. Extract questions AND marking criteria." : "This is an EXAM PAPER. Extract questions."}
 
 CONTENT (Part ${i + 1} of ${chunks.length}):
 ${chunk}
@@ -1316,48 +1358,42 @@ Mark Scheme:
 
 Extract now:`;
 
-          try {
-            const chunkResponse = await LLMConnector.getChatCompletion(
-              [{ role: "user", content: chunkPrompt }],
-              { 
-                temperature: 0.3,
-                max_tokens: 4000
+            try {
+              const chunkResponse = await LLMConnector.getChatCompletion(
+                [{ role: "user", content: chunkPrompt }],
+                { temperature: 0.3, max_tokens: 4000 }
+              );
+
+              if (chunkResponse?.textResponse) {
+                console.log(`✅ Chunk ${i + 1}/${chunks.length} processed`);
+                return chunkResponse.textResponse;
               }
-            );
-            
-            if (chunkResponse?.textResponse) {
-              console.log(`✅ Chunk ${i + 1}/${chunks.length} processed`);
-              return chunkResponse.textResponse;
-            } else {
               console.error(`❌ Chunk ${i + 1}/${chunks.length} no response`);
-              return '';
+              return "";
+            } catch (chunkError) {
+              console.error(`Error processing chunk ${i + 1}:`, chunkError.message);
+              return "";
             }
-          } catch (chunkError) {
-            console.error(`Error processing chunk ${i + 1}:`, chunkError.message);
-            return '';
-          }
-        });
+          });
 
-        // ✅ Wait for all chunks to complete
-        const results = await Promise.all(chunkPromises);
-        return results.filter(r => r.length > 0).join('\n\n');
-      }
-
-      async function mergeQuestionsWithMarkScheme(examQuestions, markSchemeQuestions) {
-        if (!markSchemeQuestions) {
-          return examQuestions;
+          const results = await Promise.all(chunkPromises);
+          return results.filter((r) => r.length > 0).join("\n\n");
         }
 
-        // ✅ Truncate if combined content is too long
-        const maxMergeLength = 15000;
-        const truncatedExam = examQuestions.length > maxMergeLength 
-          ? examQuestions.substring(0, maxMergeLength) 
-          : examQuestions;
-        const truncatedScheme = markSchemeQuestions.length > maxMergeLength 
-          ? markSchemeQuestions.substring(0, maxMergeLength) 
-          : markSchemeQuestions;
+        async function mergeTeacherQuestionsWithMarkScheme(examQuestions, markSchemeQuestions) {
+          if (!markSchemeQuestions) return examQuestions;
 
-        const mergePrompt = `Merge exam questions with mark schemes.
+          const maxMergeLength = 15000;
+          const truncatedExam =
+            examQuestions.length > maxMergeLength
+              ? examQuestions.substring(0, maxMergeLength)
+              : examQuestions;
+          const truncatedScheme =
+            markSchemeQuestions.length > maxMergeLength
+              ? markSchemeQuestions.substring(0, maxMergeLength)
+              : markSchemeQuestions;
+
+          const mergePrompt = `Merge exam questions with mark schemes.
 
 EXAM QUESTIONS:
 ${truncatedExam}
@@ -1382,83 +1418,210 @@ Mark Scheme:
 
 Merge now:`;
 
-        try {
-          const mergeResponse = await LLMConnector.getChatCompletion(
-            [{ role: "user", content: mergePrompt }],
-            { 
-              temperature: 0.2,
-              max_tokens: 4000
-            }
+          try {
+            const mergeResponse = await LLMConnector.getChatCompletion(
+              [{ role: "user", content: mergePrompt }],
+              { temperature: 0.2, max_tokens: 4000 }
+            );
+            return mergeResponse?.textResponse || examQuestions;
+          } catch (mergeError) {
+            console.error("Error merging:", mergeError.message);
+            return examQuestions;
+          }
+        }
+
+        console.log("📄 Extracting questions from exam paper...");
+        const examQuestions = await extractTeacherQuestionsInChunks(examContent, "exam");
+
+        let finalExtractedContent = examQuestions;
+
+        if (markSchemeContent && markSchemeContent.trim().length > 0) {
+          console.log("📋 Extracting mark scheme...");
+          const markSchemeQuestions = await extractTeacherQuestionsInChunks(
+            markSchemeContent,
+            "mark_scheme"
           );
-          
-          return mergeResponse?.textResponse || examQuestions;
-        } catch (mergeError) {
-          console.error("Error merging:", mergeError.message);
-          return examQuestions;
+          console.log("🔄 Merging...");
+          finalExtractedContent = await mergeTeacherQuestionsWithMarkScheme(
+            examQuestions,
+            markSchemeQuestions
+          );
         }
-      }
 
-      console.log("📄 Extracting questions from exam paper...");
-      const examQuestions = await extractQuestionsInChunks(examContent, 'exam');
-      
-      let finalExtractedContent = examQuestions;
+        if (!finalExtractedContent || finalExtractedContent.trim().length === 0) {
+          console.error("LLM returned no content");
+          return response.status(500).json({
+            success: false,
+            error: "Failed to extract quiz content from document",
+          });
+        }
 
-      if (markSchemeContent && markSchemeContent.trim().length > 0) {
-        console.log("📋 Extracting mark scheme...");
-        const markSchemeQuestions = await extractQuestionsInChunks(markSchemeContent, 'mark_scheme');
-        
-        console.log("🔄 Merging...");
-        finalExtractedContent = await mergeQuestionsWithMarkScheme(examQuestions, markSchemeQuestions);
-      }
+        const questionCount = (finalExtractedContent.match(/^\d+\./gm) || []).length;
+        console.log(`✅ Successfully extracted ${questionCount} questions`);
 
-      if (!finalExtractedContent || finalExtractedContent.trim().length === 0) {
-        console.error("LLM returned no content");
-        return response.status(500).json({
-          success: false,
-          error: "Failed to extract quiz content from document"
+        await Telemetry.sendTelemetry("exam_paper_extracted");
+        await EventLogs.logEvent(
+          "exam_paper_extracted",
+          {
+            documentName: examFile.originalname,
+            hasMarkScheme: !!markSchemeFile,
+            subject: metadata.subject || "Unknown",
+            questionCount,
+          },
+          user.id
+        );
+
+        response.status(200).json({
+          success: true,
+          documents: examResult.documents.map((d) => ({ id: d.id, location: d.location })),
+          extractedQuiz: {
+            content: finalExtractedContent,
+            questionCount,
+            hasMarkScheme: !!markSchemeFile,
+            metadata,
+          },
         });
+      } catch (e) {
+        console.error("Teacher document upload failed:", e);
+        response.status(500).json({ success: false, error: e.message });
       }
-
-      const questionCount = (finalExtractedContent.match(/^\d+\./gm) || []).length;
-      
-      console.log(`✅ Successfully extracted ${questionCount} questions`);
-
-      await Telemetry.sendTelemetry("exam_paper_extracted");
-      await EventLogs.logEvent(
-        "exam_paper_extracted",
-        { 
-          documentName: examFile.originalname,
-          hasMarkScheme: !!markSchemeFile,
-          subject: metadata.subject || "Unknown",
-          questionCount
-        },
-        user.id
-      );
-
-      response.status(200).json({
-        success: true,
-        documents: examResult.documents.map(d => ({
-          id: d.id,
-          location: d.location,
-        })),
-        extractedQuiz: {
-          content: finalExtractedContent,
-          questionCount,
-          hasMarkScheme: !!markSchemeFile,
-          metadata
-        }
-      });
-    } catch (e) {
-      console.error("Teacher document upload failed:", e);
-      response.status(500).json({ 
-        success: false, 
-        error: e.message 
-      });
     }
-  }
-);
+  );
 
-  // Parsed Files in separate endpoint just to keep the workspace endpoints clean
+  // ============================================================
+  // POST /workspace/:slug/upload-exam-paper
+  // Streaming SSE upload with AI question extraction.
+  // Use this when you want progress feedback on the frontend.
+  // ============================================================
+  app.post(
+    "/workspace/:slug/upload-exam-paper",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), handleFileUpload],
+    async function (request, response) {
+      try {
+        const { slug = null } = request.params;
+        const user = await userFromSession(request, response);
+        const currWorkspace = multiUserMode(response)
+          ? await Workspace.getWithUser(user, { slug })
+          : await Workspace.get({ slug });
+
+        if (!currWorkspace) return response.sendStatus(400).end();
+
+        if (!request.file) {
+          return response.status(400).json({ success: false, error: "No file uploaded" });
+        }
+
+        response.setHeader("Content-Type", "text/event-stream");
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("Connection", "keep-alive");
+        response.setHeader("X-Accel-Buffering", "no");
+
+        const sendProgress = (data) => {
+          response.write(`data: ${JSON.stringify(data)}\n\n`);
+        };
+
+        const { originalname, filename } = request.file;
+        const Collector = new CollectorApi();
+
+        sendProgress({ type: "progress", message: "Checking document processor...", progress: 10 });
+
+        const processingOnline = await Collector.online();
+        if (!processingOnline) {
+          sendProgress({ type: "error", error: "Document processing API is not online." });
+          response.end();
+          return;
+        }
+
+        sendProgress({ type: "progress", message: "Processing PDF...", progress: 20 });
+
+        const { success, reason, documents } = await Collector.processDocument(filename);
+
+        if (!success || !documents?.length) {
+          sendProgress({ type: "error", error: reason || "Processing failed" });
+          response.end();
+          return;
+        }
+
+        sendProgress({ type: "progress", message: "Extracting questions with AI...", progress: 40 });
+
+        const examContent =
+          documents[0].pageContent || documents.map((d) => d.pageContent).join("\n\n");
+
+        console.log(`📄 Extracting questions from: ${originalname}`);
+
+        const extractedQuestions = await extractQuestionsInChunks(examContent, "exam");
+
+        if (!extractedQuestions || extractedQuestions.trim().length === 0) {
+          sendProgress({ type: "error", error: "Failed to extract questions from document" });
+          response.end();
+          return;
+        }
+
+        sendProgress({ type: "progress", message: "Parsing question structure...", progress: 60 });
+
+        const parsedQuestions = parseQuestionsWithMetadata(extractedQuestions);
+        console.log(`✅ Extracted ${parsedQuestions.length} questions`);
+
+        sendProgress({ type: "progress", message: "Embedding questions with metadata...", progress: 70 });
+
+        const VectorDb = getVectorDbClass();
+
+        for (const question of parsedQuestions) {
+          const questionText = `Question ${question.questionNumber}: ${question.text}`;
+          const fullContext =
+            question.type === "multiple_choice"
+              ? `${questionText}\n${question.options.map((o) => `${o.letter}) ${o.text}`).join("\n")}`
+              : `${questionText}\n${
+                  question.markScheme.length > 0
+                    ? "Mark Scheme:\n" + question.markScheme.join("\n")
+                    : ""
+                }`;
+
+          await VectorDb.addDocumentToNamespace(
+            currWorkspace.slug,
+            {
+              content: fullContext,
+              metadata: {
+                questionNumber: question.questionNumber,
+                type: question.type,
+                source: originalname,
+                workspaceId: currWorkspace.id,
+                userId: user?.id,
+                questionData: JSON.stringify(question),
+              },
+            },
+            originalname
+          );
+        }
+
+        sendProgress({ type: "progress", message: "Finalizing...", progress: 90 });
+
+        await Document.addDocuments(currWorkspace, [documents[0].location], user?.id);
+
+        await Telemetry.sendTelemetry("exam_paper_uploaded");
+        await EventLogs.logEvent(
+          "exam_paper_uploaded",
+          { documentName: originalname, questionCount: parsedQuestions.length },
+          user?.id
+        );
+
+        sendProgress({
+          type: "complete",
+          success: true,
+          questionCount: parsedQuestions.length,
+          questions: parsedQuestions,
+          document: { id: documents[0].id, location: documents[0].location },
+          progress: 100,
+        });
+
+        response.end();
+      } catch (e) {
+        console.error("Exam upload error:", e.message, e);
+        response.write(`data: ${JSON.stringify({ type: "error", error: e.message })}\n\n`);
+        response.end();
+      }
+    }
+  );
+
   workspaceParsedFilesEndpoints(app);
 }
 

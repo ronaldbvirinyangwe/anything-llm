@@ -78,6 +78,7 @@ const sharp = require('sharp');
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 const fetch = require('node-fetch');
 const OpenAI = require("openai");
+const { sendPushNotification } = require('../utils/pushNotifications');
 
 
 const {
@@ -117,7 +118,7 @@ function systemEndpoints(app) {
     response.sendStatus(200).end();
   });
 
-   app.post("/system/enrol/student", [validatedRequest], async (request, response) => {
+  app.post("/system/enrol/student", [validatedRequest], async (request, response) => {
   try {
     const { name, age, academicLevel, curriculum, grade } = reqBody(request);
     const sessionUser = await userFromSession(request, response);
@@ -145,7 +146,15 @@ function systemEndpoints(app) {
       data: { role: "student" },
     });
 
-    // ✅ Generate a fresh JWT with updated role
+    // ✅ Auto-create "Study" workspace
+    const { workspace: studyWorkspace } = await Workspace.new("Study", updatedUser.id);
+    if (studyWorkspace) {
+      await Workspace.update(studyWorkspace.id, {
+        slug: `study-${sessionUser.id}`,
+      });
+    }
+
+    // Generate a fresh JWT with updated role
     const newToken = jwt.sign(
       {
         id: updatedUser.id,
@@ -158,7 +167,6 @@ function systemEndpoints(app) {
 
     await EventLogs.logEvent("student_enrolled", { username: sessionUser.username }, sessionUser.id);
 
-    // Return both the student data and the new token
     response.status(200).json({
       success: true,
       student,
@@ -1321,7 +1329,7 @@ app.get("/system/teacher-dashboard/stats/:userId", [validatedRequest], async (re
     const id = Number(userId);
     if (isNaN(id)) return res.status(400).json({ success: false, error: "Invalid user ID." });
 
-    // Fetch the user's profile (reusing your existing route logic)
+    // Fetch the user's profile
     const user = await prisma.users.findUnique({
       where: { id },
       select: { id: true, username: true, role: true },
@@ -1333,29 +1341,60 @@ app.get("/system/teacher-dashboard/stats/:userId", [validatedRequest], async (re
     const teacher = await prisma.teachers.findFirst({ where: { user_id: id } });
     if (!teacher) return res.status(404).json({ success: false, error: "Teacher profile not found." });
 
-   // Count linked students and activities
-const studentLinks = await prisma.teacher_students.count({
-  where: { teacherId: teacher.id },
-});
+    // Count UNIQUE students and fetch their user_ids for score calculation
+    const uniqueStudents = await prisma.teacher_students.findMany({
+      where: { teacherId: teacher.id },
+      distinct: ['studentId'],
+      select: { 
+        studentId: true,
+        student: {
+          select: { user_id: true }
+        }
+      },
+    });
+    const studentLinks = uniqueStudents.length;
 
-const lessonPlans = await prisma.event_logs.count({
-  where: {
-    userId: id,
-    event: "lesson_plan_generated",
-  },
-});
+    // ✅ FIX: Calculate students needing attention (average score < 50%)
+    const studentUserIds = uniqueStudents
+      .map(s => s.student?.user_id)
+      .filter(uid => uid !== undefined && uid !== null);
 
-const quizzes = await prisma.event_logs.count({
-  where: {
-    userId: id,
-    event: "quiz_generated",
-  },
-});
+    const allScores = await prisma.quiz_results.findMany({
+      where: { 
+        user_id: { in: studentUserIds } 
+      },
+      select: { user_id: true, score: true }
+    });
 
-const classes = await prisma.teacher_students.groupBy({
-  by: ["subject"],
-  where: { teacherId: teacher.id },
-});
+    const studentAverages = {};
+    
+    allScores.forEach(record => {
+      if (!studentAverages[record.user_id]) {
+        studentAverages[record.user_id] = { total: 0, count: 0 };
+      }
+      studentAverages[record.user_id].total += parseFloat(record.score);
+      studentAverages[record.user_id].count += 1;
+    });
+
+    let studentsNeedingAttention = 0;
+    Object.values(studentAverages).forEach(stat => {
+      const avg = stat.total / stat.count;
+      if (avg < 50) {
+        studentsNeedingAttention++;
+      }
+    });
+
+    // Count finalized, shared quizzes instead of AI generation logs
+    const quizzes = await prisma.shared_quizzes.count({
+      where: {
+        teacher_id: teacher.id,
+      },
+    });
+
+    const classes = await prisma.teacher_students.groupBy({
+      by: ["subject"],
+      where: { teacherId: teacher.id },
+    });
 
     res.json({
       success: true,
@@ -1364,7 +1403,7 @@ const classes = await prisma.teacher_students.groupBy({
         totalStudents: studentLinks,
         totalClasses: classes.length,
         quizzesCreated: quizzes,
-        lessonPlans: lessonPlans,
+        studentsNeedingAttention: studentsNeedingAttention, // Replaced lessonPlans
       },
     });
   } catch (err) {
@@ -1395,7 +1434,7 @@ app.post("/payments/initiate", [validatedRequest], async (req, res) => {
     // 🧠 Plan and amount
     const hasSchool = !!student.school;
     const plan = hasSchool ? "school basic" : "premium";
-    const amount = hasSchool ? 3.0 : 0.01;
+    const amount = hasSchool ? 3.0 : 5.0;
 
     // ✅ Validate payment method
     if (paymentMethod === "card") {
@@ -1682,6 +1721,14 @@ CRITICAL REQUIREMENTS:
 - Follow ${curriculum || 'ZIMSEC'} ${grade} ${subject} curriculum standards
 - All questions should be ${difficulty} difficulty FOR ${grade} students
 
+MATH FORMATTING:
+- For ANY mathematical expression, formula, equation, symbol, or number with units, use LaTeX with dollar sign delimiters.
+- Use $...$ for inline math. Example: The mass is $50 \\, \\text{kg}$ and $g = 9.8 \\, \\text{m/s}^2$.
+- Use $$...$$ for display/block equations. Example: $$F = ma$$
+- NEVER use \\(...\\) or \\[...\\] delimiters.
+- NEVER write plain text math like "5.97 × 10^24" — always use $5.97 \\times 10^{24}$ instead.
+- Even simple units should use LaTeX: $\\text{kg/m}^3$, $\\text{m/s}^2$, $\\text{N}$
+
 CRITICAL: Start immediately with question 1. No preamble, no explanations, just questions.
 `;
 
@@ -1818,7 +1865,7 @@ RULES:
   }
 });
 
-// ========== ENHANCED QUIZ MARKING ENDPOINT ==========
+
 app.post("/quiz/mark", [validatedRequest], async (req, res) => {
   const { quiz, answers } = req.body;
   const user = res.locals.user;
@@ -1836,10 +1883,16 @@ app.post("/quiz/mark", [validatedRequest], async (req, res) => {
       return m ? m[1].toUpperCase() : null;
     };
 
+    
     // ---------- AI Feedback Generation ----------
     const generateMCQFeedback = async (question, userAnswer, correctAnswer, options) => {
       const prompt = `
-You are an encouraging teacher providing feedback on a multiple-choice question.
+You are an encouraging teacher providing feedback on a multiple-choice question.Write ONLY the feedback — nothing else.
+
+Do NOT include any internal reasoning, planning, thinking, or meta-commentary.
+Do NOT write phrases like "We need to", "Let's", "The student answered", "I should", or any sentence count instructions.
+
+Write as if speaking directly to the student. Start immediately with the feedback.
 
 Question: ${question}
 Options:
@@ -1857,12 +1910,11 @@ Provide detailed feedback that:
 
 Keep it concise but thorough (3-4 sentences).
 
-**Note**: you are the teacher, do not say the student demonstrates a good understanding or something like that, say you demonstrate a good understanding because, remember you are addressing the student directly.
 `;
 
       try {
         const aiFeedback = await generateLessonPlanAI(prompt);
-        return aiFeedback.trim();
+        return cleanAIResponse(aiFeedback.trim());
       } catch (error) {
         console.error("AI feedback generation failed:", error);
         return "Unable to generate detailed feedback at this time.";
@@ -1871,7 +1923,12 @@ Keep it concise but thorough (3-4 sentences).
 
     const generateStructuredFeedback = async (question, userAnswer, modelAnswer) => {
       const prompt = `
-You are an expert teacher grading a structured question answer. Be fair but thorough.
+You are an expert teacher grading a structured question answer. Be fair but thorough.Write ONLY the feedback — nothing else.
+
+Do NOT include any internal reasoning, planning, thinking, or meta-commentary.
+Do NOT write phrases like "We need to", "Let's", "The student answered", "I should", or any sentence count instructions.
+
+Write as if speaking directly to the student. Start immediately with the feedback.
 
 Question: ${question}
 
@@ -1892,7 +1949,6 @@ Format your response as:
 SCORE: X/Y
 FEEDBACK: [Your detailed feedback]
 
-**Note**: you are the teacher, do not say the student demonstrates a good understanding or something like that, say you demonstrate a good understanding because, remember you are addressing the student directly.
 `;
 
       try {
@@ -2062,44 +2118,206 @@ FEEDBACK: [Your detailed feedback]
   }
 });
 
-// ========== QUIZ SUBMISSION ENDPOINT (kept for compatibility) ==========
 app.post("/quiz/submit", [validatedRequest], async (req, res) => {
   try {
+    // 1. Auth
     const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.id)
+    if (!sessionUser?.id) {
       return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
 
-    const { subject, score, total_questions, correct_answers } = reqBody(req);
-    if (!subject || score === undefined)
-      return res.status(400).json({ success: false, error: "Missing quiz fields." });
+    // 2. Extract payload
+    const { quiz, answers } = reqBody(req);
 
+    if (!quiz || !quiz.questions || !answers || !Array.isArray(answers)) {
+      return res.status(400).json({ success: false, error: "Missing or invalid quiz payload." });
+    }
+
+    const detailedFeedback = [];
+    let correctCount = 0;
+    let totalPoints = 0;
+    let earnedPoints = 0;
+
+    // 3. Grade each question
+    for (let i = 0; i < quiz.questions.length; i++) {
+      const question = quiz.questions[i];
+      const studentAnswer = answers[i] || "";
+
+      // ── Use points from the parsed question object (set by parseQuizContent)
+      // Falls back to 1 for MCQ, 4 for structured if somehow missing
+      const questionPoints =
+        question.points ||
+        (question.type === "mcq" || question.type === "multiple-choice" ? 1 : 4);
+
+      let feedbackObj = {
+        questionNumber: i + 1,
+        question: question.question,
+        studentAnswer,
+        type: question.type,
+      };
+
+      // ── MCQ ────────────────────────────────────────────────
+      if (question.type === "mcq" || question.type === "multiple-choice") {
+        // Student answer is the full option string e.g. "B) Human-readable instructions..."
+        // Extract just the letter for comparison
+        const studentLetter = studentAnswer.trim().charAt(0).toUpperCase();
+        const isCorrect = studentLetter === question.correct_answer;
+
+        if (isCorrect) {
+          correctCount++;
+          earnedPoints += questionPoints;
+        }
+        totalPoints += questionPoints;
+
+        const mcFeedbackPrompt = `You are a teacher writing feedback directly to a student. Write ONLY the feedback — nothing else.
+
+Do NOT include any internal reasoning, planning, thinking, or meta-commentary.
+Do NOT write phrases like "We need to", "Let's", "The student answered", "Provide feedback", or "3-4 sentences".
+
+Write your response as if you are speaking directly to the student. Start immediately with the feedback.
+
+Question: ${question.question}
+Options: ${question.options ? question.options.join("\n") : "N/A"}
+Student's Answer: ${studentAnswer}
+Correct Answer: ${question.correct_answer}
+Is Correct: ${isCorrect ? "Yes" : "No"}
+
+Write 3-4 sentences that:
+- ${isCorrect ? "Confirm the answer is correct and reinforce WHY it is correct" : "Explain why their answer is wrong and what the correct answer is, with the reasoning"}
+- Provide a helpful tip or concept reinforcement
+- End with brief encouragement
+
+BEGIN YOUR FEEDBACK NOW:`;
+
+        const aiFeedback = await generateLessonPlanAI(mcFeedbackPrompt);
+
+        feedbackObj.isCorrect = isCorrect;
+        feedbackObj.correctAnswer = question.correct_answer;
+        feedbackObj.feedback = cleanAIResponse(aiFeedback);
+        feedbackObj.pointsEarned = isCorrect ? questionPoints : 0;
+        feedbackObj.pointsPossible = questionPoints;
+
+      } else {
+        // ── Structured / Short Answer ───────────────────────
+        const structuredGradingPrompt = `You are a teacher grading a student's answer. You must respond in EXACTLY this format and nothing else.
+
+Do NOT include any internal reasoning, planning, thinking, or meta-commentary before or after your response.
+
+Your ENTIRE response must start with "SCORE:" and follow this exact format:
+
+SCORE: [number]/${questionPoints}
+
+**What was done well**
+[Your points here]
+
+**What was missing or could be improved**
+[Your points here]
+
+**Suggestions to strengthen the answer**
+[Your numbered suggestions here]
+
+**Encouragement**
+[1-2 encouraging sentences]
+
+---
+Here is the question, expected answer/mark scheme, and student answer to grade:
+
+Question: ${question.question}
+Mark Scheme: ${question.correct_answer || "Award marks for accurate, relevant points that demonstrate understanding."}
+Total Marks Available: ${questionPoints}
+Student's Answer: ${studentAnswer}
+
+Remember: Start your response with "SCORE:" immediately. No preamble.`;
+
+        const aiGrading = await generateLessonPlanAI(structuredGradingPrompt);
+        const cleanedGrading = cleanAIResponse(aiGrading);
+
+        // Parse SCORE: X/Y from AI response
+        const scoreMatch = cleanedGrading.match(/SCORE:\s*(\d+\.?\d*)\s*\/\s*(\d+)/i);
+        const feedbackMatch = cleanedGrading.match(/SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*\n+([\s\S]*)/i);
+
+        let pointsEarnedStructured;
+        let pointsPossibleStructured;
+
+        if (scoreMatch) {
+          pointsEarnedStructured = parseFloat(scoreMatch[1]);
+          pointsPossibleStructured = parseInt(scoreMatch[2]);
+        } else {
+          // ── FALLBACK: AI didn't follow format — award 0, log warning
+          console.warn(`⚠️ Question ${i + 1}: AI did not return a parseable SCORE. Defaulting to 0/${questionPoints}.`);
+          pointsEarnedStructured = 0;
+          pointsPossibleStructured = questionPoints;
+        }
+
+        earnedPoints += pointsEarnedStructured;
+        totalPoints += pointsPossibleStructured;
+
+        // ── FIX: set isCorrect for structured questions
+        // A student is considered "correct" if they earned more than half the available marks
+        const isCorrect = pointsEarnedStructured >= pointsPossibleStructured * 0.5;
+        if (isCorrect) correctCount++;
+
+        feedbackObj.isCorrect = isCorrect;
+        feedbackObj.pointsEarned = pointsEarnedStructured;
+        feedbackObj.pointsPossible = pointsPossibleStructured;
+        feedbackObj.feedback = feedbackMatch
+          ? feedbackMatch[1].trim()
+          : cleanedGrading;
+      }
+
+      detailedFeedback.push(feedbackObj);
+    }
+
+    // 4. Final score
+    const finalScore = totalPoints > 0
+      ? Math.round((earnedPoints / totalPoints) * 100)
+      : 0;
+
+    // 5. DB insert
     const result = await prisma.quiz_results.create({
       data: {
         user_id: sessionUser.id,
-        subject,
-        score,
-        total_questions,
-        correct_answers,
+        subject: quiz.subject || "General Practice",
+        score: finalScore,
+        total_questions: quiz.questions.length,
+        correct_answers: correctCount,
+        detailed_feedback: JSON.stringify(detailedFeedback),
         submitted_at: new Date(),
       },
     });
 
-    await EventLogs.logEvent("quiz_submitted", { subject, score }, sessionUser.id);
-    res.status(201).json({ success: true, result });
+    // 6. Log activity
+    await EventLogs.logEvent(
+      "quiz_submitted",
+      { subject: quiz.subject, score: finalScore },
+      sessionUser.id
+    );
+
+    // 7. Response
+    return res.status(201).json({
+      success: true,
+      resultId: result.id,
+      score: finalScore,
+      earnedPoints,
+      totalPoints,
+      feedback: detailedFeedback,
+      summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`,
+    });
+
   } catch (err) {
     console.error("Error submitting quiz:", err);
-    res.status(500).json({ success: false, error: "Failed to submit quiz." });
+    return res.status(500).json({ success: false, error: "Failed to submit quiz." });
   }
 });
 
 async function generateLessonPlanAI(prompt) {
   try {
-    const ollamaUrl = "http://192.168.1.86:11434/v1/completions";
+    const ollamaUrl = "http://192.168.1.128:11434/v1/completions";
 
     const response = await axios.post(ollamaUrl, {
       model: "openai/gpt-oss-20b",
       prompt,
-      max_tokens: 4096,   // 🔥 IMPORTANT
+      max_tokens: 8192,   // 🔥 IMPORTANT
       temperature: 0.7,
       stream: false
     });
@@ -2428,7 +2646,7 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
       });
     }
 
-    // ✅ Fetch quizzes
+    // ✅ Fetch quizzes (FIXED: Now includes shared_quizzes to get the difficulty)
     const quizzes = await prisma.quiz_results.findMany({
       where: { user_id: student.user_id },
       select: { 
@@ -2437,7 +2655,13 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
         score: true, 
         total_questions: true,
         correct_answers: true,
-        submitted_at: true
+        submitted_at: true,
+        detailed_feedback: true,
+        shared_quiz: {
+          select: {
+            difficulty: true
+          }
+        }
       },
       orderBy: { submitted_at: 'desc' },
     });
@@ -2454,7 +2678,7 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
       },
     });
 
-    // 🧮 Calculate stats
+    // 🧮 Calculate stats (Weighted Average now works properly!)
     const difficultyWeights = { Easy: 1, Medium: 1.5, Hard: 2 };
 
     let totalWeightedScore = 0;
@@ -2462,7 +2686,7 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
 
     for (const q of quizzes) {
       const percentage = q.score; 
-      const difficulty = q.shared_quizzes?.difficulty || "Medium";
+      const difficulty = q.shared_quiz?.difficulty || "Medium";
       const difficultyWeight = difficultyWeights[difficulty] || 1;
       const weight = q.total_questions * difficultyWeight;
 
@@ -2482,6 +2706,29 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
         : 0;
       return sum + points;
     }, 0);
+
+    // 🧮 Parse struggled questions from detailed_feedback
+    const struggledBySubject = {};
+    for (const q of quizzes) {
+      let feedback = [];
+      try {
+        feedback = JSON.parse(q.detailed_feedback || "[]");
+      } catch { feedback = []; }
+
+      const struggled = feedback.filter(f => 
+        f.type === "multiple-choice" ? !f.isCorrect : f.pointsEarned < f.pointsPossible
+      );
+
+      if (struggled.length > 0) {
+        if (!struggledBySubject[q.subject]) struggledBySubject[q.subject] = [];
+        struggledBySubject[q.subject].push(...struggled.map(f => f.question));
+      }
+    }
+
+    const struggledSummary = Object.entries(struggledBySubject)
+      .map(([subject, questions]) => 
+        `${subject}:\n${questions.slice(0, 3).map(q => `  - ${q}`).join("\n")}`
+      ).join("\n");
 
     // 🧠 Generate AI summary
     const summaryPrompt = `
@@ -2503,6 +2750,8 @@ ${quizzes.length > 0
   : "No quizzes taken yet."
 }
 
+${struggledSummary ? `Specific Questions Struggled With:\n${struggledSummary}` : ""}
+
 CRITICAL INSTRUCTIONS:
 - Do NOT include any planning notes, meta-commentary, or thinking process
 - Start IMMEDIATELY with the markdown heading "## Overall Performance"
@@ -2511,7 +2760,7 @@ CRITICAL INSTRUCTIONS:
 Provide:
 1. A short paragraph summary of overall performance.
 2. Key strengths observed.
-3. Areas for improvement.
+3. Areas for improvement — reference specific questions and topics.
 4. Suggested next learning steps.
 
 Format neatly in Markdown with proper headers (##).
@@ -2525,14 +2774,20 @@ Format neatly in Markdown with proper headers (##).
     const aiSummary = cleanThinkingModelOutput(rawSummary, 'report');
 
     // ✅ Transform quizzes
-    const formattedQuizzes = quizzes.map(q => ({
-      id: q.id,
-      subject: q.subject,
-      score: q.score,
-      correct_answers: q.correct_answers, 
-      total: q.total_questions,
-      createdAt: q.submitted_at,
-    }));
+    const formattedQuizzes = quizzes.map(q => {
+      let feedback = [];
+      try { feedback = JSON.parse(q.detailed_feedback || "[]"); } catch { feedback = []; }
+      
+      return {
+        id: q.id,
+        subject: q.subject,
+        score: q.score,
+        correct_answers: q.correct_answers,
+        total: q.total_questions,
+        createdAt: q.submitted_at,
+        feedback,
+      };
+    });
 
     // ✅ Respond
     response.status(200).json({
@@ -2592,9 +2847,32 @@ app.post("/system/teacher/generate-quiz", [validatedRequest], async (req, res) =
   try {
     const { subject, topic, grade, difficulty, numQuestions, questionType } = req.body;
 
-    let prompt = `You are a quiz generator. Generate ONLY the quiz questions with NO introductory text.
+    // Map grade to approximate age range for context
+    const gradeNum = parseInt(grade) || 0;
+    const ageRange = gradeNum <= 2 ? "6-8 years old" : gradeNum <= 4 ? "9-10 years old" : gradeNum <= 7 ? "11-13 years old" : gradeNum <= 9 ? "14-15 years old" : "16-18 years old";
+    const examLevel = gradeNum >= 11 ? "A-Level" : gradeNum >= 9 ? "O-Level" : gradeNum >= 7 ? "Upper Primary/Junior Secondary" : "Primary";
 
-Create a ${difficulty} difficulty quiz with ${numQuestions} questions about ${topic} for ${subject}, grade ${grade}.
+    let prompt = `You are a quiz generator for Zimbabwean students. Generate ONLY the quiz questions with NO introductory text.
+
+GRADE LEVEL: Grade ${grade} (${ageRange}, ${examLevel})
+SUBJECT: ${subject}
+TOPIC: ${topic || subject}
+CURRICULUM: ZIMSEC
+DIFFICULTY: ${difficulty} — calibrated specifically for Grade ${grade} students
+NUMBER OF QUESTIONS: ${numQuestions}
+
+CRITICAL REQUIREMENTS:
+- Every question MUST match the cognitive level of a Grade ${grade} student (${ageRange})
+- Use ONLY vocabulary and concepts appropriate for Grade ${grade}
+- Question complexity, depth, and expected detail must suit ${examLevel} level
+- Difficulty "${difficulty}" means ${difficulty} FOR Grade ${grade}, not in absolute terms
+- Follow ZIMSEC Grade ${grade} ${subject} curriculum standards
+- For structured questions, mark allocations must reflect Grade ${grade} expectations
+
+MATH FORMATTING:
+- Use $...$ for inline math. Example: The force is $F = ma$
+- Use $$...$$ for display equations. Example: $$v = u + at$$
+- NEVER write plain text math — always use LaTeX
 
 CRITICAL: Start immediately with question 1. No preamble, no explanations, just questions.
 `;
@@ -2886,6 +3164,14 @@ app.post("/system/teacher/share-quiz-with-class", [validatedRequest], async (req
       data: notifications
     });
 
+    for (const student of students) {
+      await sendPushNotification(student.user_id, {
+        title: '📝 New Assignment',
+        body: `New ${subject} quiz: ${topic}`,
+        data: { type: 'quiz_assigned', link: `/student/quiz/${quizCode}` },
+      });
+    }
+
     // Send real-time WebSocket notifications using user_id
     let notificationsSent = 0;
     students.forEach((student) => {
@@ -2997,6 +3283,33 @@ app.patch("/system/notifications/:id/read", [validatedRequest], async (req, res)
     res.status(500).json({ success: false, error: "Failed to update notification" });
   }
 });
+
+app.post("/system/push-token", [validatedRequest], async (req, res) => {
+  try {
+    const sessionUser = await userFromSession(req, res);
+    if (!sessionUser?.user_id) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    const { token, platform } = req.body;
+    if (!token) {
+      return res.status(400).json({ success: false, error: "Token required" });
+    }
+
+    // Upsert — avoids duplicates if the user re-registers
+    await prisma.pushToken.upsert({
+      where: { token },
+      update: { userId: sessionUser.user_id, platform: platform || 'unknown' },
+      create: { userId: sessionUser.user_id, token, platform: platform || 'unknown' },
+    });
+
+    console.log(`📱 Push token registered for user ${sessionUser.user_id}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error saving push token:", err);
+    res.status(500).json({ success: false, error: "Failed to save token" });
+  }
+});
 // Create public quiz link (not class-specific)
 app.post("/system/teacher/create-quiz-link", [validatedRequest], async (req, res) => {
   try {
@@ -3084,16 +3397,15 @@ app.get("/system/quiz/:code", async (req, res) => {
   }
 });
 
-// Submit student quiz
 app.post("/system/student/submit-quiz", async (req, res) => {
   try {
-    const { 
-      quizCode, 
-      answers, 
-      studentId, 
-      tabViolations, 
-      tabLimitExceeded, 
-      autoSubmitted 
+    const {
+      quizCode,
+      answers,
+      studentId,
+      tabViolations,
+      tabLimitExceeded,
+      autoSubmitted,
     } = req.body;
 
     const quiz = await prisma.shared_quizzes.findUnique({
@@ -3104,7 +3416,7 @@ app.post("/system/student/submit-quiz", async (req, res) => {
       return res.status(404).json({ success: false, error: "Quiz not found" });
     }
 
-    // ✅ FIX: Check if student already submitted this quiz
+    // ✅ Check if student already submitted this quiz
     const existingSubmission = await prisma.quiz_results.findFirst({
       where: {
         user_id: studentId,
@@ -3113,10 +3425,11 @@ app.post("/system/student/submit-quiz", async (req, res) => {
     });
 
     if (existingSubmission) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "You have already submitted this quiz. Multiple submissions are not allowed.",
-        alreadySubmitted: true
+      return res.status(400).json({
+        success: false,
+        error:
+          "You have already submitted this quiz. Multiple submissions are not allowed.",
+        alreadySubmitted: true,
       });
     }
 
@@ -3135,14 +3448,13 @@ app.post("/system/student/submit-quiz", async (req, res) => {
       const questionText = lines[0]?.replace(/^\d+\.\s*/, "");
       const hasOptions = lines.some((l) => /^[A-D]\)/.test(l));
       const answerMatch = block.match(/\*?\*?Answer:\s*([A-D])/i);
-      
+
       // Extract mark scheme for structured questions
-      const markSchemeIndex = lines.findIndex(line => 
+      const markSchemeIndex = lines.findIndex((line) =>
         /^(Mark Scheme|Answer|Expected Answer|Marking Points?):/i.test(line)
       );
-      const markScheme = markSchemeIndex > 0 
-        ? lines.slice(markSchemeIndex).join('\n')
-        : null;
+      const markScheme =
+        markSchemeIndex > 0 ? lines.slice(markSchemeIndex).join("\n") : null;
 
       return {
         index: i,
@@ -3150,7 +3462,9 @@ app.post("/system/student/submit-quiz", async (req, res) => {
         fullBlock: block,
         type: hasOptions ? "multiple-choice" : "structured",
         correctAnswer: answerMatch ? answerMatch[1].toUpperCase() : null,
-        options: hasOptions ? lines.filter(l => /^[A-D]\)/.test(l)) : [],
+        options: hasOptions
+          ? lines.filter((l) => /^[A-D]\)/.test(l))
+          : [],
         markScheme: markScheme,
       };
     });
@@ -3174,9 +3488,12 @@ app.post("/system/student/submit-quiz", async (req, res) => {
 
       if (question.type === "multiple-choice") {
         // Auto-grade multiple choice
-        const studentLetter = studentAnswer.answer.trim().charAt(0).toUpperCase();
+        const studentLetter = studentAnswer.answer
+          .trim()
+          .charAt(0)
+          .toUpperCase();
         const isCorrect = studentLetter === question.correctAnswer;
-        
+
         if (isCorrect) {
           correctCount++;
           earnedPoints += 1;
@@ -3184,74 +3501,105 @@ app.post("/system/student/submit-quiz", async (req, res) => {
         totalPoints += 1;
 
         // Generate AI feedback for multiple choice
-        const mcFeedbackPrompt = `
-You are an encouraging teacher providing feedback on a multiple-choice question.
+        const mcFeedbackPrompt = `You are a teacher writing feedback directly to a student. Write ONLY the feedback — nothing else.
+
+Do NOT include any internal reasoning, planning, thinking, or meta-commentary.
+Do NOT write phrases like "We need to", "Let's", "The student answered", "Provide feedback", or "3-4 sentences".
+Do NOT include "assistantfinal" or any markers.
+
+Write your response as if you are speaking directly to the student. Start immediately with the feedback.
 
 Question: ${question.question}
 Options:
-${question.options.join('\n')}
+${question.options.join("\n")}
 
 Student's Answer: ${studentAnswer.answer}
 Correct Answer: ${question.correctAnswer})
+Is Correct: ${isCorrect ? "Yes" : "No"}
 
-Provide detailed feedback that:
-1. Confirms if the answer is correct or incorrect
-2. Explains WHY the correct answer is right (even if they got it right, reinforce the concept)
-3. If incorrect, explain the misconception and why their choice was wrong
-4. Provide additional context or a helpful tip to remember this concept
-5. Be encouraging and constructive
+Write 3-4 sentences that:
+- ${isCorrect ? "Confirm the answer is correct and reinforce WHY it is correct" : "Explain why their answer is wrong and what the correct answer is, with the reasoning"}
+- Provide a helpful tip or concept reinforcement
+- End with brief encouragement
 
-Keep it concise but thorough (3-4 sentences).
-`;
+You may use LaTeX notation like \\(x^2\\) for math expressions. Use markdown for formatting if needed.
+
+BEGIN YOUR FEEDBACK NOW:`;
 
         const aiFeedback = await generateLessonPlanAI(mcFeedbackPrompt);
 
         feedback.isCorrect = isCorrect;
         feedback.correctAnswer = question.correctAnswer;
-        feedback.explanation = aiFeedback.trim();
+        feedback.explanation = cleanAIResponse(aiFeedback);
         feedback.pointsEarned = isCorrect ? 1 : 0;
         feedback.pointsPossible = 1;
-
       } else {
         // AI-powered grading for structured questions
-        const structuredGradingPrompt = `
-You are an expert teacher grading a structured question answer. Be fair but thorough.
+        const structuredGradingPrompt = `You are a teacher grading a student's answer. You must respond in EXACTLY this format and nothing else.
+
+Do NOT include any internal reasoning, planning, thinking, or meta-commentary before or after your response.
+Do NOT write phrases like "We need to", "Let's", "The student answered", or any self-talk.
+Do NOT include "assistantfinal" or any markers.
+
+Your ENTIRE response must start with "SCORE:" and follow this exact format:
+
+SCORE: [number]/[total]
+
+**What was done well**
+[Your points here]
+
+**What was missing or could be improved**
+[Your points here]
+
+**Suggestions to strengthen the answer**
+[Your numbered suggestions here]
+
+**Encouragement**
+[1-2 encouraging sentences]
+
+---
+
+Here is the question, mark scheme, and student answer to grade:
 
 Question: ${question.question}
 
 Mark Scheme:
-${question.markScheme || "Award marks for accurate, relevant points that demonstrate understanding."}
+${question.markScheme || "Award marks for accurate, relevant points that demonstrate understanding. Estimate appropriate total marks based on question complexity."}
 
 Student's Answer:
 ${studentAnswer.answer}
 
-Provide:
-1. A numerical score out of the total marks available (estimate based on mark scheme)
-2. Detailed feedback on what was done well
-3. What was missing or could be improved
-4. Specific suggestions for strengthening the answer
-5. Encouragement and next steps
+You may use LaTeX notation like \\(x^2\\) for math expressions. Use markdown for formatting.
 
-Format your response as:
-SCORE: X/Y
-FEEDBACK: [Your detailed feedback]
-`;
+Remember: Start your response with "SCORE:" immediately. No preamble.`;
 
         const aiGrading = await generateLessonPlanAI(structuredGradingPrompt);
 
-        // Parse AI response
-        const scoreMatch = aiGrading.match(/SCORE:\s*(\d+)\s*\/\s*(\d+)/i);
-        const feedbackMatch = aiGrading.match(/FEEDBACK:\s*(.+)/is);
+        // Clean and parse AI response
+        const cleanedGrading = cleanAIResponse(aiGrading);
 
-        const pointsEarnedStructured = scoreMatch ? parseInt(scoreMatch[1]) : 0;
-        const pointsPossibleStructured = scoreMatch ? parseInt(scoreMatch[2]) : 4;
+        const scoreMatch = cleanedGrading.match(
+          /SCORE:\s*(\d+\.?\d*)\s*\/\s*(\d+)/i
+        );
+        const feedbackMatch = cleanedGrading.match(
+          /SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*\n+([\s\S]*)/i
+        );
+
+        const pointsEarnedStructured = scoreMatch
+          ? parseFloat(scoreMatch[1])
+          : 0;
+        const pointsPossibleStructured = scoreMatch
+          ? parseInt(scoreMatch[2])
+          : 4;
 
         earnedPoints += pointsEarnedStructured;
         totalPoints += pointsPossibleStructured;
 
         feedback.pointsEarned = pointsEarnedStructured;
         feedback.pointsPossible = pointsPossibleStructured;
-        feedback.explanation = feedbackMatch ? feedbackMatch[1].trim() : aiGrading;
+        feedback.explanation = feedbackMatch
+          ? feedbackMatch[1].trim()
+          : cleanedGrading;
         feedback.markScheme = question.markScheme;
       }
 
@@ -3259,11 +3607,10 @@ FEEDBACK: [Your detailed feedback]
     }
 
     // Calculate final score
-    const finalScore = totalPoints > 0 
-      ? Math.round((earnedPoints / totalPoints) * 100) 
-      : 0;
+    const finalScore =
+      totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
 
-    // 🗂️ Save quiz results - wrapped in try-catch for unique constraint
+    // 🗂️ Save quiz results
     try {
       const result = await prisma.quiz_results.create({
         data: {
@@ -3292,24 +3639,187 @@ FEEDBACK: [Your detailed feedback]
         tabLimitExceeded: tabLimitExceeded || false,
         autoSubmitted: autoSubmitted || false,
       });
-
     } catch (dbError) {
-      // ✅ FIX: Catch duplicate submission error and return friendly message
-      if (dbError.code === 'P2002') {
-        return res.status(400).json({ 
-          success: false, 
-          error: "You have already submitted this quiz. Multiple submissions are not allowed.",
-          alreadySubmitted: true
+      if (dbError.code === "P2002") {
+        return res.status(400).json({
+          success: false,
+          error:
+            "You have already submitted this quiz. Multiple submissions are not allowed.",
+          alreadySubmitted: true,
         });
       }
-      throw dbError; // Re-throw if it's a different error
+      throw dbError;
     }
-
   } catch (err) {
     console.error("Error submitting quiz:", err);
     res.status(500).json({ success: false, error: "Submission failed" });
   }
 });
+
+/**
+ * Clean AI response by stripping leaked chain-of-thought reasoning.
+ * This is a server-side safety net — the prompts should prevent this,
+ * but models occasionally leak reasoning anyway.
+ */
+function cleanAIResponse(text) {
+  if (!text || typeof text !== "string") return text;
+
+  let cleaned = text;
+
+  // 1. If "assistantfinal" marker exists, take everything after the LAST one
+  const finalMarkerRegex = /assistant\s*final/gi;
+  let lastIndex = -1;
+  let match;
+  while ((match = finalMarkerRegex.exec(cleaned)) !== null) {
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex !== -1) {
+    cleaned = cleaned.substring(lastIndex);
+  }
+
+  // 2. Strip reasoning lines
+  const reasoningPatterns = [
+    /^We need to .*$/gm,
+    /^We (?:might|could|should|estimate).*$/gm,
+    /^Let'?s (?:do it|produce|craft|write|generate|decide|format|give).*$/gm,
+    /^Now produce.*$/gm,
+    /^Also need to.*$/gm,
+    /^So we need.*$/gm,
+    /^Typically such.*$/gm,
+    /^Ok\.?\s*$/gm,
+    /^(?:\d+-?\d*\s*sentences?\.?\s*)$/gm,
+    /^(?:Provide|Ensure to|Ensure|Confirm)[\s.].*?(?:feedback|tip|explanation|sentences|concise|thorough).*$/gm,
+    /^good,?\s*correct\.?\s*(?:Could|Provide|Encourage|It's fine).*$/gm,
+    /^The (?:user|task)\s*:.*$/gm,
+    /^(?:They|So they|They'd|So they'd).*?(?:marks?|get \d).*$/gm,
+    /^The student(?:'s)? (?:answer|wrote|didn't|doesn't|omitted|got).*?(?:So|Let's|We need|Provide|marks).*$/gm,
+  ];
+
+  for (const pattern of reasoningPatterns) {
+    cleaned = cleaned.replace(pattern, "");
+  }
+
+  // 3. Fix HTML entities
+  cleaned = cleaned.replace(/&amp;/g, "&");
+  cleaned = cleaned.replace(/&lt;/g, "<");
+  cleaned = cleaned.replace(/&gt;/g, ">");
+
+  // 4. Collapse blank lines and trim
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  cleaned = cleaned.trim();
+
+  return cleaned;
+}
+
+/**
+ * Clean AI response by stripping leaked chain-of-thought reasoning.
+ * This is a server-side safety net — the prompts should prevent this,
+ * but models occasionally leak reasoning anyway.
+ */
+function cleanAIResponse(text) {
+  if (!text || typeof text !== "string") return text;
+
+  let cleaned = text;
+
+  // 1. If "assistantfinal" marker exists, take everything after the LAST one
+  const finalMarkerRegex = /assistant\s*final/gi;
+  let lastIndex = -1;
+  let match;
+  while ((match = finalMarkerRegex.exec(cleaned)) !== null) {
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex !== -1) {
+    cleaned = cleaned.substring(lastIndex);
+  }
+
+  // 2. Strip reasoning lines
+  const reasoningPatterns = [
+    /^We need to .*$/gm,
+    /^We (?:might|could|should|estimate).*$/gm,
+    /^Let'?s (?:do it|produce|craft|write|generate|decide|format|give).*$/gm,
+    /^Now produce.*$/gm,
+    /^Also need to.*$/gm,
+    /^So we need.*$/gm,
+    /^Typically such.*$/gm,
+    /^Ok\.?\s*$/gm,
+    /^(?:\d+-?\d*\s*sentences?\.?\s*)$/gm,
+    /^(?:Provide|Ensure to|Ensure|Confirm)[\s.].*?(?:feedback|tip|explanation|sentences|concise|thorough).*$/gm,
+    /^good,?\s*correct\.?\s*(?:Could|Provide|Encourage|It's fine).*$/gm,
+    /^The (?:user|task)\s*:.*$/gm,
+    /^(?:They|So they|They'd|So they'd).*?(?:marks?|get \d).*$/gm,
+    /^The student(?:'s)? (?:answer|wrote|didn't|doesn't|omitted|got).*?(?:So|Let's|We need|Provide|marks).*$/gm,
+  ];
+
+  for (const pattern of reasoningPatterns) {
+    cleaned = cleaned.replace(pattern, "");
+  }
+
+  // 3. Fix HTML entities
+  cleaned = cleaned.replace(/&amp;/g, "&");
+  cleaned = cleaned.replace(/&lt;/g, "<");
+  cleaned = cleaned.replace(/&gt;/g, ">");
+
+  // 4. Collapse blank lines and trim
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  cleaned = cleaned.trim();
+
+  return cleaned;
+}
+
+/**
+ * Clean AI response by stripping leaked chain-of-thought reasoning.
+ * This is a server-side safety net — the prompts should prevent this,
+ * but models occasionally leak reasoning anyway.
+ */
+function cleanAIResponse(text) {
+  if (!text || typeof text !== "string") return text;
+
+  let cleaned = text;
+
+  // 1. If "assistantfinal" marker exists, take everything after the LAST one
+  const finalMarkerRegex = /assistant\s*final/gi;
+  let lastIndex = -1;
+  let match;
+  while ((match = finalMarkerRegex.exec(cleaned)) !== null) {
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex !== -1) {
+    cleaned = cleaned.substring(lastIndex);
+  }
+
+  // 2. Strip reasoning lines
+  const reasoningPatterns = [
+    /^We need to .*$/gm,
+    /^We (?:might|could|should|estimate).*$/gm,
+    /^Let'?s (?:do it|produce|craft|write|generate|decide|format|give).*$/gm,
+    /^Now produce.*$/gm,
+    /^Also need to.*$/gm,
+    /^So we need.*$/gm,
+    /^Typically such.*$/gm,
+    /^Ok\.?\s*$/gm,
+    /^(?:\d+-?\d*\s*sentences?\.?\s*)$/gm,
+    /^(?:Provide|Ensure to|Ensure|Confirm)[\s.].*?(?:feedback|tip|explanation|sentences|concise|thorough).*$/gm,
+    /^good,?\s*correct\.?\s*(?:Could|Provide|Encourage|It's fine).*$/gm,
+    /^The (?:user|task)\s*:.*$/gm,
+    /^(?:They|So they|They'd|So they'd).*?(?:marks?|get \d).*$/gm,
+    /^The student(?:'s)? (?:answer|wrote|didn't|doesn't|omitted|got).*?(?:So|Let's|We need|Provide|marks).*$/gm,
+  ];
+
+  for (const pattern of reasoningPatterns) {
+    cleaned = cleaned.replace(pattern, "");
+  }
+
+  // 3. Fix HTML entities
+  cleaned = cleaned.replace(/&amp;/g, "&");
+  cleaned = cleaned.replace(/&lt;/g, "<");
+  cleaned = cleaned.replace(/&gt;/g, ">");
+
+  // 4. Collapse blank lines and trim
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  cleaned = cleaned.trim();
+
+  return cleaned;
+}
 
 // Get student's own quiz results
 app.get("/system/student/my-results/:studentId", async (req, res) => {
@@ -3533,16 +4043,13 @@ app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
-    // 1. Get User ID from Token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    // Handle different token formats
     const userId = decoded.userId || decoded.id || decoded.user_id || decoded.sub;
 
     if (!userId) {
       return res.status(401).json({ success: false, error: "Invalid Token" });
     }
 
-    // 2. Find the Teacher Profile
     const teacherProfile = await prisma.teachers.findFirst({
       where: { user_id: parseInt(userId) }
     });
@@ -3551,7 +4058,6 @@ app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
       return res.status(403).json({ success: false, error: "Teacher profile not found" });
     }
 
-    // 3. Fetch the Quiz
     const quiz = await prisma.shared_quizzes.findUnique({
       where: { id: parseInt(quizId) },
       select: {
@@ -3569,7 +4075,6 @@ app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
       return res.status(404).json({ success: false, error: "Quiz not found" });
     }
 
-    // 4. Verify Ownership
     if (String(quiz.teacher_id) !== String(teacherProfile.id)) {
       return res.status(403).json({ 
         success: false, 
@@ -3577,46 +4082,58 @@ app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
       });
     }
 
-    // 5. Get results (FIXED: Correctly queries Student Profile)
     const results = await prisma.quiz_results.findMany({
-      where: { 
-        shared_quiz_id: parseInt(quizId)
-      },
+      where: { shared_quiz_id: parseInt(quizId) },
       include: {
         user: {
           select: {
             id: true,
             username: true,
-            students: {
-              select: {
-                name: true,
-                grade: true
-              }
-            }
+            students: { select: { name: true, grade: true } }
           },
         },
       },
       orderBy: { submitted_at: 'desc' },
     });
 
-    // 6. Format the results
+    // --- NEW: Calculate Question Statistics ---
+    const questionTracker = {};
+
     const formattedResults = results.map(result => {
       const studentProfile = result.user?.students?.[0];
+      const feedback = JSON.parse(result.detailed_feedback || '[]');
+
+      // Track correct/incorrect for each question
+      feedback.forEach((q) => {
+        if (!questionTracker[q.question]) {
+          questionTracker[q.question] = { text: q.question, correctCount: 0, total: 0 };
+        }
+        questionTracker[q.question].total += 1;
+        if (q.isCorrect) {
+          questionTracker[q.question].correctCount += 1;
+        }
+      });
+
       return {
         id: result.id,
         studentId: result.user?.id,
         studentName: studentProfile?.name || result.user?.username || "Unknown",
         studentGrade: studentProfile?.grade || "N/A",
-        studentEmail: null,
         score: result.score,
         totalQuestions: result.total_questions,
         correctAnswers: result.correct_answers,
         submittedAt: result.submitted_at,
-        detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
+        detailedFeedback: feedback,
       };
     });
 
-    // 7. Calculate statistics
+    // Convert tracker to array with success percentages
+    const questionStats = Object.values(questionTracker).map(q => ({
+      text: q.text,
+      successRate: Math.round((q.correctCount / q.total) * 100)
+    }));
+
+    // --- Statistics Calculation ---
     const totalSubmissions = results.length;
     const averageScore = totalSubmissions > 0 
       ? results.reduce((sum, r) => sum + r.score, 0) / totalSubmissions 
@@ -3628,7 +4145,6 @@ app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
       ? Math.min(...results.map(r => r.score)) 
       : 0;
 
-    // 8. Send Final Response
     res.json({
       success: true,
       quiz: {
@@ -3645,15 +4161,13 @@ app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
         highestScore,
         lowestScore,
       },
-      results: formattedResults, // This array must exist!
+      questionStats, // Now included for the frontend logic
+      results: formattedResults,
     });
 
   } catch (err) {
     console.error("Error fetching quiz results:", err);
-    res.status(500).json({ 
-      success: false, 
-      error: "Failed to fetch quiz results" 
-    });
+    res.status(500).json({ success: false, error: "Failed to fetch quiz results" });
   }
 });
 app.get("/system/teacher/student-results/:studentId", async (req, res) => {
@@ -5819,9 +6333,27 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
         correct_answers: true,
         submitted_at: true,
         difficulty: true,
+         detailed_feedback: true, 
       },
       orderBy: { submitted_at: 'desc' },
     });
+
+    const struggledBySubject = {};
+for (const q of quizzes) {
+  let feedback = [];
+  try { feedback = JSON.parse(q.detailed_feedback || "[]"); } catch { feedback = []; }
+  const struggled = feedback.filter(f => 
+    f.type === "multiple-choice" ? !f.isCorrect : f.pointsEarned < f.pointsPossible
+  );
+  if (struggled.length > 0) {
+    if (!struggledBySubject[q.subject]) struggledBySubject[q.subject] = [];
+    struggledBySubject[q.subject].push(...struggled.map(f => f.question));
+  }
+}
+const struggledSummary = Object.entries(struggledBySubject)
+  .map(([subject, questions]) => 
+    `${subject}:\n${questions.slice(0, 3).map(q => `  - ${q}`).join("\n")}`
+  ).join("\n");
 
     console.log("✅ Found", quizzes.length, "quiz results");
 

@@ -15,6 +15,84 @@ const {
 
 const VALID_CHAT_MODE = ["chat", "query"];
 
+// Add this at the top of the file, after the requires
+const AVAILABLE_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "quiz_create",
+      description: "Generates curriculum-aligned quizzes for students based on ZIMSEC and Cambridge curricula",
+      parameters: {
+        type: "object",
+        properties: {
+          subject: {
+            type: "string",
+            description: "The subject for the quiz (e.g., 'Biology', 'Mathematics')"
+          },
+          topic: {
+            type: "string",
+            description: "The specific topic being discussed in the conversation (e.g., 'Photosynthesis', 'Quadratic Equations'). Extract this from the current conversation context."
+          },
+          grade: {
+            type: "string",
+            description: "Grade level (e.g., '10', '12', 'Form 3')"
+          },
+          userMessage: {
+            type: "string",
+            description: "The user's original request"
+          },
+          numQuestions: {
+            type: "integer",
+            description: "Number of questions to generate",
+            default: 5
+          },
+          difficulty: {
+            type: "string",
+            enum: ["easy", "medium", "hard"],
+            default: "medium"
+          }
+        },
+        required: ["subject", "topic", "grade", "userMessage"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "flashcard_create",
+      description: "Creates educational flashcards for studying",
+      parameters: {
+        type: "object",
+        properties: {
+          subject: { type: "string", description: "Subject for flashcards" },
+          topic: { type: "string", description: "The specific topic being discussed in the conversation. Extract this from the current conversation context." },
+          grade: { type: "string", description: "Grade level" },
+          userMessage: { type: "string", description: "The user's original request" },
+          numCards: { type: "integer", default: 10 },
+          difficulty: { type: "string", enum: ["easy", "medium", "hard"], default: "medium" }
+        },
+        required: ["subject", "topic", "grade", "userMessage"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "Search the web for current information, facts, or recent events",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+          provider: { type: "string", enum: ["tavily", "serper"], default: "tavily" },
+          numResults: { type: "integer", default: 5 }
+        },
+        required: ["query"]
+      }
+    }
+  }
+];
+
 async function streamChatWithWorkspace(
   response,
   workspace,
@@ -22,7 +100,8 @@ async function streamChatWithWorkspace(
   chatMode = "chat",
   user = null,
   thread = null,
-  attachments = []
+  attachments = [],
+  systemAddition = "" 
 ) {
   const uuid = uuidv4();
   const updatedMessage = await grepCommand(message, user);
@@ -111,9 +190,11 @@ async function streamChatWithWorkspace(
   if (attachments && attachments.length > 0) {
     attachments.forEach((attachment) => {
       if (attachment.analysis) {
+       const text = attachment.analysis.description || attachment.analysis.extractedText;
+        
         visionContext.push(`
 [Visual Content Analysis: ${attachment.name}]
-${attachment.analysis.content}
+${text}
 ---
 `);
       }
@@ -246,11 +327,14 @@ ${attachment.analysis.content}
     return;
   }
 
-  // Compress & Assemble message to ensure prompt passes token limit with room for response
-  // and build system messages based on inputs and history.
+  // Only include web_search if no document context was injected
+const activeTools = systemAddition?.includes("== EXAM PAPER CONTENT ==")
+  ? AVAILABLE_TOOLS.filter(t => t.function.name !== "web_search")
+  : AVAILABLE_TOOLS;
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: await chatPrompt(workspace, user),
+      systemPrompt: (await chatPrompt(workspace, user)) + 
+                    (systemAddition ? "\n\n" + systemAddition : ""),
       userPrompt: updatedMessage,
       contextTexts,
       chatHistory,
@@ -262,36 +346,78 @@ ${attachment.analysis.content}
   // If streaming is not explicitly enabled for connector
   // we do regular waiting of a response and send a single chunk.
   if (LLMConnector.streamingEnabled() !== true) {
-    console.log(
-      `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming is not available for ${LLMConnector.constructor.name}. Will use regular chat method.`
-    );
-    const { textResponse, metrics: performanceMetrics } =
-      await LLMConnector.getChatCompletion(messages, {
-        temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-      });
-
-    completeText = textResponse;
-    metrics = performanceMetrics;
-    writeResponseChunk(response, {
-      uuid,
-      sources,
-      type: "textResponseChunk",
-      textResponse: completeText,
-      close: true,
-      error: false,
-      metrics,
-    });
-  } else {
-    const stream = await LLMConnector.streamGetChatCompletion(messages, {
+  console.log(
+    `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming is not available for ${LLMConnector.constructor.name}. Will use regular chat method.`
+  );
+  const { textResponse, metrics: performanceMetrics } =
+    await LLMConnector.getChatCompletion(messages, {
       temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+      tools: activeTools,  // 👈 ADD THIS
+      tool_choice: "auto",     // 👈 ADD THIS
     });
-    completeText = await LLMConnector.handleStream(response, stream, {
-      uuid,
-      sources,
-    });
-    metrics = stream.metrics;
+
+  // 👇 NEW: Check if textResponse is a message object with tool_calls
+  if (textResponse?.tool_calls && textResponse.tool_calls.length > 0) {
+    const toolCall = textResponse.tool_calls[0];
+    console.log(`🧩 Native tool call detected: ${toolCall.function.name}`);
+    
+    return {
+      tool_call: toolCall.function.name,
+      parameters: JSON.parse(toolCall.function.arguments)
+    };
   }
 
+  completeText = textResponse;
+  metrics = performanceMetrics;
+  
+  writeResponseChunk(response, {
+    uuid,
+    sources,
+    type: "textResponseChunk",
+    textResponse: completeText,
+    close: true,
+    error: false,
+    metrics,
+  });
+} else {
+  const stream = await LLMConnector.streamGetChatCompletion(messages, {
+    temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+    tools: activeTools,
+    tool_choice: "auto",
+  });
+  
+  const result = await LLMConnector.handleStream(response, stream, {
+    uuid,
+    sources,
+  });
+  
+  // 👇 NEW: Check if result contains tool_calls
+  if (result && typeof result === 'object' && result.tool_calls && result.tool_calls.length > 0) {
+    const toolCall = result.tool_calls[0];
+    console.log(`🧩 Native tool call detected (streamed): ${toolCall.function.name}`);
+    
+    // 🔧 FIX: Don't parse here - arguments should already be a string
+    // The handleStream method should have accumulated all chunks
+    let parsedArgs;
+    try {
+      parsedArgs = typeof toolCall.function.arguments === 'string' 
+        ? JSON.parse(toolCall.function.arguments)
+        : toolCall.function.arguments;
+    } catch (parseError) {
+      console.error("Failed to parse tool arguments:", parseError);
+      console.log("Raw arguments:", toolCall.function.arguments);
+      throw new Error(`Invalid tool call arguments: ${parseError.message}`);
+    }
+    
+    return {
+      tool_call: toolCall.function.name,
+      parameters: parsedArgs
+    };
+  }
+  
+  completeText = typeof result === 'string' ? result : result.fullText || result;
+  metrics = stream.metrics;
+}
 if (completeText?.length > 0) {
   // 🧠 Save chat
   const { chat } = await WorkspaceChats.new({

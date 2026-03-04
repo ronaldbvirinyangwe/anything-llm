@@ -55,3 +55,21 @@
   pointer-events: none;
   z-index: 1;
 }
+.chat-layout.with-flashcards > div:first-child {
+  flex: 0.6;
+  filter: blur(1px);
+  transition: all 0.3s ease;
+}
+
+.chat-layout.with-flashcards::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 60%;
+  height: 100%;
+  backdrop-filter: blur(4px);
+  background: rgba(255,255,255,0.1);
+  pointer-events: none;
+  z-index: 1;
+}
