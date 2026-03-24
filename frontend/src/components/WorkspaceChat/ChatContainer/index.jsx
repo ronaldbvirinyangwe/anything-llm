@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext, useRef, useCallback } from "react";
+import { CURRICULUM_KEY } from "@/utils/constants";
 import ChatHistory from "./ChatHistory";
 import { CLEAR_ATTACHMENTS_EVENT, DndUploaderContext } from "./DnDWrapper";
 import PromptInput, {
@@ -147,7 +148,7 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
         if (success && profile) {
           setAge(profile.age || "");
           setGrade(profile.grade || "");
-          setCurriculum(profile.curriculum || "");
+          setCurriculum(localStorage.getItem(CURRICULUM_KEY) || profile.curriculum || "");
           setAcademicLevel(profile.academicLevel || "");
         }
       } catch (e) {
@@ -707,6 +708,10 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
           subject={subject}
           setSubject={setSubject}
           curriculum={curriculum}
+          setCurriculum={(val) => {
+            localStorage.setItem(CURRICULUM_KEY, val);
+            setCurriculum(val);
+          }}
           grade={grade}
         />
 

@@ -84,8 +84,8 @@ async function validateMultiUserRequest(request, response, next) {
     profile = await prisma.parents.findFirst({ where: { user_id: user.id } });
   }
 
-  // ✅ Attach merged user
-  response.locals.user = { ...user, ...profile };
+  // ✅ Attach merged user — preserve users.id so sessionUser.id always refers to users.id
+  response.locals.user = { ...profile, ...user };
 
   next();
 }

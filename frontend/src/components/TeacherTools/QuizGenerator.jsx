@@ -8,10 +8,11 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { 
-  FiArrowLeft, FiCpu, FiClock, FiLayers, FiHash, 
-  FiBook, FiEdit2, FiRefreshCw, FiSave, FiShare2, FiLink, FiCheck, FiX 
+import {
+  FiArrowLeft, FiCpu, FiClock, FiLayers, FiHash,
+  FiBook, FiEdit2, FiRefreshCw, FiSave, FiShare2, FiLink, FiCheck, FiX
 } from "react-icons/fi";
+import ClassSelectorModal from "./ClassSelectorModal";
 import "./quizgenerator.css";
 
 // Reusable component to render text with LaTeX math
@@ -204,6 +205,7 @@ export default function QuizGenerator() {
   const [form, setForm] = useState({
     subject: "", topic: "", grade: "", difficulty: "medium",
     numQuestions: 10, tabLimit: 1, timeLimit: 30, questionType: "mixed",
+    curriculum: "ZIMSEC",
   });
   const [quiz, setQuiz] = useState("");
   const [parsedQuestions, setParsedQuestions] = useState([]);
@@ -213,6 +215,9 @@ export default function QuizGenerator() {
   const [editingIndex, setEditingIndex] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [regeneratingIndex, setRegeneratingIndex] = useState(null);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [selectedClassIdx, setSelectedClassIdx] = useState(null);
+  const [shareNotice, setShareNotice] = useState("");
 
   useEffect(() => {
     const fetchClasses = async () => {
@@ -291,7 +296,14 @@ export default function QuizGenerator() {
     setRegeneratingIndex(idx);
     try {
       const token = localStorage.getItem("chikoroai_authToken");
-      const res = await axios.post("https://api.chikoro-ai.com/api/system/teacher/redo-question", { prompt: `Regenerate this ${item.type} question: ${item.raw}` }, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.post("https://api.chikoro-ai.com/api/system/teacher/redo-question", {
+        type: item.type,
+        raw: item.raw,
+        subject: form.subject,
+        topic: form.topic,
+        grade: form.grade,
+        difficulty: form.difficulty,
+      }, { headers: { Authorization: `Bearer ${token}` } });
       if (res.data.success && res.data.question) {
         const updated = [...parsedQuestions];
         const reparsed = parseQuiz(res.data.question);
@@ -331,6 +343,13 @@ export default function QuizGenerator() {
               <option value="easy">Easy</option>
               <option value="medium">Medium</option>
               <option value="hard">Hard</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Curriculum</label>
+            <select value={form.curriculum} onChange={(e) => setForm({ ...form, curriculum: e.target.value })}>
+              <option value="ZIMSEC">ZIMSEC</option>
+              <option value="Cambridge">Cambridge</option>
             </select>
           </div>
           <div className="form-group">
@@ -404,19 +423,9 @@ export default function QuizGenerator() {
             }}>
               <FiSave /> Save PDF
             </button>
-            <button className="action-btn share" onClick={async () => {
-               if (!classes.length) return alert("No classes found.");
-               const selection = prompt(`Select class:\n${classes.map((c,i) => `${i+1}. ${c.subject}`).join('\n')}`);
-               if(!selection) return;
-               try {
-                 const token = localStorage.getItem("chikoroai_authToken");
-                 const res = await axios.post("https://api.chikoro-ai.com/api/system/teacher/share-quiz-with-class", {
-                    quiz, subject: classes[selection-1].subject, topic: form.topic,
-                    timeLimit: form.timeLimit, tabLimit: form.tabLimit,
-                    studentIds: classes[selection-1].students.map(s => s.id)
-                 }, { headers: { Authorization: `Bearer ${token}` } });
-                 if(res.data.success) alert("Shared successfully!");
-               } catch(e) { alert("Error sharing"); }
+            <button className="action-btn share" onClick={() => {
+              if (!classes.length) { setError("No classes found. Link students first."); return; }
+              setShareNotice(""); setSelectedClassIdx(null); setShowShareModal(true);
             }}>
               <FiShare2 /> Share to Class
             </button>
@@ -427,13 +436,42 @@ export default function QuizGenerator() {
                     quiz, subject: form.subject, topic: form.topic,
                     timeLimit: form.timeLimit, tabLimit: form.tabLimit
                  }, { headers: { Authorization: `Bearer ${token}` } });
-                 if(res.data.link) { navigator.clipboard.writeText(res.data.link); alert("Link copied!"); }
-               } catch(e) { alert("Error generating link"); }
+                 if (res.data.link) {
+                   try { await navigator.clipboard.writeText(res.data.link); } catch {}
+                   setShareNotice(`Public link copied to clipboard: ${res.data.link}`);
+                 }
+               } catch(e) { setError("Error generating link."); }
             }}>
               <FiLink /> Public Link
             </button>
           </div>
+          {shareNotice && <p className="error-message" style={{ color: '#059669', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', padding: '0.75rem 1rem', marginTop: '1rem' }}>{shareNotice}</p>}
         </section>
+      )}
+
+      {showShareModal && (
+        <ClassSelectorModal
+          classes={classes}
+          selectedIndex={selectedClassIdx}
+          onSelect={setSelectedClassIdx}
+          onConfirm={async () => {
+            if (selectedClassIdx === null) return;
+            const cls = classes[selectedClassIdx];
+            setShowShareModal(false);
+            try {
+              const token = localStorage.getItem("chikoroai_authToken");
+              const res = await axios.post("https://api.chikoro-ai.com/api/system/teacher/share-quiz-with-class", {
+                quiz, subject: cls.subject, topic: form.topic,
+                timeLimit: form.timeLimit, tabLimit: form.tabLimit,
+                studentIds: cls.students.map(s => s.id)
+              }, { headers: { Authorization: `Bearer ${token}` } });
+              if (res.data.success) setShareNotice(`Shared with ${cls.subject} (${cls.students.length} students).`);
+              else setError(`Failed to share: ${res.data.error}`);
+            } catch(e) { setError("Error sharing quiz."); }
+            finally { setSelectedClassIdx(null); }
+          }}
+          onClose={() => setShowShareModal(false)}
+        />
       )}
     </div>
   );

@@ -9,6 +9,7 @@ import { NavLink } from "react-router-dom";
 import { LAST_VISITED_WORKSPACE } from "@/utils/constants";
 import { useTranslation } from "react-i18next";
 import { safeJsonParse } from "@/utils/request";
+import CurriculumSwitcher from "@/pages/Main/Home/CurriculumSwitcher";
 
 export default function DefaultChatContainer() {
   const { t } = useTranslation();
@@ -79,6 +80,9 @@ export default function DefaultChatContainer() {
           alt="Custom Logo"
           className=" w-[200px] h-fit mb-5 rounded-lg"
         />
+        <div className="mb-6">
+          <CurriculumSwitcher />
+        </div>
         <h1 className="text-white text-2xl font-semibold">
           {t("home.welcome")}, {user.username}!
         </h1>

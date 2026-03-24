@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import System from "../../models/system"; // Keep if needed elsewhere, but not for this fetch
 import { AUTH_TOKEN, AUTH_USER } from "../../utils/constants";
 
 export default function Enrol() {
@@ -162,11 +161,21 @@ export default function Enrol() {
 
       // Now process the parsed JSON data (resData)
       if (resData.success) {
-        // If backend returns a refreshed token, store it
-        if (resData.token) localStorage.setItem(AUTH_TOKEN, resData.token);
-
-        // Persist role locally for UX routing consistency
-        if (storedUser) {
+        // If backend returns a refreshed token, store it and sync the user id from it
+        if (resData.token) {
+          localStorage.setItem(AUTH_TOKEN, resData.token);
+          // Decode the new JWT to get the authoritative users.id (never trust the old localStorage id)
+          try {
+            const payload = JSON.parse(atob(resData.token.split(".")[1]));
+            const updated = { ...storedUser, role, id: payload.id };
+            localStorage.setItem(AUTH_USER, JSON.stringify(updated));
+          } catch {
+            // Fallback: just update role if decode fails
+            if (storedUser) {
+              localStorage.setItem(AUTH_USER, JSON.stringify({ ...storedUser, role }));
+            }
+          }
+        } else if (storedUser) {
           const updated = { ...storedUser, role };
           localStorage.setItem(AUTH_USER, JSON.stringify(updated));
         }

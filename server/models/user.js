@@ -217,6 +217,47 @@ const User = {
   },
 
   /**
+   * Updates the login streak for a user based on their last active date.
+   * - Same day: no change
+   * - Yesterday: increment
+   * - Older/never: reset to 1
+   * @param {number} userId
+   * @returns {Promise<number>} The new streak count
+   */
+  updateStreak: async function (userId) {
+    try {
+      const user = await prisma.users.findUnique({
+        where: { id: userId },
+        select: { streak: true, lastActiveDate: true },
+      });
+      if (!user) return 0;
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const lastStr = user.lastActiveDate
+        ? new Date(user.lastActiveDate).toISOString().slice(0, 10)
+        : null;
+
+      if (lastStr === todayStr) return user.streak;
+
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+      const newStreak = lastStr === yesterdayStr ? user.streak + 1 : 1;
+
+      await prisma.users.update({
+        where: { id: userId },
+        data: { streak: newStreak, lastActiveDate: new Date() },
+      });
+
+      return newStreak;
+    } catch (error) {
+      console.error("updateStreak failed:", error.message);
+      return 0;
+    }
+  },
+
+  /**
    * Returns a user object based on the clause provided.
    * @param {Object} clause - The clause to use to find the user.
    * @returns {Promise<import("@prisma/client").users|null>} The user object or null if not found.

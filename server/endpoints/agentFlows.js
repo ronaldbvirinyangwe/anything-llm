@@ -643,6 +643,25 @@ if (userId) {
 } catch (chatErr) {
   console.warn("⚠️ Failed to save flashcards to chat history:", chatErr.message);
 }
+
+  // ✅ Save to saved_flashcard_sets for Reports tracking
+  try {
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    await prisma.savedFlashcardSet.create({
+      data: {
+        userId: parseInt(userId),
+        subject,
+        grade,
+        difficulty,
+        userMessage: userMessage || null,
+        cards: flashcards.cards,
+      },
+    });
+    console.log("💾 Flashcard set saved to saved_flashcard_sets");
+  } catch (dbErr) {
+    console.warn("⚠️ Failed to save flashcard set to DB:", dbErr.message);
+  }
 }
 
     return res.status(200).json({

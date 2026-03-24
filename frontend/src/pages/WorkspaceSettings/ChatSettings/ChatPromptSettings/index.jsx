@@ -9,6 +9,8 @@ import ChatPromptHistory from "./ChatPromptHistory";
 import PublishEntityModal from "@/components/CommunityHub/PublishEntityModal";
 import { useModal } from "@/hooks/useModal";
 
+const DEFAULT_PROMPT = "";
+
 export default function ChatPromptSettings({ workspace, setHasChanges }) {
   const { t } = useTranslation();
   const [availableVariables, setAvailableVariables] = useState([]);

@@ -52,34 +52,43 @@ export default function Footer() {
 useEffect(() => {
   async function fetchStudentId() {
     const user = JSON.parse(localStorage.getItem("chikoroai_user") || "{}");
-    
-    if (!user?.id) {
-      console.log("No user ID found in localStorage");
+    console.log("[Footer] user from localStorage:", { id: user?.id, role: user?.role });
+
+    if (!user?.id || user?.role !== "student") {
+      console.log("[Footer] Skipping report link — user is not a student or has no ID");
       return;
     }
-    
+
     try {
       const token = localStorage.getItem("chikoroai_authToken");
-      
+
       if (!token) {
-        console.log("No auth token found");
+        console.log("[Footer] No auth token found");
         return;
       }
-      
+
+      console.log("[Footer] Fetching /api/system/my-profile...");
       const res = await fetch(`https://api.chikoro-ai.com/api/system/my-profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
+
+      console.log("[Footer] my-profile response status:", res.status);
+
       if (res.ok) {
         const data = await res.json();
-        if (data.success && data.student?.id) {
-          setReportLink(`/reports/${data.student.id}`);
+        console.log("[Footer] my-profile data:", data);
+        if (data.success && data.profile?.id) {
+          const link = `/reports/${data.profile.id}`;
+          console.log("[Footer] Setting report link to:", link, "| students.id =", data.profile.id, "| students.user_id =", data.profile.user_id);
+          setReportLink(link);
+        } else {
+          console.warn("[Footer] my-profile returned success=false or no profile.id:", data);
         }
       } else {
-        console.error("Failed to fetch student profile:", res.status);
+        console.error("[Footer] Failed to fetch student profile, status:", res.status);
       }
     } catch (err) {
-      console.error("Error fetching student profile:", err);
+      console.error("[Footer] Error fetching student profile:", err);
     }
   }
   fetchStudentId();

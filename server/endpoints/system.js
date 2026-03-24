@@ -79,6 +79,7 @@ const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 const fetch = require('node-fetch');
 const OpenAI = require("openai");
 const { sendPushNotification } = require('../utils/pushNotifications');
+const { serviceKeyRequest } = require('../utils/middleware/ServiceKeyMiddleware');
 
 
 const {
@@ -93,8 +94,8 @@ function makePaynow() {
     PAYNOW_INTEGRATION_ID,
     PAYNOW_INTEGRATION_KEY
   );
-  paynow.resultUrl = "https://chikoro-ai.com";
-paynow.returnUrl = "http://example.com/return?gateway=paynow&merchantReference=1234";
+  paynow.resultUrl = `${process.env.APP_URL || "https://chikoro-ai.com"}/api/payments/result`;
+paynow.returnUrl = `${process.env.APP_URL || "https://chikoro-ai.com"}/payment`;
   return paynow;
 }
 
@@ -179,8 +180,11 @@ function systemEndpoints(app) {
   }
 });
 
-const upload = multer({ 
-  dest: 'exams/',
+const EXAMS_DIR = path.join(__dirname, '..', 'exams');
+if (!fs.existsSync(EXAMS_DIR)) fs.mkdirSync(EXAMS_DIR, { recursive: true });
+
+const upload = multer({
+  dest: EXAMS_DIR,
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
@@ -631,7 +635,18 @@ Mark Scheme:
 - Point 1 (1 mark)
 - Point 2 (1 mark)
 
-4. For multiple choice, use:
+4. For multiple choice questions, ALWAYS use this exact format - list ALL four options then the answer:
+A) First option text
+B) Second option text
+C) Third option text
+D) Fourth option text
+**Answer: [letter]**
+
+If the options are shown as diagrams/images and cannot be extracted as text, write:
+A) [diagram]
+B) [diagram]
+C) [diagram]
+D) [diagram]
 **Answer: [letter]**
 
 5. Start numbering from ${questionOffset + 1}
@@ -648,8 +663,15 @@ Extract questions now:`;
         max_tokens: 6000  // Increased
       });
       
-      let extracted = response.choices[0].message.content;
-      
+      let extracted = response.choices[0]?.message?.content;
+
+      if (!extracted) {
+        const finishReason = response.choices[0]?.finish_reason;
+        console.warn(`Chunk ${i + 1} returned null content (finish_reason: ${finishReason})`);
+        allExtractedQuestions.push('');
+        continue;
+      }
+
       // Clean response
       extracted = extracted
         .replace(/^[\s\S]*?(?=\d+[\.\s])/m, '')
@@ -703,11 +725,20 @@ function extractRelevantMarkScheme(markSchemeText, startQ, endQ) {
 // MAIN EXTRACTION ROUTE
 // ==========================================
 
-app.post("/teacher/extract-exam-paper", 
-  [validatedRequest, upload.fields([
-    { name: 'examPaper', maxCount: 1 },
-    { name: 'markScheme', maxCount: 1 }
-  ])], 
+app.post("/teacher/extract-exam-paper",
+  validatedRequest,
+  (req, res, next) => {
+    upload.fields([
+      { name: 'examPaper', maxCount: 1 },
+      { name: 'markScheme', maxCount: 1 }
+    ])(req, res, (err) => {
+      if (err) {
+        console.error("Multer error:", err);
+        return res.status(400).json({ success: false, error: err.message || "File upload failed." });
+      }
+      next();
+    });
+  },
   async (req, res) => {
     let examFilePath = null;
     let markSchemeFilePath = null;
@@ -1421,10 +1452,9 @@ app.post("/payments/initiate", [validatedRequest], async (req, res) => {
 
     const { paymentMethod, phoneNumber } = req.body;
 
-    // sessionUser.id is the student database ID after merge
-    // We need to find by that ID, not by user_id
-    const student = await prisma.students.findUnique({
-      where: { id: sessionUser.id },
+    // sessionUser.id is the users table ID; look up student by user_id
+    const student = await prisma.students.findFirst({
+      where: { user_id: sessionUser.id },
     });
 
     if (!student) {
@@ -1432,9 +1462,8 @@ app.post("/payments/initiate", [validatedRequest], async (req, res) => {
     }
 
     // 🧠 Plan and amount
-    const hasSchool = !!student.school;
-    const plan = hasSchool ? "school basic" : "premium";
-    const amount = hasSchool ? 3.0 : 5.0;
+    const plan = "premium";
+    const amount = 5.0;
 
     // ✅ Validate payment method
     if (paymentMethod === "card") {
@@ -1514,10 +1543,9 @@ app.get("/payments/status", [validatedRequest], async (req, res) => {
     console.log("   User ID:", user?.id);
     if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
 
-    // After middleware merge, user.id is the student's database ID
-    // So we can directly find by that ID
-    const student = await prisma.students.findUnique({
-      where: { id: user.id },
+    // user.id is the users table ID; look up student by user_id
+    const student = await prisma.students.findFirst({
+      where: { user_id: user.id },
     });
 
     console.log("   Found Student ID:", student?.id);
@@ -1551,21 +1579,52 @@ app.get("/payments/status", [validatedRequest], async (req, res) => {
         },
       });
 
-       await prisma.payment_logs.create({
-    data: {
-      student_id: student.id,
-      amount: student.subscription_plan === "school basic" ? 3.0 : 5.0,
-      payment_method: "mobile", // or "ecocash"
-      recorded_by: student.user_id, // or sessionUser.id
-      notes: "Mobile payment confirmed via Paynow.",
-    },
-  });
+      await prisma.payment_logs.create({
+        data: {
+          student_id: student.id,
+          amount: 5.0,
+          payment_method: "paynow",
+          subscription_plan: student.subscription_plan || "premium",
+          subscription_duration_days: 30,
+          recorded_by: student.user_id,
+          notes: "Payment confirmed via Paynow.",
+        },
+      });
+
+      await sendPushNotification(student.user_id, {
+        title: '✅ Payment Confirmed',
+        body: 'Your Chikoro AI subscription is now active. Happy learning!',
+        data: { type: 'payment_confirmed' },
+      });
 
       return res.json({
         success: true,
         status: "paid",
         message: "Payment confirmed and subscription activated.",
         student: updatedStudent,
+      });
+    }
+
+    // If Paynow cancelled the transaction, reset so the student can try again
+    if (status?.status?.toLowerCase() === "cancelled") {
+      await prisma.students.update({
+        where: { id: student.id },
+        data: {
+          subscription_status: "none",
+          subscription_payment_poll_url: null,
+        },
+      });
+
+      await sendPushNotification(student.user_id, {
+        title: '❌ Payment Cancelled',
+        body: 'Your payment was cancelled. Please try again to activate your subscription.',
+        data: { type: 'payment_cancelled', link: '/payment' },
+      });
+
+      return res.json({
+        success: false,
+        status: "cancelled",
+        message: "Payment was cancelled. Please try again.",
       });
     }
 
@@ -1581,6 +1640,92 @@ app.get("/payments/status", [validatedRequest], async (req, res) => {
 });
 
   
+
+  // -----------------------------
+  // POST /api/payments/result
+  // Paynow server-to-server webhook — called by Paynow to confirm payment
+  // No auth required (Paynow calls this directly)
+  // -----------------------------
+  app.post("/api/payments/result", async (req, res) => {
+    try {
+      const paynow = makePaynow();
+
+      // Reconstruct query string from the URL-encoded body Paynow sends
+      const queryString = new URLSearchParams(req.body).toString();
+
+      let statusResponse;
+      try {
+        statusResponse = paynow.parseStatusUpdate(queryString);
+      } catch (err) {
+        console.error("Paynow webhook hash verification failed:", err.message);
+        return res.status(400).send("Invalid hash");
+      }
+
+      // Only act on confirmed paid status
+      if (!statusResponse || statusResponse.status?.toLowerCase() !== "paid") {
+        return res.status(200).send("OK");
+      }
+
+      // Reference format: ChikoroSub-{user_id}-{timestamp}
+      const parts = (statusResponse.reference || "").split("-");
+      const userId = parseInt(parts[1]);
+
+      if (!userId) {
+        console.error("Paynow webhook: could not extract user_id from reference:", statusResponse.reference);
+        return res.status(200).send("OK");
+      }
+
+      const student = await prisma.students.findFirst({
+        where: { user_id: userId },
+      });
+
+      if (!student) {
+        console.error("Paynow webhook: no student found for user_id:", userId);
+        return res.status(200).send("OK");
+      }
+
+      // Skip if already activated (webhook may fire more than once)
+      if (student.subscription_status === "paid") {
+        return res.status(200).send("OK");
+      }
+
+      const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30;
+      const expirationDate = new Date(Date.now() + THIRTY_DAYS_MS);
+
+      await prisma.students.update({
+        where: { id: student.id },
+        data: {
+          subscription_status: "paid",
+          subscription_expiration_date: expirationDate,
+          subscription_payment_poll_url: null,
+        },
+      });
+
+      await prisma.payment_logs.create({
+        data: {
+          student_id: student.id,
+          amount: parseFloat(statusResponse.amount) || 5.0,
+          payment_method: "paynow",
+          subscription_plan: student.subscription_plan || "premium",
+          subscription_duration_days: 30,
+          recorded_by: student.user_id,
+          notes: `Paynow webhook confirmed. Ref: ${statusResponse.paynowReference}`,
+        },
+      });
+
+      await sendPushNotification(student.user_id, {
+        title: '✅ Payment Confirmed',
+        body: 'Your Chikoro AI subscription is now active. Happy learning!',
+        data: { type: 'payment_confirmed' },
+      });
+
+      console.log(`✅ Paynow webhook: activated subscription for student ${student.id} (user ${userId})`);
+      return res.status(200).send("OK");
+    } catch (err) {
+      console.error("Paynow Result Webhook Error:", err);
+      return res.status(500).send("Error");
+    }
+  });
 
   app.get("/setup-complete", async (_, response) => {
     try {
@@ -1693,9 +1838,13 @@ app.get("/quiz/result/:id", [validatedRequest], async (req, res) => {
   }
 });
 
-app.post("/quiz/generate", [validatedRequest], async (req, res) => {
-  try {
-    const { subject, grade, topic, numQuestions = 10, difficulty = "medium", questionType = "mixed", age, curriculum } = req.body;
+app.post("/quiz/generate",
+  (req, res, next) => {
+    req.header('X-Service-Key') ? serviceKeyRequest(req, res, next) : validatedRequest(req, res, next);
+  },
+  async (req, res) => {
+    try {
+      const { subject, grade, topic, numQuestions = 10, difficulty = "medium", questionType = "mixed", curriculum } = req.body;
 
     if (!subject || !grade) {
       return res.status(400).json({ success: false, error: "Subject and grade are required." });
@@ -1705,29 +1854,67 @@ app.post("/quiz/generate", [validatedRequest], async (req, res) => {
     // Use topic if provided, otherwise use subject as the topic
     const quizTopic = topic || subject;
 
-    // Build comprehensive prompt similar to teacher/generate-quiz
-    let prompt = `Generate a Grade ${grade} quiz for Zimbabwean students.
+    const gradeNum2 = parseInt(grade) || 0;
+    const ageRange2 = gradeNum2 <= 2 ? "6-8 years old" : gradeNum2 <= 4 ? "9-10 years old" : gradeNum2 <= 7 ? "11-13 years old" : gradeNum2 <= 9 ? "14-15 years old" : "16-18 years old";
+    const examLevel2 = gradeNum2 >= 11 ? "A-Level" : gradeNum2 >= 9 ? "O-Level" : gradeNum2 >= 7 ? "Upper Primary/Junior Secondary" : "Primary";
+    const curriculumLabel2 = curriculum || "ZIMSEC";
 
-GRADE LEVEL: ${grade} (${age} years old)
+    const bloomsLevel2 =
+      difficulty === "easy"
+        ? "Knowledge & Recall — define, state, list, name. No application required."
+        : difficulty === "hard"
+        ? "Analysis & Evaluation — analyse, evaluate, compare, justify, discuss. Require extended reasoning."
+        : "Comprehension & Application — explain, describe, calculate, or apply concepts to a scenario.";
+
+    const subjectLower2 = (subject || "").toLowerCase();
+    let subjectGuidance2 = "";
+    if (/math|maths|mathematics/.test(subjectLower2)) {
+      subjectGuidance2 = `SUBJECT CONVENTIONS (Mathematics):
+- Structured mark schemes must show full working steps, not just the final answer.
+- Award method marks (M) and accuracy marks (A) where appropriate.
+- Include units in answers where applicable.\n`;
+    } else if (/history|geography|civics|humanities/.test(subjectLower2)) {
+      subjectGuidance2 = `SUBJECT CONVENTIONS (Humanities):
+- Structured mark schemes should use "any [X] from" style where multiple valid answers exist.
+- Award marks for evidence/examples cited, not just bare statements.\n`;
+    } else if (/english|literature/.test(subjectLower2)) {
+      subjectGuidance2 = `SUBJECT CONVENTIONS (English/Literature):
+- Reward vocabulary, sentence structure, and clarity in structured answers.
+- For extended writing, include a brief band descriptor.\n`;
+    } else if (/accounts|commerce|business/.test(subjectLower2)) {
+      subjectGuidance2 = `SUBJECT CONVENTIONS (Commerce/Accounts):
+- Show full labelled calculations in mark schemes.
+- Award marks for correct format as well as correct figures.\n`;
+    } else if (/science|biology|chemistry|physics/.test(subjectLower2)) {
+      subjectGuidance2 = `SUBJECT CONVENTIONS (Science):
+- Include units in all numerical answers.
+- Award separate marks for correct working and correct answer.\n`;
+    }
+
+    const mcqCount2 = Math.ceil(numQuestions / 2);
+    const structuredCount2 = numQuestions - mcqCount2;
+
+    // Build comprehensive prompt similar to teacher/generate-quiz
+    let prompt = `You are a quiz generator. Generate ONLY the quiz questions with NO introductory text.
+
+GRADE LEVEL: Grade ${grade} (${ageRange2}, ${examLevel2})
 SUBJECT: ${subject}
 TOPIC: ${quizTopic}
-CURRICULUM: ${curriculum || 'ZIMSEC'}
-DIFFICULTY: ${difficulty} (within Grade ${grade} scope)
+CURRICULUM: ${curriculumLabel2}
+DIFFICULTY: ${difficulty} — ${bloomsLevel2}
 NUMBER OF QUESTIONS: ${numQuestions}
 
 CRITICAL REQUIREMENTS:
-- Questions MUST be appropriate for ${grade} cognitive level
-- Use ${grade}-level vocabulary and concepts only
-- Follow ${curriculum || 'ZIMSEC'} ${grade} ${subject} curriculum standards
-- All questions should be ${difficulty} difficulty FOR ${grade} students
+- Every question MUST match the cognitive level of a Grade ${grade} student (${ageRange2})
+- Use vocabulary and concepts appropriate for Grade ${grade} under the ${curriculumLabel2} curriculum
+- Follow ${curriculumLabel2} Grade ${grade} ${subject} syllabus content and question style
 
-MATH FORMATTING:
+${subjectGuidance2}MATH FORMATTING:
 - For ANY mathematical expression, formula, equation, symbol, or number with units, use LaTeX with dollar sign delimiters.
 - Use $...$ for inline math. Example: The mass is $50 \\, \\text{kg}$ and $g = 9.8 \\, \\text{m/s}^2$.
 - Use $$...$$ for display/block equations. Example: $$F = ma$$
 - NEVER use \\(...\\) or \\[...\\] delimiters.
 - NEVER write plain text math like "5.97 × 10^24" — always use $5.97 \\times 10^{24}$ instead.
-- Even simple units should use LaTeX: $\\text{kg/m}^3$, $\\text{m/s}^2$, $\\text{N}$
 
 CRITICAL: Start immediately with question 1. No preamble, no explanations, just questions.
 `;
@@ -1737,90 +1924,62 @@ CRITICAL: Start immediately with question 1. No preamble, no explanations, just 
 Format each question EXACTLY like this:
 
 1. What is photosynthesis?
-A) The process of respiration
-B) The process plants use to make food
-C) Cell division
-D) The process of digestion
+A) The process of breaking down glucose for energy
+B) The process plants use to make food using sunlight
+C) The division of cells during growth
+D) The absorption of water through root hairs
 **Answer: B**
 
-2. Which organelle performs photosynthesis?
-A) Nucleus
-B) Mitochondria
-C) Chloroplast
-D) Ribosome
-**Answer: C**
-
-RULES:
-- Start with question number
+MCQ RULES:
 - Provide exactly 4 options (A, B, C, D)
+- All 4 options must be PLAUSIBLE — wrong answers should be believable misconceptions, not obviously silly
+- Exactly one correct answer
 - Mark correct answer as **Answer: X** immediately after options
-- NO introductory text
-- NO explanations between questions
+- NO introductory text, NO explanations between questions
 `;
-    } 
+    }
     else if (questionType === 'structured' || questionType === 'short-answer') {
       prompt += `
 Format each question EXACTLY like this:
 
 1. Explain the process of photosynthesis. [4 marks]
 Mark Scheme:
-- Plants use light energy (1 mark)
-- Carbon dioxide and water are reactants (1 mark)
-- Glucose and oxygen are products (1 mark)
-- Occurs in chloroplasts (1 mark)
+- Plants absorb light energy using chlorophyll (1 mark)
+- Carbon dioxide is taken in through stomata (1 mark)
+- Water is absorbed through the roots (1 mark)
+- Glucose and oxygen are produced as products (1 mark)
 
-2. Describe the role of chloroplasts. [3 marks]
-Mark Scheme:
-- Site of photosynthesis (1 mark)
-- Contains chlorophyll (1 mark)
-- Found in plant cells (1 mark)
-
-RULES:
-- Start with question number
-- Include marks in square brackets
-- Provide detailed mark scheme immediately after
+STRUCTURED RULES:
+- Include mark allocation in square brackets after the question
+- Mark scheme must have one bullet per mark (or "any X from" style for open-ended questions)
+- For higher-mark questions (5+), reward extended reasoning, not just recall
 - NO introductory text
 `;
     }
     else if (questionType === 'mixed') {
       prompt += `
-Alternate between multiple choice and structured questions in EQUAL proportion.
+Generate EXACTLY ${mcqCount2} multiple choice questions and EXACTLY ${structuredCount2} structured questions, alternating MCQ then Structured.
 
-Example format:
+Format:
 
-1. What is photosynthesis?
-A) The process of respiration
-B) The process plants use to make food
-C) Cell division
-D) The process of digestion
+1. [MCQ question]
+A) [Plausible wrong answer]
+B) [Correct answer]
+C) [Plausible wrong answer]
+D) [Plausible wrong answer]
 **Answer: B**
 
-2. Explain how plants perform photosynthesis. [3 marks]
+2. [Structured question] [X marks]
 Mark Scheme:
-- Uses light energy (1 mark)
-- CO2 + H2O → glucose (1 mark)
-- Occurs in chloroplasts (1 mark)
+- [Point] (1 mark)
+- [Point] (1 mark)
 
-3. Which organelle performs photosynthesis?
-A) Nucleus
-B) Mitochondria
-C) Chloroplast
-D) Ribosome
-**Answer: C**
-
-4. Describe the importance of photosynthesis to life on Earth. [4 marks]
-Mark Scheme:
-- Produces oxygen for respiration (1 mark)
-- Base of food chains (1 mark)
-- Removes CO2 from atmosphere (1 mark)
-- Provides energy for organisms (1 mark)
-
-RULES:
-- Start immediately with question 1
-- Alternate: MCQ, Structured, MCQ, Structured...
+MIXED RULES:
+- Odd-numbered questions are MCQ, even-numbered are Structured
+- Total: ${mcqCount2} MCQ + ${structuredCount2} Structured = ${numQuestions} questions
+- MCQ wrong options must be plausible misconceptions, not obviously incorrect
+- Structured mark schemes: one bullet per mark, or "any X from" for open-ended
 - NO introductory text
-- For MCQ: Include **Answer: X** after options
-- For Structured: Include Mark Scheme after question
 `;
     }
 
@@ -1828,15 +1987,8 @@ RULES:
 
     console.log("🧠 Generating quiz via AI...");
 
-    // Use the AI generation function (assuming generateLessonPlanAI exists)
-    const quiz = await generateLessonPlanAI(prompt);
-    
-    // Clean the response - remove any preamble
-    const cleanedQuiz = quiz
-      .replace(/^.*?(?:here'?s?|here is).*?quiz.*?:/i, '')
-      .replace(/^(sure|certainly|okay|alright)[!,.\s]*/i, '')
-      .replace(/```.*?```/gs, '')
-      .trim();
+    const rawQuiz = await generateLessonPlanAI(prompt);
+    const cleanedQuiz = cleanThinkingModelOutput(rawQuiz, 'quiz');
 
     console.log(`✅ Generated quiz for ${subject} - Grade ${grade}`);
 
@@ -1952,8 +2104,8 @@ FEEDBACK: [Your detailed feedback]
 `;
 
       try {
-        const aiGrading = await generateLessonPlanAI(prompt);
-        
+        const aiGrading = cleanAIResponse(await generateLessonPlanAI(prompt));
+
         // Parse AI response
         const scoreMatch = aiGrading.match(/SCORE:\s*(\d+)\s*\/\s*(\d+)/i);
         const feedbackMatch = aiGrading.match(/FEEDBACK:\s*(.+)/is);
@@ -2094,21 +2246,24 @@ FEEDBACK: [Your detailed feedback]
     }
 
     // Log event
-    await EventLogs.logEvent("quiz_submitted", { 
-      subject: quiz.subject, 
+    await EventLogs.logEvent("quiz_submitted", {
+      subject: quiz.subject,
       score: finalScore,
       earnedPoints,
       totalPoints
     }, user.id);
 
+    const newStreak = await User.updateStreak(user.id);
+
     // ---------- Return comprehensive response ----------
-    res.json({ 
-      success: true, 
-      resultId: savedResult.id, 
+    res.json({
+      success: true,
+      resultId: savedResult.id,
       score: finalScore,
       earnedPoints,
       totalPoints,
       feedback: results,
+      streak: newStreak,
       summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`
     });
 
@@ -2261,8 +2416,8 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
         feedbackObj.pointsEarned = pointsEarnedStructured;
         feedbackObj.pointsPossible = pointsPossibleStructured;
         feedbackObj.feedback = feedbackMatch
-          ? feedbackMatch[1].trim()
-          : cleanedGrading;
+          ? feedbackMatch[1].replace(/^FEEDBACK:\s*/i, "").trim()
+          : cleanedGrading.replace(/^SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*/i, "").replace(/^FEEDBACK:\s*/i, "").trim();
       }
 
       detailedFeedback.push(feedbackObj);
@@ -2337,8 +2492,9 @@ async function generateLessonPlanAI(prompt) {
   }
 }
 app.post(
-  "/system/teacher-tools/generate-lesson-plan",
-  [validatedRequest],
+  "/system/teacher-tools/generate-lesson-plan", (req, res, next) => {
+  req.header('X-Service-Key') ? serviceKeyRequest(req, res, next) : validatedRequest(req, res, next);
+}, 
   async (request, response) => {
     try {
       const sessionUser = await userFromSession(request, response);
@@ -2363,8 +2519,9 @@ You are a professional ${subject} teacher preparing a detailed lesson plan for $
 
 Topic: ${topic}
 Lesson Duration: ${duration || "30 minutes"}
+${objectives ? `Teacher's Objectives: ${objectives}` : ""}
 
-⚠️ CRITICAL: Do NOT include ANY planning notes, thinking process, or meta-commentary. 
+⚠️ CRITICAL: Do NOT include ANY planning notes, thinking process, or meta-commentary.
 ⚠️ Output ONLY the final lesson plan in proper markdown format.
 ⚠️ Start IMMEDIATELY with "## Lesson Title: [Your Title]"
 
@@ -2373,7 +2530,7 @@ Create a lesson plan with EXACTLY these sections in this order:
 ## Lesson Title: [Create an engaging title]
 
 ## Objectives
-[Write maximum 3 learning objectives using Bloom's Taxonomy verbs: describe, explain, apply, analyze, evaluate, create]
+${objectives ? `Base the objectives on the teacher's stated objectives: "${objectives}". Refine them using Bloom's Taxonomy verbs.` : "[Write maximum 3 learning objectives using Bloom's Taxonomy verbs: describe, explain, apply, analyze, evaluate, create]"}
 
 ## Introduction
 [Engage students with a Bloom's-level question or activity]
@@ -2623,28 +2780,35 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
       return response.status(401).json({ success: false, error: "Unauthorized" });
     }
 
-    const studentId = parseInt(request.params.id);
-    if (!studentId || isNaN(studentId)) {
-      return response.status(400).json({ success: false, error: "Invalid student ID" });
+    console.log(`[Report] Request from users.id=${sessionUser.id}, role=${sessionUser.role}, URL param id=${request.params.id}`);
+
+    let student;
+
+    if (sessionUser.role === "student") {
+      // For students, always look up their own profile via session — never trust the URL param
+      student = await prisma.students.findFirst({
+        where: { user_id: sessionUser.id }
+      });
+      console.log(`[Report] Student lookup by session user_id=${sessionUser.id} →`, student ? `students.id=${student.id}` : "NOT FOUND");
+    } else {
+      // Teachers/parents use the URL param
+      const studentId = parseInt(request.params.id);
+      if (!studentId || isNaN(studentId)) {
+        return response.status(400).json({ success: false, error: "Invalid student ID" });
+      }
+      student = await prisma.students.findUnique({ where: { id: studentId } });
+      console.log(`[Report] Student lookup by URL param id=${studentId} →`, student ? `found (user_id=${student.user_id})` : "NOT FOUND");
     }
 
-    // 🧠 Fetch student data
-    const student = await prisma.students.findUnique({ 
-      where: { id: studentId } 
-    });
-    
     if (!student) {
       return response.status(404).json({ success: false, error: "Student not found" });
     }
 
-    console.log("Student user_id:", student.user_id);
-
     if (!student.user_id) {
-      return response.status(400).json({ 
-        success: false, 
-        error: "Student record has no user_id" 
-      });
+      return response.status(400).json({ success: false, error: "Student record has no user_id" });
     }
+
+    console.log(`[Report] Fetching quizzes for users.id=${student.user_id} (students.id=${student.id}, name=${student.name})`);
 
     // ✅ Fetch quizzes (FIXED: Now includes shared_quizzes to get the difficulty)
     const quizzes = await prisma.quiz_results.findMany({
@@ -2697,12 +2861,16 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
     const averageScore =
       totalWeight > 0 ? (totalWeightedScore / totalWeight).toFixed(1) : "0.0";
 
-    const totalFlashcards = 0;
+    const flashcardSets = await prisma.savedFlashcardSet.findMany({
+      where: { userId: student.user_id },
+      select: { cards: true },
+    });
+    const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
     const mastered = 0;
 
     const totalXP = xpLogs.reduce((sum, log) => {
-      const points = typeof log.metadata === 'object' 
-        ? log.metadata?.points || 0 
+      const points = typeof log.metadata === 'object'
+        ? log.metadata?.points || 0
         : 0;
       return sum + points;
     }, 0);
@@ -2785,6 +2953,7 @@ Format neatly in Markdown with proper headers (##).
         correct_answers: q.correct_answers,
         total: q.total_questions,
         createdAt: q.submitted_at,
+        difficulty: q.shared_quiz?.difficulty || "Medium",
         feedback,
       };
     });
@@ -2798,7 +2967,7 @@ Format neatly in Markdown with proper headers (##).
         grade: student.grade,
       },
       quizzes: formattedQuizzes,
-      summary: aiSummary,
+      aiSummary: aiSummary,
       averageScore: parseFloat(averageScore),
       totalXP,
       mastered,
@@ -2845,33 +3014,73 @@ app.post("/system/link-student/:userId", async (req, res) => {
 
 app.post("/system/teacher/generate-quiz", [validatedRequest], async (req, res) => {
   try {
-    const { subject, topic, grade, difficulty, numQuestions, questionType } = req.body;
+    const { subject, topic, grade, difficulty, numQuestions, questionType, curriculum } = req.body;
 
-    // Map grade to approximate age range for context
     const gradeNum = parseInt(grade) || 0;
     const ageRange = gradeNum <= 2 ? "6-8 years old" : gradeNum <= 4 ? "9-10 years old" : gradeNum <= 7 ? "11-13 years old" : gradeNum <= 9 ? "14-15 years old" : "16-18 years old";
     const examLevel = gradeNum >= 11 ? "A-Level" : gradeNum >= 9 ? "O-Level" : gradeNum >= 7 ? "Upper Primary/Junior Secondary" : "Primary";
+    const curriculumLabel = curriculum || "ZIMSEC";
 
-    let prompt = `You are a quiz generator for Zimbabwean students. Generate ONLY the quiz questions with NO introductory text.
+    // Map difficulty to Bloom's cognitive level
+    const bloomsLevel =
+      difficulty === "easy"
+        ? "Knowledge & Recall — questions should ask students to define, state, list, or name. No application required."
+        : difficulty === "hard"
+        ? "Analysis & Evaluation — questions should ask students to analyse, evaluate, compare, justify, or discuss. Require extended reasoning."
+        : "Comprehension & Application — questions should ask students to explain, describe, calculate, or apply concepts to a scenario.";
+
+    // Subject-specific mark scheme guidance
+    const subjectLower = (subject || "").toLowerCase();
+    let subjectGuidance = "";
+    if (/math|maths|mathematics/.test(subjectLower)) {
+      subjectGuidance = `SUBJECT CONVENTIONS (Mathematics):
+- Structured mark schemes must show full working steps, not just the final answer.
+- Award method marks (M) and accuracy marks (A) where appropriate, e.g. "M1 for correct method, A1 for correct answer".
+- Include units in answers where applicable.`;
+    } else if (/history|geography|civics|humanities/.test(subjectLower)) {
+      subjectGuidance = `SUBJECT CONVENTIONS (Humanities):
+- Structured mark schemes should use "any [X] from" style where multiple valid answers exist.
+- Award marks for evidence/examples cited, not just bare statements.
+- For evaluate/discuss questions, reward both sides of an argument.`;
+    } else if (/english|literature/.test(subjectLower)) {
+      subjectGuidance = `SUBJECT CONVENTIONS (English/Literature):
+- Structured mark schemes should reward vocabulary, sentence structure, and clarity.
+- For comprehension questions, mark schemes should list specific points from the text.
+- For essay/extended writing, include a brief band descriptor (e.g. "Award 3-4 marks for a well-structured response with evidence").`;
+    } else if (/accounts|commerce|business/.test(subjectLower)) {
+      subjectGuidance = `SUBJECT CONVENTIONS (Commerce/Accounts):
+- Show full calculations with labelled steps in mark schemes.
+- Use standard accounting formats (T-accounts, balance sheets) where relevant.
+- Award marks for correct format as well as correct figures.`;
+    } else if (/science|biology|chemistry|physics/.test(subjectLower)) {
+      subjectGuidance = `SUBJECT CONVENTIONS (Science):
+- Include units in all numerical answers.
+- Mark schemes should award separate marks for correct working and correct answer.
+- For diagrams referenced in questions, describe clearly in text form.`;
+    }
+
+    // For mixed type, pre-calculate exact counts to avoid ambiguity
+    const mcqCount = Math.ceil(numQuestions / 2);
+    const structuredCount = numQuestions - mcqCount;
+
+    let prompt = `You are a quiz generator. Generate ONLY the quiz questions with NO introductory text.
 
 GRADE LEVEL: Grade ${grade} (${ageRange}, ${examLevel})
 SUBJECT: ${subject}
 TOPIC: ${topic || subject}
-CURRICULUM: ZIMSEC
-DIFFICULTY: ${difficulty} — calibrated specifically for Grade ${grade} students
+CURRICULUM: ${curriculumLabel}
+DIFFICULTY: ${difficulty} — ${bloomsLevel}
 NUMBER OF QUESTIONS: ${numQuestions}
 
 CRITICAL REQUIREMENTS:
 - Every question MUST match the cognitive level of a Grade ${grade} student (${ageRange})
-- Use ONLY vocabulary and concepts appropriate for Grade ${grade}
-- Question complexity, depth, and expected detail must suit ${examLevel} level
-- Difficulty "${difficulty}" means ${difficulty} FOR Grade ${grade}, not in absolute terms
-- Follow ZIMSEC Grade ${grade} ${subject} curriculum standards
-- For structured questions, mark allocations must reflect Grade ${grade} expectations
+- Use vocabulary and concepts appropriate for Grade ${grade} under the ${curriculumLabel} curriculum
+- Question complexity and depth must suit ${examLevel} level
+- Follow ${curriculumLabel} Grade ${grade} ${subject} syllabus content and question style
 
-MATH FORMATTING:
+${subjectGuidance ? subjectGuidance + "\n" : ""}MATH FORMATTING:
 - Use $...$ for inline math. Example: The force is $F = ma$
-- Use $$...$$ for display equations. Example: $$v = u + at$$
+- Use $$...$$ for display equations. Example: $$v^2 = u^2 + 2as$$
 - NEVER write plain text math — always use LaTeX
 
 CRITICAL: Start immediately with question 1. No preamble, no explanations, just questions.
@@ -2882,90 +3091,78 @@ CRITICAL: Start immediately with question 1. No preamble, no explanations, just 
 Format each question EXACTLY like this:
 
 1. What is photosynthesis?
-A) The process of respiration
-B) The process plants use to make food
-C) Cell division
-D) The process of digestion
+A) The process of breaking down glucose for energy
+B) The process plants use to make food using sunlight
+C) The division of cells during growth
+D) The absorption of water through root hairs
 **Answer: B**
 
-2. Which organelle performs photosynthesis?
-A) Nucleus
-B) Mitochondria
-C) Chloroplast
-D) Ribosome
-**Answer: C**
-
-RULES:
-- Start with question number
+MCQ RULES:
 - Provide exactly 4 options (A, B, C, D)
+- All 4 options must be PLAUSIBLE — wrong answers should be believable misconceptions, not obviously silly
+- Exactly one correct answer
 - Mark correct answer as **Answer: X** immediately after options
-- NO introductory text
-- NO explanations between questions
+- NO introductory text, NO explanations between questions
 `;
-    } 
+    }
     else if (questionType === 'structured') {
       prompt += `
 Format each question EXACTLY like this:
 
 1. Explain the process of photosynthesis. [4 marks]
 Mark Scheme:
-- Plants use light energy (1 mark)
-- Carbon dioxide and water are reactants (1 mark)
-- Glucose and oxygen are products (1 mark)
-- Occurs in chloroplasts (1 mark)
+- Plants absorb light energy using chlorophyll (1 mark)
+- Carbon dioxide is taken in through stomata (1 mark)
+- Water is absorbed through the roots (1 mark)
+- Glucose and oxygen are produced as products (1 mark)
 
-2. Describe the role of chloroplasts. [3 marks]
+2. Evaluate the importance of photosynthesis to life on Earth. [6 marks]
 Mark Scheme:
-- Site of photosynthesis (1 mark)
-- Contains chlorophyll (1 mark)
-- Found in plant cells (1 mark)
+- Produces oxygen needed for respiration by most organisms (1 mark)
+- Forms the base of almost all food chains (1 mark)
+- Removes carbon dioxide from the atmosphere (1 mark)
+- Stores solar energy as chemical energy in glucose (1 mark)
+- Any 2 further valid points with explanation (2 marks)
 
-RULES:
-- Start with question number
-- Include marks in square brackets
-- Provide detailed mark scheme immediately after
+STRUCTURED RULES:
+- Include mark allocation in square brackets after the question
+- Mark scheme must have one bullet per mark (or "any X from" style for open-ended questions)
+- For higher-mark questions (5+), reward extended reasoning, not just recall
 - NO introductory text
 `;
     }
     else if (questionType === 'mixed') {
       prompt += `
-Alternate between multiple choice and structured questions in EQUAL proportion.
+Generate EXACTLY ${mcqCount} multiple choice questions and EXACTLY ${structuredCount} structured questions, alternating MCQ then Structured.
 
-Example format:
+Format:
 
-1. What is photosynthesis?
-A) The process of respiration
-B) The process plants use to make food
-C) Cell division
-D) The process of digestion
+1. [MCQ question]
+A) [Plausible wrong answer]
+B) [Correct answer]
+C) [Plausible wrong answer]
+D) [Plausible wrong answer]
 **Answer: B**
 
-2. Explain how plants perform photosynthesis. [3 marks]
+2. [Structured question] [X marks]
 Mark Scheme:
-- Uses light energy (1 mark)
-- CO2 + H2O → glucose (1 mark)
-- Occurs in chloroplasts (1 mark)
+- [Point] (1 mark)
+- [Point] (1 mark)
 
-3. Which organelle performs photosynthesis?
-A) Nucleus
-B) Mitochondria
-C) Chloroplast
-D) Ribosome
-**Answer: C**
+3. [MCQ question]
+A) ...
+**Answer: X**
 
-4. Describe the importance of photosynthesis to life on Earth. [4 marks]
+4. [Structured question] [X marks]
 Mark Scheme:
-- Produces oxygen for respiration (1 mark)
-- Base of food chains (1 mark)
-- Removes CO2 from atmosphere (1 mark)
-- Provides energy for organisms (1 mark)
+...
 
-RULES:
-- Start immediately with question 1
-- Alternate: MCQ, Structured, MCQ, Structured...
+MIXED RULES:
+- Odd-numbered questions are MCQ, even-numbered are Structured
+- Total: ${mcqCount} MCQ + ${structuredCount} Structured = ${numQuestions} questions
+- MCQ wrong options must be plausible misconceptions, not obviously incorrect
+- Structured mark schemes: one bullet per mark, or "any X from" for open-ended
 - NO introductory text
-- For MCQ: Include **Answer: X** after options
-- For Structured: Include Mark Scheme after question
 `;
     }
 
@@ -3656,11 +3853,6 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
   }
 });
 
-/**
- * Clean AI response by stripping leaked chain-of-thought reasoning.
- * This is a server-side safety net — the prompts should prevent this,
- * but models occasionally leak reasoning anyway.
- */
 function cleanAIResponse(text) {
   if (!text || typeof text !== "string") return text;
 
@@ -3677,114 +3869,14 @@ function cleanAIResponse(text) {
     cleaned = cleaned.substring(lastIndex);
   }
 
-  // 2. Strip reasoning lines
-  const reasoningPatterns = [
-    /^We need to .*$/gm,
-    /^We (?:might|could|should|estimate).*$/gm,
-    /^Let'?s (?:do it|produce|craft|write|generate|decide|format|give).*$/gm,
-    /^Now produce.*$/gm,
-    /^Also need to.*$/gm,
-    /^So we need.*$/gm,
-    /^Typically such.*$/gm,
-    /^Ok\.?\s*$/gm,
-    /^(?:\d+-?\d*\s*sentences?\.?\s*)$/gm,
-    /^(?:Provide|Ensure to|Ensure|Confirm)[\s.].*?(?:feedback|tip|explanation|sentences|concise|thorough).*$/gm,
-    /^good,?\s*correct\.?\s*(?:Could|Provide|Encourage|It's fine).*$/gm,
-    /^The (?:user|task)\s*:.*$/gm,
-    /^(?:They|So they|They'd|So they'd).*?(?:marks?|get \d).*$/gm,
-    /^The student(?:'s)? (?:answer|wrote|didn't|doesn't|omitted|got).*?(?:So|Let's|We need|Provide|marks).*$/gm,
-  ];
-
-  for (const pattern of reasoningPatterns) {
-    cleaned = cleaned.replace(pattern, "");
-  }
-
-  // 3. Fix HTML entities
-  cleaned = cleaned.replace(/&amp;/g, "&");
-  cleaned = cleaned.replace(/&lt;/g, "<");
-  cleaned = cleaned.replace(/&gt;/g, ">");
-
-  // 4. Collapse blank lines and trim
-  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-  cleaned = cleaned.trim();
-
-  return cleaned;
-}
-
-/**
- * Clean AI response by stripping leaked chain-of-thought reasoning.
- * This is a server-side safety net — the prompts should prevent this,
- * but models occasionally leak reasoning anyway.
- */
-function cleanAIResponse(text) {
-  if (!text || typeof text !== "string") return text;
-
-  let cleaned = text;
-
-  // 1. If "assistantfinal" marker exists, take everything after the LAST one
-  const finalMarkerRegex = /assistant\s*final/gi;
-  let lastIndex = -1;
-  let match;
-  while ((match = finalMarkerRegex.exec(cleaned)) !== null) {
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex !== -1) {
-    cleaned = cleaned.substring(lastIndex);
-  }
-
-  // 2. Strip reasoning lines
-  const reasoningPatterns = [
-    /^We need to .*$/gm,
-    /^We (?:might|could|should|estimate).*$/gm,
-    /^Let'?s (?:do it|produce|craft|write|generate|decide|format|give).*$/gm,
-    /^Now produce.*$/gm,
-    /^Also need to.*$/gm,
-    /^So we need.*$/gm,
-    /^Typically such.*$/gm,
-    /^Ok\.?\s*$/gm,
-    /^(?:\d+-?\d*\s*sentences?\.?\s*)$/gm,
-    /^(?:Provide|Ensure to|Ensure|Confirm)[\s.].*?(?:feedback|tip|explanation|sentences|concise|thorough).*$/gm,
-    /^good,?\s*correct\.?\s*(?:Could|Provide|Encourage|It's fine).*$/gm,
-    /^The (?:user|task)\s*:.*$/gm,
-    /^(?:They|So they|They'd|So they'd).*?(?:marks?|get \d).*$/gm,
-    /^The student(?:'s)? (?:answer|wrote|didn't|doesn't|omitted|got).*?(?:So|Let's|We need|Provide|marks).*$/gm,
-  ];
-
-  for (const pattern of reasoningPatterns) {
-    cleaned = cleaned.replace(pattern, "");
-  }
-
-  // 3. Fix HTML entities
-  cleaned = cleaned.replace(/&amp;/g, "&");
-  cleaned = cleaned.replace(/&lt;/g, "<");
-  cleaned = cleaned.replace(/&gt;/g, ">");
-
-  // 4. Collapse blank lines and trim
-  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-  cleaned = cleaned.trim();
-
-  return cleaned;
-}
-
-/**
- * Clean AI response by stripping leaked chain-of-thought reasoning.
- * This is a server-side safety net — the prompts should prevent this,
- * but models occasionally leak reasoning anyway.
- */
-function cleanAIResponse(text) {
-  if (!text || typeof text !== "string") return text;
-
-  let cleaned = text;
-
-  // 1. If "assistantfinal" marker exists, take everything after the LAST one
-  const finalMarkerRegex = /assistant\s*final/gi;
-  let lastIndex = -1;
-  let match;
-  while ((match = finalMarkerRegex.exec(cleaned)) !== null) {
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex !== -1) {
-    cleaned = cleaned.substring(lastIndex);
+  // 1b. Fallback: if no assistantfinal found but there's a SCORE: marker,
+  //     extract from SCORE: onwards — catches thinking that leaks before
+  //     the formatted response when the model omits the marker.
+  if (lastIndex === -1) {
+    const scoreStart = cleaned.search(/SCORE:\s*\d/i);
+    if (scoreStart > 0) {
+      cleaned = cleaned.substring(scoreStart);
+    }
   }
 
   // 2. Strip reasoning lines
@@ -4283,12 +4375,67 @@ app.get("/system/quiz/:quizCode", async (req, res) => {
   }
 });
 
-app.post("/system/teacher/redo-question", async (req, res) => {
+app.post("/system/teacher/redo-question", [validatedRequest], async (req, res) => {
   try {
-    const { prompt } = req.body;
-    const response = await generateLessonPlanAI(prompt);
-    const question = response.split("\n")[0]; // simple extraction
-    res.json({ success: true, question });
+    const { type, raw, subject, topic, grade, difficulty } = req.body;
+
+    const gradeNum = parseInt(grade) || 7;
+    const ageRange = gradeNum <= 2 ? "6-8 years old" : gradeNum <= 4 ? "9-10 years old" : gradeNum <= 7 ? "11-13 years old" : gradeNum <= 9 ? "14-15 years old" : "16-18 years old";
+    const examLevel = gradeNum >= 11 ? "A-Level" : gradeNum >= 9 ? "O-Level" : gradeNum >= 7 ? "Upper Primary/Junior Secondary" : "Primary";
+
+    const isMCQ = type === "multiple-choice";
+
+    const formatInstructions = isMCQ
+      ? `Output EXACTLY one question in this format:
+
+1. [Question text]
+A) [Option]
+B) [Option]
+C) [Option]
+D) [Option]
+**Answer: [A/B/C/D]**
+
+Rules:
+- 4 plausible options — wrong answers must be believable, not obviously incorrect
+- Exactly one correct answer
+- Mark correct answer as **Answer: X** on the last line
+- No explanations, no preamble`
+      : `Output EXACTLY one question in this format:
+
+1. [Question text] [X marks]
+Mark Scheme:
+- [Point 1] (1 mark)
+- [Point 2] (1 mark)
+...
+
+Rules:
+- Include mark allocation in square brackets
+- Mark scheme should have one bullet per mark
+- For higher marks, include "any X from" style where appropriate
+- No explanations, no preamble`;
+
+    const prompt = `You are a quiz question generator for Zimbabwean students.
+
+CONTEXT:
+- Subject: ${subject || "General"}
+- Topic: ${topic || subject || "General"}
+- Grade: ${grade} (${ageRange}, ${examLevel})
+- Difficulty: ${difficulty || "medium"} for Grade ${grade}
+- Curriculum: ZIMSEC
+- Question type: ${isMCQ ? "Multiple Choice" : "Structured"}
+
+ORIGINAL QUESTION (for reference — generate a DIFFERENT question on the same topic):
+${raw}
+
+MATH FORMATTING:
+- Use $...$ for inline math, $$...$$ for display equations
+- Never write plain text math
+
+${formatInstructions}`;
+
+    const rawResponse = await generateLessonPlanAI(prompt);
+    const cleaned = cleanThinkingModelOutput(rawResponse, "quiz");
+    res.json({ success: true, question: cleaned });
   } catch (err) {
     console.error("Error regenerating question:", err);
     res.status(500).json({ success: false, error: "AI regeneration failed." });
@@ -4427,10 +4574,12 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
       return sum + 10 + (score >= 80 ? 15 : score >= 60 ? 10 : 5);
     }, 0);
 
-    // Get flashcard statistics (adjust based on your schema)
-    // You'll need to query your flashcards table if you have one
-    const totalFlashcards = 0; // TODO: Query from your flashcards table
-    const mastered = 0; // TODO: Query mastered flashcards
+    const flashcardSets = await prisma.savedFlashcardSet.findMany({
+      where: { userId: student.user_id },
+      select: { cards: true },
+    });
+    const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
+    const mastered = 0;
 
     // Generate AI summary
     const generateSummary = () => {
@@ -4517,7 +4666,7 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
         {
           date: new Date().toISOString(),
           quizzes: quizzes,
-          summary: summary,
+          aiSummary: summary,
           averageScore: averageScore,
           totalXP: totalXP,
           mastered: mastered,
@@ -4705,16 +4854,23 @@ app.post("/system/parent/link-child", [validatedRequest], async (req, res) => {
     // Mark code as used
     await prisma.student_link_codes.update({
       where: { id: codeRecord.id },
-      data: { 
-        used: true, 
-        usedAt: new Date() 
+      data: {
+        used: true,
+        usedAt: new Date()
       },
     });
 
-    res.json({ 
-      success: true, 
+    // Notify the student that a parent has linked to their account
+    await sendPushNotification(link.student.user_id, {
+      title: '👨‍👩‍👧 Parent Linked',
+      body: `A parent or guardian has linked to your account and can now view your progress.`,
+      data: { type: 'parent_linked' },
+    });
+
+    res.json({
+      success: true,
       link,
-      message: `Successfully linked ${link.student.name}` 
+      message: `Successfully linked ${link.student.name}`
     });
   } catch (err) {
     console.error("Error linking child:", err);
@@ -4845,6 +5001,7 @@ app.post("/request-token", async (request, response) => {
 
         const { username, password } = reqBody(request);
         const existingUser = await User._get({ username: String(username) });
+        console.log(`[Login] Attempt for username="${username}" → found users.id=${existingUser?.id}, role=${existingUser?.role}`);
 
         if (!existingUser) {
           await EventLogs.logEvent(
@@ -4915,12 +5072,15 @@ app.post("/request-token", async (request, response) => {
           existingUser?.id
         );
 
+        existingUser.streak = await User.updateStreak(existingUser.id);
+
         // Generate a session token for the user then check if they have seen the recovery codes
         // and if not, generate recovery codes and return them to the frontend.
         const sessionToken = makeJWT(
           { id: existingUser.id, username: existingUser.username },
           process.env.JWT_EXPIRY
         );
+        console.log(`[Login] JWT issued for users.id=${existingUser.id}, username="${existingUser.username}", role=${existingUser.role}`);
         if (!existingUser.seen_recovery_codes) {
           const plainTextCodes = await generateRecoveryCodes(existingUser.id);
           response.status(200).json({
@@ -5083,6 +5243,8 @@ app.post("/request-token", async (request, response) => {
         },
         token.user.id
       );
+
+      token.user.streak = await User.updateStreak(token.user.id);
 
       response.status(200).json({
         valid: true,
@@ -6377,12 +6539,16 @@ const struggledSummary = Object.entries(struggledBySubject)
         ? (quizzes.reduce((acc, q) => acc + (q.score / q.total_questions) * 100, 0) / quizzes.length).toFixed(1)
         : "0.0";
 
-    const totalFlashcards = 0;
+    const flashcardSets = await prisma.savedFlashcardSet.findMany({
+      where: { userId: student.user_id },
+      select: { cards: true },
+    });
+    const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
     const mastered = 0;
 
     const totalXP = xpLogs.reduce((sum, log) => {
-      const points = typeof log.metadata === 'object' 
-        ? log.metadata?.points || 0 
+      const points = typeof log.metadata === 'object'
+        ? log.metadata?.points || 0
         : 0;
       return sum + points;
     }, 0);
@@ -6437,7 +6603,7 @@ Format neatly in Markdown with proper headers.
         grade: student.grade,
       },
       quizzes: formattedQuizzes,
-      summary: aiSummary,
+      aiSummary: aiSummary,
       averageScore: parseFloat(averageScore),
       totalXP,
       mastered,
@@ -6484,7 +6650,7 @@ app.post("/payments/cash/:studentId", [validatedRequest], async (req, res) => {
       where: { id: studentId },
       data: {
         subscription_status: "paid",
-        subscription_plan: plan || (student.school ? "school basic" : "premium"),
+        subscription_plan: plan || "premium",
         subscription_expiration_date: expirationDate,
         subscription_payment_poll_url: null,
       },
@@ -6496,7 +6662,7 @@ app.post("/payments/cash/:studentId", [validatedRequest], async (req, res) => {
         student_id: studentId,
         amount: parseFloat(amount),
         payment_method: "cash",
-        subscription_plan: plan || (student.school ? "school basic" : "premium"),
+        subscription_plan: plan || "premium",
         subscription_duration_days: daysToAdd,
         recorded_by: user.id,
         notes: notes || null,

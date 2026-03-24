@@ -1,0 +1,11 @@
+ALTER TABLE quiz_results ADD COLUMN IF NOT EXISTS "auto_submitted" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE quiz_results ADD COLUMN IF NOT EXISTS "tab_limit_exceeded" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE quiz_results ADD COLUMN IF NOT EXISTS "tab_violations" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE shared_quizzes ADD COLUMN IF NOT EXISTS "tab_limit" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE shared_quizzes ADD COLUMN IF NOT EXISTS "time_limit" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE vector_table ADD COLUMN IF NOT EXISTS "namespace" TEXT NOT NULL DEFAULT 'default';
+CREATE INDEX IF NOT EXISTS "vector_table_namespace_idx" ON vector_table("namespace");
+CREATE TABLE IF NOT EXISTS "PushToken" ("id" SERIAL PRIMARY KEY, "userId" INTEGER NOT NULL, "token" TEXT NOT NULL, "platform" VARCHAR(20) NOT NULL DEFAULT 'unknown', "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(), CONSTRAINT "PushToken_token_key" UNIQUE ("token"), CONSTRAINT "PushToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON DELETE CASCADE ON UPDATE NO ACTION);
+CREATE INDEX IF NOT EXISTS "PushToken_userId_idx" ON "PushToken"("userId");
+CREATE TABLE IF NOT EXISTS "saved_quizzes" ("id" SERIAL PRIMARY KEY, "userId" INTEGER NOT NULL, "subject" TEXT NOT NULL, "grade" TEXT NOT NULL, "difficulty" TEXT NOT NULL DEFAULT 'medium', "userMessage" TEXT, "questions" JSONB NOT NULL, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS "saved_flashcard_sets" ("id" SERIAL PRIMARY KEY, "userId" INTEGER NOT NULL, "subject" TEXT NOT NULL, "grade" TEXT NOT NULL, "difficulty" TEXT NOT NULL DEFAULT 'medium', "userMessage" TEXT, "cards" JSONB NOT NULL, "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW());

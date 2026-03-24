@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 
-export default function SubjectSelector({ subject, setSubject, curriculum, grade }) {
+const CURRICULA = ["ZIMSEC", "Cambridge"];
+
+export default function SubjectSelector({ subject, setSubject, curriculum, setCurriculum, grade }) {
   const [hidden, setHidden] = useState(false);
   const lastScrollY = useRef(0);
 
@@ -167,6 +169,21 @@ export default function SubjectSelector({ subject, setSubject, curriculum, grade
        border-b border-white/10 shadow-sm p-3`}
     >
       <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+        <div className="flex items-center gap-1">
+          {CURRICULA.map((c) => (
+            <button
+              key={c}
+              onClick={() => setCurriculum && setCurriculum(c)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 border
+                ${curriculum === c
+                  ? "bg-white text-black border-transparent"
+                  : "bg-transparent text-white/70 border-white/20 hover:border-white/50 hover:text-white"
+                }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
         <div className="flex flex-col">
           <select
             value={subject || ""}

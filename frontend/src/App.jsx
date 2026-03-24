@@ -6,6 +6,7 @@ import PrivateRoute, {
   AdminRoute,
   ManagerRoute,
 } from "@/components/PrivateRoute";
+import { AUTH_TOKEN } from "@/utils/constants";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Login from "@/pages/Login";
@@ -47,8 +48,21 @@ import StudentResultDetail from "./components/TeacherTools/StudentResultDetail";
 import TeacherStudentResults from "./components/TeacherTools/TeacherStudentResults";
 import TeacherResultDetail from "./components/TeacherTools/TeacherResultDetail";
 import TeacherQuizResults from "./components/TeacherTools/TeacherQuizResults";
+import Pricing from "@/pages/Pricing";
+import About from "@/pages/About";
+import Blog from "@/pages/Blog";
+import BestAiToolsZimbabwe2026 from "@/pages/Blog/BestAiToolsZimbabwe2026";
+import HowToPassZimsecOLevelMaths from "@/pages/Blog/HowToPassZimsecOLevelMaths";
+import Landing from "@/pages/Landing";
+import PrivacyPolicy from "@/pages/PrivacyPolicy";
 
 const Main = lazy(() => import("@/pages/Main"));
+
+function HomeRoute() {
+  const token = localStorage.getItem(AUTH_TOKEN);
+  if (token) return <PrivateRoute Component={Main} />;
+  return <Landing />;
+}
 const InvitePage = lazy(() => import("@/pages/Invite"));
 const WorkspaceChat = lazy(() => import("@/pages/WorkspaceChat"));
 const AdminUsers = lazy(() => import("@/pages/Admin/Users"));
@@ -131,13 +145,19 @@ export default function App() {
             <PfpProvider>
               <I18nextProvider i18n={i18n}>
                 <Routes>
-                  <Route path="/" element={<PrivateRoute Component={Main} />} />
+                  <Route path="/" element={<HomeRoute />} />
                   <Route path="/login" element={<Login />} />
                   <Route
                     path="/sso/simple"
                     element={<SimpleSSOPassthrough />}
                   />
                   <Route path="/register" element={<Register />} />
+                  <Route path="/pricing" element={<Pricing />} />
+                  <Route path="/about" element={<About />} />
+                  <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                  <Route path="/blog" element={<Blog />} />
+                  <Route path="/blog/best-ai-tools-homework-help-zimbabwe-2026" element={<BestAiToolsZimbabwe2026 />} />
+                  <Route path="/blog/how-to-pass-zimsec-o-level-maths" element={<HowToPassZimsecOLevelMaths />} />
                   <Route path="/enrol" element={<Enrol />} />
                   <Route path="/payment" element={<PaymentPage />} />
                   <Route path="/test" element={<Test />} />

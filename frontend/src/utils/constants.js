@@ -8,6 +8,7 @@ export const COMPLETE_QUESTIONNAIRE = "chikoroaicompleted_questionnaire";
 export const SEEN_DOC_PIN_ALERT = "chikoroaipinned_document_alert";
 export const SEEN_WATCH_ALERT = "chikoroaiwatched_document_alert";
 export const LAST_VISITED_WORKSPACE = "chikoroailast_visited_workspace";
+export const CURRICULUM_KEY = "chikoroai_curriculum";
 
 export const APPEARANCE_SETTINGS = "chikoroaiappearance_settings";
 

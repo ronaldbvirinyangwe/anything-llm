@@ -1055,15 +1055,142 @@ function workspaceEndpoints(app) {
     }
   );
 
-  // ============================================================
-  // REMOVED: /workspace/:slug/upload-and-embed-content
-  //
-  // This was a streaming SSE variant of upload-and-embed that did
-  // NOT include question extraction. It is fully replaced by
-  // /workspace/:slug/upload-exam-paper which does SSE + extraction.
-  // If you have a frontend caller using upload-and-embed-content,
-  // point it at upload-exam-paper instead and handle SSE events.
-  // ============================================================
+app.post(
+  "/workspace/:slug/upload-and-embed-content",
+  [validatedRequest, flexUserRoleValid([ROLES.all]), handleFileUpload],
+  async function (request, response) {
+    try {
+      const { slug = null } = request.params;
+      const user = await userFromSession(request, response);
+      const currWorkspace = multiUserMode(response)
+        ? await Workspace.getWithUser(user, { slug })
+        : await Workspace.get({ slug });
+
+      if (!currWorkspace) {
+        response.sendStatus(400).end();
+        return;
+      }
+
+      if (!request.file) {
+        return response.status(400).json({ success: false, error: "No file uploaded" });
+      }
+
+      // Set headers for streaming
+      response.setHeader('Content-Type', 'text/event-stream');
+      response.setHeader('Cache-Control', 'no-cache');
+      response.setHeader('Connection', 'keep-alive');
+      response.setHeader('X-Accel-Buffering', 'no');
+
+      const sendProgress = (data) => {
+        response.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      const Collector = new CollectorApi();
+      const { 
+        originalname,  // User's filename: "1000000027.jpg"
+        filename,      // Multer's filename: "abc123xyz.jpeg"
+        mimetype,
+        path: filepath 
+      } = request.file;
+
+      // ✅ Log file details
+      console.log('📁 File uploaded:', { originalname, filename, filepath, exists: fs.existsSync(filepath) });
+
+      sendProgress({ type: 'progress', message: 'Checking document processor...', progress: 10 });
+
+      const processingOnline = await Collector.online();
+      if (!processingOnline) {
+        sendProgress({ type: 'error', error: 'Document processing API is not online.' });
+        response.end();
+        return;
+      }
+
+      sendProgress({ type: 'progress', message: 'Processing document...', progress: 30 });
+
+      // ============================================================
+      // 📸 IMAGE EXTRACTOR INTEGRATION (FIXED)
+      // ============================================================
+      let targetFilename = filename; // ✅ Start with Multer's filename
+
+      if (mimetype.startsWith('image/')) {
+        console.log(`📸 Image detected (${originalname}). Running Vision Analysis...`);
+        
+        // 1. Run AI Vision Analysis (uses actual file path)
+        const analysis = await analyzeImageWithVision(filepath, originalname);
+        
+        if (analysis) {
+          sendProgress({ type: 'progress', message: 'Analyzing image...', progress: 50 });
+          
+          // 2. Generate text content
+          const textContent = generateEmbeddableContent(analysis);
+          
+          // 3. ✅ FIX: Save analysis next to the MULTER filename
+          const analysisPath = `${filepath}.analysis.txt`;
+          fs.writeFileSync(analysisPath, textContent);
+          
+          // 4. ✅ FIX: Update target to MULTER filename + extension
+          targetFilename = `${filename}.analysis.txt`;
+          
+          console.log(`✅ Image analyzed. Embedding description: ${targetFilename}`);
+        } else {
+          console.log(`⚠️ Vision analysis failed. Falling back to standard processing.`);
+        }
+      }
+
+      sendProgress({ type: 'progress', message: 'Embedding document...', progress: 60 });
+
+      // ✅ Now Collector can find the file (it's in hotdir with the correct name)
+      const { success, reason, documents } = await Collector.processDocument(targetFilename);
+
+      if (!success || documents?.length === 0) {
+        sendProgress({ type: 'error', error: reason || 'Processing failed' });
+        response.end();
+        return;
+      }
+
+      sendProgress({ type: 'progress', message: 'Document processed, embedding...', progress: 70 });
+
+      await Telemetry.sendTelemetry("document_uploaded");
+      await EventLogs.logEvent(
+        "document_uploaded",
+        { documentName: originalname }, // Log user's name for clarity
+        user?.id
+      );
+
+      const document = documents[0];
+      const { failedToEmbed = [], errors = [] } = await Document.addDocuments(
+        currWorkspace,
+        [document.location],
+        user?.id
+      );
+
+      if (failedToEmbed.length > 0) {
+        sendProgress({ type: 'error', error: errors?.[0] || 'Embedding failed' });
+        response.end();
+        return;
+      }
+
+      sendProgress({ type: 'progress', message: 'Finalizing...', progress: 90 });
+
+      sendProgress({
+        type: 'complete',
+        success: true,
+        document: {
+          id: document.id,
+          location: document.location,
+        },
+        progress: 100
+      });
+
+      response.end();
+
+    } catch (e) {
+      console.error('Upload error:', e.message, e);
+      response.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+      response.end();
+    }
+  }
+);
 
   app.delete(
     "/workspace/:slug/remove-and-unembed",

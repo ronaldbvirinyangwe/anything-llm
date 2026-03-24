@@ -53,22 +53,21 @@ if (
   );
 }
 
-app.use(
-  cors({
-    origin: [
-      "https://chikoro-ai.com",
-      "https://www.chikoro-ai.com",
-    ],
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-    ],
-    credentials: true,
-  })
-);
-app.options("*", cors());
+const corsOptions = {
+  origin: [
+    "https://chikoro-ai.com",
+    "https://www.chikoro-ai.com",
+  ],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+  ],
+  credentials: true,
+};
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.set("trust proxy", 1);
 app.use(bodyParser.text({ limit: FILE_LIMIT }));
 app.use(bodyParser.json({ limit: FILE_LIMIT }));

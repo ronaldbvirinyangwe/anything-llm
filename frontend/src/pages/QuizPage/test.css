@@ -813,3 +813,55 @@ textarea:focus {
 .feedback-text strong:contains("Incorrect") {
   color: #c62828;
 }
+
+/* ===========================
+   📝 Markdown Feedback Styles
+   =========================== */
+.feedback-markdown {
+  margin-top: 0.5rem;
+  font-size: 0.93rem;
+  line-height: 1.6;
+  color: inherit;
+}
+
+.feedback-markdown p {
+  margin: 0.4rem 0;
+}
+
+.feedback-markdown ul,
+.feedback-markdown ol {
+  margin: 0.4rem 0 0.4rem 1.25rem;
+  padding: 0;
+}
+
+.feedback-markdown li {
+  margin: 0.2rem 0;
+}
+
+.feedback-markdown strong {
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.feedback.correct .feedback-markdown strong {
+  color: #1b5e20;
+}
+
+.feedback.incorrect .feedback-markdown strong {
+  color: #7f0000;
+}
+
+.feedback-card.correct .feedback-markdown strong {
+  color: #1b5e20;
+}
+
+.feedback-card.incorrect .feedback-markdown strong {
+  color: #7f0000;
+}
+
+.feedback-markdown code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.88rem;
+}

@@ -2,7 +2,10 @@ import React, { useEffect } from "react";
 import { create } from "zustand";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { useTheme } from "../../hooks/useTheme";
+import { useAuth } from "@/AuthContext";
 import { ChikoroMascot, MascotSpeechBubble, MASCOT_EXPRESSIONS, getQuizExpression } from "@/components/ChikoroMascot";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import "./test.css";
 
 // ✅ Zustand store
@@ -49,6 +52,7 @@ export default function Test({ readOnly = false, externalTest = null }) {
   } = useTestStore();
 
   const { darkMode } = useTheme();
+  const { setStreak } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
@@ -183,6 +187,8 @@ export default function Test({ readOnly = false, externalTest = null }) {
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Grading failed.");
 
+      if (data.streak != null) setStreak(data.streak);
+
       setResults({
         summary: {
           overallScore: data.score,
@@ -285,7 +291,9 @@ export default function Test({ readOnly = false, externalTest = null }) {
                 {result.pointsEarned}/{result.pointsPossible} points
               </span>
             )}
-            <p dangerouslySetInnerHTML={{ __html: result.feedback }} />
+            <div className="feedback-markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.feedback}</ReactMarkdown>
+            </div>
           </div>
         )}
       </div>
@@ -406,7 +414,9 @@ export default function Test({ readOnly = false, externalTest = null }) {
                 
                 <div className="ai-feedback-section">
                   <strong>Feedback:</strong>
-                  <p dangerouslySetInnerHTML={{ __html: r.feedback }} />
+                  <div className="feedback-markdown">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{r.feedback}</ReactMarkdown>
+                  </div>
                 </div>
               </div>
             ))}

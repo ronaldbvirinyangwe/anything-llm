@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 
 async function test() {
   // Replace with your actual user ID from the PushToken table
-  const userId = 1; 
+  const userId = 3; 
 
   console.log('🔍 Looking up tokens for user', userId);
   const tokens = await prisma.pushToken.findMany({ where: { userId } });

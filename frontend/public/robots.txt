@@ -1,2 +1,24 @@
 User-agent: *
-Disallow: 
+Disallow: /settings/
+Disallow: /workspace/
+Disallow: /onboarding/
+Disallow: /admin/
+Disallow: /teacher-dashboard
+Disallow: /teacher-tools/
+Disallow: /teacher/
+Disallow: /student/
+Disallow: /parent/
+Disallow: /payments/
+Disallow: /upload-exam
+Disallow: /join/
+Disallow: /link-student
+Disallow: /link-parent
+Disallow: /accept-invite/
+Disallow: /sso/
+
+Allow: /
+Allow: /register
+Allow: /about
+Allow: /pricing
+
+Sitemap: https://chikoro-ai.com/sitemap.xml

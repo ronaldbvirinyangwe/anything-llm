@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
 import { create } from "zustand";
@@ -7,8 +7,8 @@ import remarkGfm from "remark-gfm";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import pptxgen from "pptxgenjs";
-import { 
-  FiArrowLeft, FiFileText, FiDownload, FiMonitor, FiClock, FiBook, FiTarget 
+import {
+  FiArrowLeft, FiFileText, FiDownload, FiMonitor, FiClock, FiBook, FiTarget, FiEdit2, FiEye
 } from "react-icons/fi";
 import { useTheme } from "@/hooks/useTheme";
 import "./lessonplanner.css";
@@ -92,6 +92,7 @@ const useLessonPlannerStore = create((set, get) => ({
       set({ error: errorMessage, isLoading: false });
     }
   },
+  setLessonPlan: (value) => set({ lessonPlan: value }),
   reset: () =>
     set({
       formData: {
@@ -115,10 +116,12 @@ export default function LessonPlanner() {
     isLoading,
     error,
     setFormField,
+    setLessonPlan,
     generatePlan,
     reset,
   } = useLessonPlannerStore();
 
+  const [isEditing, setIsEditing] = useState(false);
   const planRef = useRef(null);
 
   useEffect(() => {
@@ -468,13 +471,28 @@ const saveAsPowerPoint = () => {
                 <button type="button" onClick={saveAsPowerPoint} className="export-btn pptx">
                   <FiMonitor /> Save as PowerPoint
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditing((prev) => !prev)}
+                  className="export-btn edit"
+                >
+                  {isEditing ? <><FiEye /> Preview</> : <><FiEdit2 /> Edit</>}
+                </button>
               </div>
 
-              <div className="generated-plan markdown-body" ref={planRef}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {lessonPlan}
-                </ReactMarkdown>
-              </div>
+              {isEditing ? (
+                <textarea
+                  className="lesson-plan-editor"
+                  value={lessonPlan}
+                  onChange={(e) => setLessonPlan(e.target.value)}
+                />
+              ) : (
+                <div className="generated-plan markdown-body" ref={planRef}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {lessonPlan}
+                  </ReactMarkdown>
+                </div>
+              )}
             </div>
           )}
           

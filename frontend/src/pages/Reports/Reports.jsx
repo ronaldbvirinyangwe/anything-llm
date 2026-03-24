@@ -104,6 +104,10 @@ export default function EnhancedStudentReport() {
       try {
         const token = localStorage.getItem("chikoroai_authToken");
         const storedUser = JSON.parse(localStorage.getItem("chikoroai_user"));
+        try {
+          const decoded = JSON.parse(atob(token.split(".")[1]));
+          console.log("[Report page] token JWT id:", decoded.id, "| localStorage user id:", storedUser?.id, "| URL param id:", id);
+        } catch { console.log("[Report page] could not decode token"); }
 
         // Fetch report
         const reportRes = await axios.get(
@@ -125,14 +129,14 @@ export default function EnhancedStudentReport() {
         if (storedUser?.role === "student") {
           try {
             const profileRes = await axios.get(
-              `https://api.chikoro-ai.com/api/system/student/my-profile`,
+              `https://api.chikoro-ai.com/api/system/my-profile`,
               {
                 headers: { Authorization: `Bearer ${token}` },
               }
             );
 
             if (profileRes.data.success) {
-              setStudentProfile(profileRes.data.student);
+              setStudentProfile(profileRes.data.profile);
             }
           } catch (err) {
             console.warn("Could not fetch student profile:", err);

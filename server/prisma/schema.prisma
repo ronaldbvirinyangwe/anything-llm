@@ -121,6 +121,8 @@ model users {
   lastUpdatedAt               DateTime                      @default(now())
   dailyMessageLimit           Int?
   bio                         String?                       @default("")
+  streak                      Int                           @default(0)
+  lastActiveDate              DateTime?                     @db.Date
   PushToken                   PushToken[]
   browser_extension_api_keys  browser_extension_api_keys[]
   desktop_mobile_devices      desktop_mobile_devices[]

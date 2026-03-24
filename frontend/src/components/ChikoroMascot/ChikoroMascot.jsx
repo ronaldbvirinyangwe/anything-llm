@@ -1,4 +1,5 @@
 import React, { useState, useEffect, memo } from "react";
+import { useAuth } from "@/AuthContext";
 import "./ChikoroMascot.css";
 
 // ═══════════════════════════════════════════════════════════════
@@ -75,7 +76,7 @@ const SPEECH_MESSAGES = {
     "I missed you! Come study with me 🥺",
     "Your streak is at risk! Quick!",
     "Hey... it's been a while.",
-    "I saved your spot!",
+    "I saved your spot! Don't lose your streak!",
   ],
   sleeping: [
     "Zzz... wake me when you're ready...",
@@ -361,6 +362,8 @@ export default function MascotWithBubble({
   className = "",
   onClick,
 }) {
+  const { user } = useAuth();
+  const streak = user?.streak ?? 0;
   const [displayMsg, setDisplayMsg] = useState("");
 
   useEffect(() => {
@@ -368,18 +371,63 @@ export default function MascotWithBubble({
       setDisplayMsg(message);
       return;
     }
+
+    // Inject streak into the message for milestone streaks on relevant expressions
+    if (streak > 0 && (expression === "celebrating" || expression === "happy")) {
+      if (streak >= 30) {
+        setDisplayMsg(`🔥 ${streak} day streak! You're LEGENDARY!`);
+        return;
+      }
+      if (streak >= 7) {
+        setDisplayMsg(`🔥 ${streak} days in a row! Keep it up!`);
+        return;
+      }
+      if (streak >= 3) {
+        setDisplayMsg(`🔥 ${streak} day streak! You're on a roll!`);
+        return;
+      }
+    }
+    if (streak === 1 && expression === "happy") {
+      setDisplayMsg("Day 1 streak started! Come back tomorrow! 🔥");
+      return;
+    }
+
     const msgs = SPEECH_MESSAGES[expression] || SPEECH_MESSAGES.happy;
     setDisplayMsg(msgs[Math.floor(Math.random() * msgs.length)]);
-  }, [expression, message]);
+  }, [expression, message, streak]);
 
   return (
-    <div className={`chk-mascot-group ${className}`}>
+    <div className={`chk-mascot-group ${className}`} style={{ position: "relative", display: "inline-block" }}>
       <ChikoroMascot
         expression={expression}
         size={size}
         animate={animate}
         onClick={onClick}
       />
+      {streak > 0 && (
+        <div
+          className="chk-streak-badge"
+          title={`${streak} day streak`}
+          style={{
+            position: "absolute",
+            top: -6,
+            right: -6,
+            background: "linear-gradient(135deg, #f97316, #ef4444)",
+            color: "white",
+            borderRadius: "999px",
+            fontSize: Math.max(9, size * 0.12),
+            fontWeight: 700,
+            padding: "2px 6px",
+            lineHeight: 1.3,
+            whiteSpace: "nowrap",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
+            pointerEvents: "none",
+            zIndex: 20,
+          }}
+        >
+          🔥 {streak}
+        </div>
+      )}
       {showBubble && (
         <MascotSpeechBubble
           message={displayMsg}

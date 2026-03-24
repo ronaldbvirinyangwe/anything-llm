@@ -321,6 +321,37 @@
   background: #fed7aa;
 }
 
+.export-btn.edit {
+  background: #ede9fe;
+  color: #7c3aed;
+  border-color: #ddd6fe;
+}
+
+.export-btn.edit:hover {
+  background: #ddd6fe;
+}
+
+.lesson-plan-editor {
+  width: 100%;
+  min-height: 600px;
+  padding: 1.5rem;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  resize: vertical;
+  outline: none;
+  background: #f8fafc;
+  color: #1e293b;
+  box-sizing: border-box;
+}
+
+.lesson-plan-editor:focus {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+}
+
 /* =========================================
    Beautiful Markdown Typography
    ========================================= */
