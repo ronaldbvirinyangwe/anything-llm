@@ -20,5 +20,6 @@ Allow: /
 Allow: /register
 Allow: /about
 Allow: /pricing
+Allow: /blog
 
 Sitemap: https://chikoro-ai.com/sitemap.xml

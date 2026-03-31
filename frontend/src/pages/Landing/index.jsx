@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-const SCHOOL_EMAIL = "schools@chikoro-ai.com";
+const SCHOOL_EMAIL = "support@chikoro-ai.com";
 
 /* ─── tiny icons ─────────────────────────────────────────────────────────── */
 const CheckIcon = () => (

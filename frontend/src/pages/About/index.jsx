@@ -1,7 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 
-const SCHOOL_EMAIL = "instrutech2024@gmail.com";
+const SCHOOL_EMAIL = "support@chikoro-ai.com";
 
 const values = [
   {

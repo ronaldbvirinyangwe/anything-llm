@@ -55,6 +55,7 @@ import BestAiToolsZimbabwe2026 from "@/pages/Blog/BestAiToolsZimbabwe2026";
 import HowToPassZimsecOLevelMaths from "@/pages/Blog/HowToPassZimsecOLevelMaths";
 import Landing from "@/pages/Landing";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
+import TermsOfService from "@/pages/TermsofService";
 
 const Main = lazy(() => import("@/pages/Main"));
 
@@ -155,6 +156,7 @@ export default function App() {
                   <Route path="/pricing" element={<Pricing />} />
                   <Route path="/about" element={<About />} />
                   <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                  <Route path="/terms-of-service" element={<TermsOfService />} />
                   <Route path="/blog" element={<Blog />} />
                   <Route path="/blog/best-ai-tools-homework-help-zimbabwe-2026" element={<BestAiToolsZimbabwe2026 />} />
                   <Route path="/blog/how-to-pass-zimsec-o-level-maths" element={<HowToPassZimsecOLevelMaths />} />
