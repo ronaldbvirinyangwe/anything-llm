@@ -20,6 +20,15 @@ const posts = [
     readTime: "6 min read",
     tag: "AI Tools",
   },
+  {
+    slug: "chikoro-ai-apk-available-on-apk-pure",
+    title: "Chikoro AI APK Available on APK Pure",
+    excerpt:
+      "Excited to announce that Chikoro AI is now available on APK Pure! Download the app and experience the future of education.",
+    date: "14 March 2026",
+    readTime: "5 min read",
+    tag: "App Updates",
+  },
 ];
 
 export default function Blog() {

@@ -2218,6 +2218,13 @@ FEEDBACK: [Your detailed feedback]
       ? Math.round((earnedPoints / totalPoints) * 100) 
       : 0;
 
+      const difficultyStr = (quiz.difficulty || "medium").toLowerCase();
+    const difficultyMultiplier = difficultyStr === "hard" ? 2.0 : (difficultyStr === "easy" ? 1.0 : 1.5);
+    
+    const baseXp = 10; // Reward for completion
+    const scoreXp = Math.round(finalScore / 2); // Up to 50 extra XP for a perfect score
+    const totalXpEarned = Math.round((baseXp + scoreXp) * difficultyMultiplier);
+
     // ---------- Save to database ----------
     const savedResult = await prisma.quiz_results.create({
       data: {
@@ -2253,15 +2260,29 @@ FEEDBACK: [Your detailed feedback]
       totalPoints
     }, user.id);
 
+    if (totalXpEarned > 0) {
+      await EventLogs.logEvent(
+        "xp_gain",
+        { 
+          points: totalXpEarned, 
+          source: "quiz_completed", 
+          subject: quiz.subject,
+          difficulty: quiz.difficulty 
+        },
+        user.id
+      );
+    }
+
     const newStreak = await User.updateStreak(user.id);
 
     // ---------- Return comprehensive response ----------
-    res.json({
+   res.json({
       success: true,
       resultId: savedResult.id,
       score: finalScore,
       earnedPoints,
       totalPoints,
+      xpEarned: totalXpEarned, // 👈 Added to response so the UI can animate it
       feedback: results,
       streak: newStreak,
       summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`
@@ -2428,6 +2449,13 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
       ? Math.round((earnedPoints / totalPoints) * 100)
       : 0;
 
+      const difficultyStr = (quiz.difficulty || "medium").toLowerCase();
+    const difficultyMultiplier = difficultyStr === "hard" ? 2.0 : (difficultyStr === "easy" ? 1.0 : 1.5);
+    
+    const baseXp = 10; // Reward for completion
+    const scoreXp = Math.round(finalScore / 2); // Up to 50 extra XP for a perfect score
+    const totalXpEarned = Math.round((baseXp + scoreXp) * difficultyMultiplier);
+
     // 5. DB insert
     const result = await prisma.quiz_results.create({
       data: {
@@ -2448,13 +2476,28 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
       sessionUser.id
     );
 
+      const newStreak = await User.updateStreak(sessionUser.id);
+      
+    if (totalXpEarned > 0) {
+      await EventLogs.logEvent(
+        "xp_gain",
+        { 
+          points: totalXpEarned, 
+          source: "quiz_completed", 
+          subject: quiz.subject,
+          difficulty: quiz.difficulty 
+        },
+        sessionUser.id
+      );
+    }
     // 7. Response
-    return res.status(201).json({
+   return res.status(201).json({
       success: true,
       resultId: result.id,
       score: finalScore,
       earnedPoints,
       totalPoints,
+      xpEarned: totalXpEarned, 
       feedback: detailedFeedback,
       summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`,
     });
@@ -2868,15 +2911,44 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
     const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
     const mastered = 0;
 
-    const totalXP = xpLogs.reduce((sum, log) => {
-      const points = typeof log.metadata === 'object'
-        ? log.metadata?.points || 0
-        : 0;
-      return sum + points;
-    }, 0);
+  // 🧮 Parse XP Logs Safely
+const formattedXpLogs = [];
+
+const totalXP = xpLogs.reduce((sum, log) => {
+  let points = 0;
+  let source = "Unknown";
+  let masteredCount = 0;
+
+  // Safely parse the metadata whether Prisma returns it as an Object or String
+  if (typeof log.metadata === 'string') {
+    try {
+      const parsed = JSON.parse(log.metadata);
+      points = parsed.points || 0;
+      source = parsed.source || "Unknown";
+      masteredCount = parsed.masteredCount || 0; // ✅ scoped correctly
+    } catch (e) {
+      points = 0;
+    }
+  } else if (typeof log.metadata === 'object' && log.metadata !== null) {
+    points = log.metadata.points || 0;
+    source = log.metadata.source || "Unknown";
+    masteredCount = log.metadata.masteredCount || 0; // ✅ scoped correctly
+  }
+
+  if (points > 0) {
+    formattedXpLogs.push({
+      points: Number(points),
+      source: source,
+      masteredCount: masteredCount, // ✅ now always defined
+      date: log.occurredAt
+    });
+  }
+
+  return sum + Number(points);
+}, 0);
 
     // 🧮 Parse struggled questions from detailed_feedback
-    const struggledBySubject = {};
+   const struggledBySubject = {};
     for (const q of quizzes) {
       let feedback = [];
       try {
@@ -2888,8 +2960,23 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
       );
 
       if (struggled.length > 0) {
-        if (!struggledBySubject[q.subject]) struggledBySubject[q.subject] = [];
-        struggledBySubject[q.subject].push(...struggled.map(f => f.question));
+        const subjectName = q.subject || 'General';
+        if (!struggledBySubject[subjectName]) struggledBySubject[subjectName] = [];
+        
+        // FIXED MAPPING: Pulling exact keys from your AI JSON
+        struggledBySubject[subjectName].push(...struggled.map(f => {
+          // Safely extract the full text of the correct answer if it exists
+          const correctText = f.details?.correct_choice?.text || f.correctAnswer;
+          const userText = f.details?.student_choice?.text || f.userAnswer;
+
+          return {
+            quizId: q.id,
+            question: f.question,
+            userAnswer: userText,
+            correctAnswer: correctText,
+            explanation: f.feedback || "Review this concept carefully."
+          };
+        }));
       }
     }
 
@@ -2924,6 +3011,7 @@ CRITICAL INSTRUCTIONS:
 - Do NOT include any planning notes, meta-commentary, or thinking process
 - Start IMMEDIATELY with the markdown heading "## Overall Performance"
 - Output ONLY the final report content, nothing else
+- You are writing to a student, so use an encouraging and supportive tone while being honest about areas for improvement.
 
 Provide:
 1. A short paragraph summary of overall performance.
@@ -2970,8 +3058,10 @@ Format neatly in Markdown with proper headers (##).
       aiSummary: aiSummary,
       averageScore: parseFloat(averageScore),
       totalXP,
+      xpLogs: formattedXpLogs,
       mastered,
       totalFlashcards,
+      struggledAreas: struggledBySubject
     });
   } catch (err) {
     console.error("📉 Error generating report:", err);
@@ -2980,6 +3070,218 @@ Format neatly in Markdown with proper headers (##).
       success: false,
       error: "Internal server error while generating report.",
     });
+  }
+});
+
+// POST /system/practice/similar
+app.post("/system/practice/similar", [validatedRequest], async (request, response) => {
+  try {
+    const sessionUser = await userFromSession(request, response);
+    if (!sessionUser?.id) {
+      return response.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    // Extract the context from the frontend request
+    const { subject, originalQuestion, correctAnswer, explanation } = request.body;
+
+    if (!originalQuestion || !explanation) {
+      return response.status(400).json({ success: false, error: "Missing question context." });
+    }
+
+    console.log(`[Practice] Generating similar ${subject} question for users.id=${sessionUser.id}`);
+
+    // 🧠 The strict JSON Prompt for Chikoro AI
+    const prompt = `
+You are Chikoro AI, an expert tutor for Zimbabwean students. 
+A student recently struggled with a concept. Your job is to create ONE completely new multiple-choice question that tests the EXACT SAME underlying concept, but using a different scenario or numbers.
+
+Context:
+- Subject: ${subject || "General"}
+- Original Question they missed: "${originalQuestion}"
+- Underlying Concept to test: "${explanation}"
+
+CRITICAL INSTRUCTIONS:
+- Ensure the question is culturally relevant to Zimbabwe if applicable.
+- Make the difficulty identical to the original.
+- Provide exactly 4 options (A, B, C, D).
+- Output NOTHING EXCEPT a valid JSON object. Do not use markdown blocks like \`\`\`json.
+
+The JSON format must be EXACTLY this:
+{
+  "question": "The new question text here",
+  "options": [
+    "A. First option",
+    "B. Second option",
+    "C. Third option",
+    "D. Fourth option"
+  ],
+  "correctAnswer": "C",
+  "explanation": "Briefly explain why this is correct."
+}
+`;
+
+    // Call your AI wrapper 
+    const rawAiResponse = await generateLessonPlanAI(prompt); 
+    
+    // ✅ ROBUST JSON PARSING: Safely extracts JSON even if the AI talks before/after/between
+    let newQuestionData = null;
+    
+    let startIndex = rawAiResponse.indexOf('{');
+    while (startIndex !== -1 && !newQuestionData) {
+      let openBraces = 0;
+      let endIndex = -1;
+      
+      // Look for the matching closing brace
+      for (let i = startIndex; i < rawAiResponse.length; i++) {
+        if (rawAiResponse[i] === '{') openBraces++;
+        if (rawAiResponse[i] === '}') {
+          openBraces--;
+          if (openBraces === 0) {
+            endIndex = i;
+            break;
+          }
+        }
+      }
+      
+      // If we found a complete {...} block, try to parse it
+      if (endIndex !== -1) {
+        const potentialJson = rawAiResponse.substring(startIndex, endIndex + 1);
+        try {
+          const parsed = JSON.parse(potentialJson);
+          // Verify it's actually our question object, not a random AI thought
+          if (parsed.question && Array.isArray(parsed.options)) {
+            newQuestionData = parsed;
+          }
+        } catch (e) {
+          // Not valid JSON, ignore and keep searching
+        }
+      }
+      // Move to the next '{' to keep searching
+      startIndex = rawAiResponse.indexOf('{', startIndex + 1);
+    }
+
+    if (!newQuestionData) {
+      console.error("Failed to extract valid JSON. Raw Output:", rawAiResponse);
+      return response.status(500).json({ 
+        success: false, 
+        error: "AI failed to generate a valid question format." 
+      });
+    }
+
+    console.log(`✅ Successfully generated similar question for ${subject}`);
+
+    // Return the fresh question to the frontend
+    return response.status(200).json({
+      success: true,
+      data: newQuestionData
+    });
+
+  } catch (err) {
+    console.error("📉 Error generating similar question:", err);
+    response.status(500).json({ success: false, error: "Internal server error." });
+  }
+});
+
+// POST /system/flashcards/save-weak-area
+app.post("/system/flashcards/save-weak-area", [validatedRequest], async (request, response) => {
+  try {
+    const sessionUser = await userFromSession(request, response);
+    if (!sessionUser?.id) {
+      return response.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    const { subject, question, correctAnswer, explanation } = request.body;
+
+    if (!question || !correctAnswer) {
+      return response.status(400).json({ success: false, error: "Missing flashcard content." });
+    }
+
+    // 1. Format the new card
+    const newCard = {
+      front: question,
+      back: `**Answer:** ${correctAnswer}\n\n**Why:** ${explanation}`,
+      category: "Targeted Review"
+    };
+
+    // 2. Identify the deck using schema-valid fields
+    // We use `userMessage` to act as our "deck name/identifier" since `title` doesn't exist
+    const deckIdentifier = "Weak Areas Review";
+    const targetSubject = subject || "General";
+
+    let existingDeck = await prisma.savedFlashcardSet.findFirst({
+      where: { 
+        userId: sessionUser.id,
+        subject: targetSubject,
+        userMessage: deckIdentifier
+      }
+    });
+
+    if (existingDeck) {
+      // 3a. Append the new card to the existing deck
+      const currentCards = Array.isArray(existingDeck.cards) ? existingDeck.cards : [];
+      
+      // Prevent duplicates
+      const isDuplicate = currentCards.some(c => c.front === question);
+      if (!isDuplicate) {
+        await prisma.savedFlashcardSet.update({
+          where: { id: existingDeck.id },
+          data: {
+            cards: [...currentCards, newCard]
+          }
+        });
+      }
+    } else {
+      // 3b. Create a brand new deck using ONLY valid Prisma schema fields
+      await prisma.savedFlashcardSet.create({
+        data: {
+          userId: sessionUser.id,
+          subject: targetSubject,
+          grade: "N/A", // Or pass the grade from the frontend if you prefer
+          difficulty: "Targeted",
+          userMessage: deckIdentifier, 
+          cards: [newCard]
+        }
+      });
+    }
+
+    return response.status(200).json({
+      success: true,
+      message: "Flashcard saved successfully."
+    });
+
+  } catch (err) {
+    console.error("📉 Error saving weak area flashcard:", err);
+    response.status(500).json({ success: false, error: "Internal server error." });
+  }
+});
+
+app.post("/flashcards/mastery/xp", [validatedRequest], async (req, res) => {
+  const { masteredCount, totalCards, subject } = req.body;
+  const user = res.locals.user;
+
+  try {
+    if (!masteredCount || masteredCount <= 0) {
+      return res.json({ success: true, xpEarned: 0 });
+    }
+
+    const xpEarned = masteredCount * 5; // 5 XP per mastered card
+
+    await EventLogs.logEvent(
+      "xp_gain",
+      {
+        points: xpEarned,
+        source: "flashcard_mastery",
+        subject: subject || "General",
+        masteredCount,
+        totalCards,
+      },
+      user.id
+    );
+
+    res.json({ success: true, xpEarned });
+  } catch (err) {
+    console.error("Flashcard XP error:", err);
+    res.status(500).json({ success: false, error: "Failed to award XP" });
   }
 });
 
@@ -6500,18 +6802,31 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
       orderBy: { submitted_at: 'desc' },
     });
 
-    const struggledBySubject = {};
-for (const q of quizzes) {
-  let feedback = [];
-  try { feedback = JSON.parse(q.detailed_feedback || "[]"); } catch { feedback = []; }
-  const struggled = feedback.filter(f => 
-    f.type === "multiple-choice" ? !f.isCorrect : f.pointsEarned < f.pointsPossible
-  );
-  if (struggled.length > 0) {
-    if (!struggledBySubject[q.subject]) struggledBySubject[q.subject] = [];
-    struggledBySubject[q.subject].push(...struggled.map(f => f.question));
-  }
-}
+   const struggledBySubject = {};
+    for (const q of quizzes) {
+      let feedback = [];
+      try {
+        feedback = JSON.parse(q.detailed_feedback || "[]");
+      } catch { feedback = []; }
+
+      const struggled = feedback.filter(f => 
+        f.type === "multiple-choice" ? !f.isCorrect : f.pointsEarned < f.pointsPossible
+      );
+
+      if (struggled.length > 0) {
+        const subjectName = q.subject || 'General';
+        if (!struggledBySubject[subjectName]) struggledBySubject[subjectName] = [];
+        
+        // CHANGED: Instead of just pushing the string, push a rich object
+        struggledBySubject[subjectName].push(...struggled.map(f => ({
+          quizId: q.id,
+          question: f.question,
+          userAnswer: f.userAnswer || f.studentAnswer, // Map to your schema's key
+          correctAnswer: f.correctAnswer,
+          explanation: f.explanation || f.ai_feedback || "Review this concept carefully."
+        })));
+      }
+    }
 const struggledSummary = Object.entries(struggledBySubject)
   .map(([subject, questions]) => 
     `${subject}:\n${questions.slice(0, 3).map(q => `  - ${q}`).join("\n")}`
