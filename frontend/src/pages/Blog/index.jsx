@@ -2,14 +2,32 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 
 const posts = [
+   {
+    slug: "the-power-of-home-language-learning",
+    title: "The Power of Home Language Learning: Why Studying in Shona Can Boost Your Grades",
+    excerpt:
+      "Discover how learning in your home language, like Shona, can enhance understanding, retention, and performance in exams. We explore the benefits and share tips for leveraging this powerful approach.",
+    date: "14 April 2026",
+    readTime: "7 min read",
+    tag: "Study Tips",
+  },
   {
     slug: "how-to-pass-zimsec-o-level-maths",
     title: "How to Pass ZIMSEC O-Level Maths: A Step-by-Step Study Guide",
     excerpt:
       "ZIMSEC O-Level Maths is one of the most important — and most feared — subjects on your certificate. Here is exactly what to do from now until exam day to pass with confidence.",
-    date: "17 March 2026",
+       date: "20 March 2026",
     readTime: "8 min read",
     tag: "Study Tips",
+  },
+    {
+    slug: "chikoro-ai-apk-available-on-apk-pure",
+    title: "Chikoro AI APK Available on APK Pure",
+    excerpt:
+      "Excited to announce that Chikoro AI is now available on APK Pure! Download the app and experience the future of education.",
+    date: "14 March 2026",
+    readTime: "5 min read",
+    tag: "App Updates",
   },
   {
     slug: "best-ai-tools-homework-help-zimbabwe-2026",
@@ -20,15 +38,7 @@ const posts = [
     readTime: "6 min read",
     tag: "AI Tools",
   },
-  {
-    slug: "chikoro-ai-apk-available-on-apk-pure",
-    title: "Chikoro AI APK Available on APK Pure",
-    excerpt:
-      "Excited to announce that Chikoro AI is now available on APK Pure! Download the app and experience the future of education.",
-    date: "14 March 2026",
-    readTime: "5 min read",
-    tag: "App Updates",
-  },
+
 ];
 
 export default function Blog() {

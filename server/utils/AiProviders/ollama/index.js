@@ -24,30 +24,22 @@ class OllamaAILLM {
     if (!process.env.VLLM_BASE_PATH)
       throw new Error("VLLM_BASE_PATH is not set");
 
-    this.basePath = process.env.VLLM_BASE_PATH; // http://host:port/v1
-    this.model =
-      process.env.OLLAMA_MODEL_PREF || modelPreference;
-
-    this.visionModel =
-      process.env.OLLAMA_VISION_MODEL || this.model;
-
-    // NEW: Support separate vision model base path
-    this.visionBasePath = 
+    this.basePath = process.env.VLLM_BASE_PATH;
+    this.model = process.env.OLLAMA_MODEL_PREF || modelPreference;
+    this.visionModel = process.env.OLLAMA_VISION_MODEL || this.model;
+    this.visionBasePath =
       process.env.VLLM_VISION_BASE_PATH || this.basePath;
 
     this.keepAlive = Number(process.env.OLLAMA_KEEP_ALIVE_TIMEOUT || 300);
     this.defaultTemp = 0.3;
-
     this.contextWindow =
       Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT) || 8192;
 
-    // Main client for text model
     this.client = new OpenAI({
       baseURL: this.basePath,
       apiKey: process.env.OPENAI_API_KEY || "EMPTY",
     });
 
-    // NEW: Separate client for vision model
     this.visionClient = new OpenAI({
       baseURL: this.visionBasePath,
       apiKey: process.env.OPENAI_API_KEY || "EMPTY",
@@ -55,12 +47,32 @@ class OllamaAILLM {
 
     this.embedder = embedder ?? new NativeEmbedder();
 
-    // keep same limits behavior
     this.limits = {
       history: this.contextWindow * 0.15,
       system: this.contextWindow * 0.15,
       user: this.contextWindow * 0.7,
     };
+
+    // Tracks tool names that have already been used this session.
+    // These are filtered out of the tools schema before every LLM API call
+    // so the model physically cannot invoke them again.
+    this._usedToolNames = new Set();
+  }
+
+  /**
+   * Mark a tool as used so it will be excluded from future API calls.
+   * Called by plugins after they successfully execute.
+   * @param {string} toolName
+   */
+  markToolUsed(toolName) {
+    this._usedToolNames.add(toolName);
+  }
+
+  /**
+   * Clear all used-tool tracking (e.g. between invocations).
+   */
+  resetUsedTools() {
+    this._usedToolNames = new Set();
   }
 
   /**
@@ -79,11 +91,8 @@ class OllamaAILLM {
       Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT) || 128000;
 
     const model = process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b";
+    const visionModel = process.env.OLLAMA_VISION_MODEL || model;
 
-    const visionModel =
-      process.env.OLLAMA_VISION_MODEL || model;
-
-    // Populate expected cache
     OllamaAILLM.modelContextWindows[model] = defaultCtx;
     OllamaAILLM.modelContextWindows[visionModel] = defaultCtx;
 
@@ -110,29 +119,21 @@ class OllamaAILLM {
     return (
       "\nContext:\n" +
       contextTexts
-        .map(
-          (t, i) =>
-            `[CONTEXT ${i}]\n${t}\n[END CONTEXT ${i}]\n`
-        )
+        .map((t, i) => `[CONTEXT ${i}]\n${t}\n[END CONTEXT ${i}]\n`)
         .join("\n")
     );
   }
 
   #generateContent({ userPrompt, attachments = [] }) {
-    if (!attachments.length)
-      return userPrompt;
+    if (!attachments.length) return userPrompt;
 
     const content = [{ type: "text", text: userPrompt }];
-
     for (const a of attachments) {
       content.push({
         type: "image_url",
-        image_url: {
-          url: a.contentString,
-        },
+        image_url: { url: a.contentString },
       });
     }
-
     return content;
   }
 
@@ -167,15 +168,11 @@ class OllamaAILLM {
         role: "user",
         content: [
           { type: "text", text: `Analyze this file: ${name}` },
-          {
-            type: "image_url",
-            image_url: { url: contentString },
-          },
+          { type: "image_url", image_url: { url: contentString } },
         ],
       },
     ];
 
-    // CHANGED: Use visionClient instead of client
     const res = await this.visionClient.chat.completions.create({
       model: this.visionModel,
       messages,
@@ -189,176 +186,189 @@ class OllamaAILLM {
     };
   }
 
- async getChatCompletion(messages, { temperature = 0.7, tools = null, tool_choice = "auto" } = {}) {
-  const completionParams = {
-    model: this.model,
+  async getChatCompletion(
     messages,
-    temperature,
-  };
+    { temperature = 0.7, tools = null, tool_choice = "auto" } = {}
+  ) {
+    const completionParams = {
+      model: this.model,
+      messages,
+      temperature,
+    };
 
-  // ✅ Add tools if provided
-  if (tools && Array.isArray(tools) && tools.length > 0) {
-    completionParams.tools = tools;
-    completionParams.tool_choice = tool_choice;
-  }
+    if (tools && Array.isArray(tools) && tools.length > 0) {
+      // Filter out tools that have already been used this session
+      const filteredTools = tools.filter(
+        (t) => !this._usedToolNames.has(t.function?.name)
+      );
+      if (filteredTools.length > 0) {
+        completionParams.tools = filteredTools;
+        completionParams.tool_choice = tool_choice;
+      }
+    }
 
-  const measured = await LLMPerformanceMonitor.measureAsyncFunction(
-    this.client.chat.completions.create(completionParams)
-  );
+    const measured = await LLMPerformanceMonitor.measureAsyncFunction(
+      this.client.chat.completions.create(completionParams)
+    );
 
-  const choice = measured.output.choices[0];
-  const msg = choice.message;
+    const choice = measured.output.choices[0];
+    const msg = choice.message;
 
-  // ✅ Check if this is a tool call response
-  if (msg.tool_calls && msg.tool_calls.length > 0) {
+    if (msg.tool_calls && msg.tool_calls.length > 0) {
+      return {
+        textResponse: msg,
+        metrics: {
+          prompt_tokens: measured.output.usage.prompt_tokens,
+          completion_tokens: measured.output.usage.completion_tokens,
+          total_tokens: measured.output.usage.total_tokens,
+          outputTps:
+            measured.output.usage.completion_tokens / measured.duration,
+          duration: measured.duration,
+        },
+      };
+    }
+
     return {
-      textResponse: msg, // Return full message object with tool_calls
+      textResponse: msg.content,
       metrics: {
         prompt_tokens: measured.output.usage.prompt_tokens,
         completion_tokens: measured.output.usage.completion_tokens,
         total_tokens: measured.output.usage.total_tokens,
-        outputTps: measured.output.usage.completion_tokens / measured.duration,
+        outputTps:
+          measured.output.usage.completion_tokens / measured.duration,
         duration: measured.duration,
       },
     };
   }
 
-  // ✅ Regular text response
-  return {
-    textResponse: msg.content,
-    metrics: {
-      prompt_tokens: measured.output.usage.prompt_tokens,
-      completion_tokens: measured.output.usage.completion_tokens,
-      total_tokens: measured.output.usage.total_tokens,
-      outputTps: measured.output.usage.completion_tokens / measured.duration,
-      duration: measured.duration,
-    },
-  };
-}
-
-async streamGetChatCompletion(messages, { temperature = 0.2, tools = null, tool_choice = "auto" } = {}) {
-  const completionParams = {
-    model: this.model,
+  async streamGetChatCompletion(
     messages,
-    temperature,
-    stream: true,
-  };
+    { temperature = 0.2, tools = null, tool_choice = "auto" } = {}
+  ) {
+    const completionParams = {
+      model: this.model,
+      messages,
+      temperature,
+      stream: true,
+    };
 
-  // ✅ Only add tools if explicitly provided AND not empty
-  if (tools && Array.isArray(tools) && tools.length > 0) {
-    completionParams.tools = tools;
-    completionParams.tool_choice = tool_choice;
+    if (tools && Array.isArray(tools) && tools.length > 0) {
+      // Filter out tools that have already been used this session
+      const filteredTools = tools.filter(
+        (t) => !this._usedToolNames.has(t.function?.name)
+      );
+      if (filteredTools.length > 0) {
+        completionParams.tools = filteredTools;
+        completionParams.tool_choice = tool_choice;
+      }
+    }
+
+    return await LLMPerformanceMonitor.measureStream(
+      this.client.chat.completions.create(completionParams),
+      messages,
+      false
+    );
   }
 
-  return await LLMPerformanceMonitor.measureStream(
-    this.client.chat.completions.create(completionParams),
-    messages,
-    false
-  );
-}
+  handleStream(response, stream, responseProps) {
+    const { uuid = uuidv4(), sources = [] } = responseProps;
 
-handleStream(response, stream, responseProps) {
-  const { uuid = uuidv4(), sources = [] } = responseProps;
+    return new Promise(async (resolve) => {
+      let fullText = "";
+      let toolCallsMap = {};
+      let usage = {};
 
-  return new Promise(async (resolve) => {
-    let fullText = "";
-    let toolCallsMap = {}; // ✅ Use map to accumulate by index
-    let usage = {};
+      const handleAbort = () => {
+        clientAbortedHandler(resolve, fullText);
+      };
+      response.on("close", handleAbort);
 
-    const handleAbort = () => {
-      clientAbortedHandler(resolve, fullText);
-    };
-    response.on("close", handleAbort);
+      try {
+        for await (const chunk of stream) {
+          if (chunk.choices?.[0]?.delta?.tool_calls) {
+            const toolCallDeltas = chunk.choices[0].delta.tool_calls;
 
-    try {
-      for await (const chunk of stream) {
-        // ✅ Accumulate tool calls from deltas
-        if (chunk.choices?.[0]?.delta?.tool_calls) {
-          const toolCallDeltas = chunk.choices[0].delta.tool_calls;
-          
-          for (const delta of toolCallDeltas) {
-            const index = delta.index || 0;
-            
-            // Initialize tool call object if first time seeing this index
-            if (!toolCallsMap[index]) {
-              toolCallsMap[index] = {
-                id: delta.id || `tool_${index}`,
-                type: 'function',
-                function: {
-                  name: '',
-                  arguments: ''
-                }
-              };
+            for (const delta of toolCallDeltas) {
+              const index = delta.index || 0;
+
+              if (!toolCallsMap[index]) {
+                toolCallsMap[index] = {
+                  id: delta.id || `tool_${index}`,
+                  type: "function",
+                  function: {
+                    name: "",
+                    arguments: "",
+                  },
+                };
+              }
+
+              if (delta.function?.name) {
+                toolCallsMap[index].function.name += delta.function.name;
+              }
+
+              if (delta.function?.arguments) {
+                toolCallsMap[index].function.arguments +=
+                  delta.function.arguments;
+                console.log("🧩 Tool call detected in stream:", toolCallDeltas);
+              }
             }
-            
-            // Accumulate function name (usually comes in first chunk)
-            if (delta.function?.name) {
-              toolCallsMap[index].function.name += delta.function.name;
-            }
-            
-            // ✅ KEY FIX: Accumulate arguments chunk by chunk
-            if (delta.function?.arguments) {
-              toolCallsMap[index].function.arguments += delta.function.arguments;
-              console.log("🧩 Tool call detected in stream:", toolCallDeltas);
-            }
+
+            continue;
           }
-          
-          continue; // Don't write to response - let streamChatWithWorkspace handle it
+
+          const delta = chunk.choices?.[0]?.delta?.content;
+          if (!delta) continue;
+
+          fullText += delta;
+          writeResponseChunk(response, {
+            uuid,
+            sources,
+            type: "textResponseChunk",
+            textResponse: delta,
+            close: false,
+            error: false,
+          });
         }
 
-        const delta = chunk.choices?.[0]?.delta?.content;
-        if (!delta) continue;
+        const toolCallsArray = Object.values(toolCallsMap);
+        if (toolCallsArray.length > 0) {
+          console.log(
+            `✅ Tool call fully accumulated: ${toolCallsArray[0].function.name}`
+          );
+          console.log(
+            `✅ Complete arguments: ${toolCallsArray[0].function.arguments}`
+          );
 
-        fullText += delta;
+          response.removeListener("close", handleAbort);
+          resolve({ tool_calls: toolCallsArray, fullText });
+          return;
+        }
+
         writeResponseChunk(response, {
           uuid,
           sources,
           type: "textResponseChunk",
-          textResponse: delta,
-          close: false,
+          textResponse: "",
+          close: true,
           error: false,
         });
-      }
 
-      // ✅ Convert map to array and return tool calls if any were accumulated
-      const toolCallsArray = Object.values(toolCallsMap);
-      if (toolCallsArray.length > 0) {
-        console.log(`✅ Tool call fully accumulated: ${toolCallsArray[0].function.name}`);
-        console.log(`✅ Complete arguments: ${toolCallsArray[0].function.arguments}`);
-        
         response.removeListener("close", handleAbort);
-        resolve({ 
-          tool_calls: toolCallsArray, 
-          fullText 
+        resolve(fullText);
+      } catch (e) {
+        writeResponseChunk(response, {
+          uuid,
+          sources: [],
+          type: "textResponseChunk",
+          textResponse: "",
+          close: true,
+          error: `vLLM stream error: ${e.message}`,
         });
-        return;
+        response.removeListener("close", handleAbort);
+        resolve(fullText);
       }
-
-      writeResponseChunk(response, {
-        uuid,
-        sources,
-        type: "textResponseChunk",
-        textResponse: "",
-        close: true,
-        error: false,
-      });
-
-      response.removeListener("close", handleAbort);
-      resolve(fullText);
-    } catch (e) {
-      writeResponseChunk(response, {
-        uuid,
-        sources: [],
-        type: "textResponseChunk",
-        textResponse: "",
-        close: true,
-        error: `vLLM stream error: ${e.message}`,
-      });
-      response.removeListener("close", handleAbort);
-      resolve(fullText);
-    }
-  });
-}
+    });
+  }
 
   async embedTextInput(text) {
     return this.embedder.embedTextInput(text);
@@ -371,12 +381,7 @@ handleStream(response, stream, responseProps) {
   async compressMessages(promptArgs, rawHistory, user) {
     const { messageArrayCompressor } = require("../../helpers/chat");
     const messageArray = this.constructPrompt(promptArgs);
-    return await messageArrayCompressor(
-      this,
-      messageArray,
-      rawHistory,
-      user
-    );
+    return await messageArrayCompressor(this, messageArray, rawHistory, user);
   }
 }
 

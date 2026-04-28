@@ -114,17 +114,6 @@ class AIbitat {
     }
     return {
       role: "You are a helpful AI assistant.",
-      //       role: `You are a helpful AI assistant.
-      // Solve tasks using your coding and language skills.
-      // In the following cases, suggest typescript code (in a typescript coding block) or shell script (in a sh coding block) for the user to execute.
-      //     1. When you need to collect info, use the code to output the info you need, for example, browse or search the web, download/read a file, print the content of a webpage or a file, get the current date/time, check the operating system. After sufficient info is printed and the task is ready to be solved based on your language skill, you can solve the task by yourself.
-      //     2. When you need to perform some task with code, use the code to perform the task and output the result. Finish the task smartly.
-      // Solve the task step by step if you need to. If a plan is not provided, explain your plan first. Be clear which step uses code, and which step uses your language skill.
-      // When using code, you must indicate the script type in the code block. The user cannot provide any other feedback or perform any other action beyond executing the code you suggest. The user can't modify your code. So do not suggest incomplete code which requires users to modify. Don't use a code block if it's not intended to be executed by the user.
-      // If you want the user to save the code in a file before executing it, put # filename: <filename> inside the code block as the first line. Don't include multiple code blocks in one response. Do not ask users to copy and paste the result. Instead, use 'print' function for the output when relevant. Check the execution result returned by the user.
-      // If the result indicates there is an error, fix the error and output the code again. Suggest the full code instead of partial code or code changes. If the error can't be fixed or if the task is not solved even after the code is executed successfully, analyze the problem, revisit your assumption, collect additional info you need, and think of a different approach to try.
-      // When you find an answer, verify the answer carefully. Include verifiable evidence in your response if possible.
-      // Reply "TERMINATE" when everything is done.`,
       ...config,
     };
   }
@@ -349,9 +338,6 @@ class AIbitat {
       }
 
       if (!nextNode) {
-        // TODO: should it throw an error or keep the chat alive when there is no node to chat with in the group?
-        // maybe it should wrap up the chat and reply to the original node
-        // For now, it will terminate the chat
         this.terminate(route.from);
         return;
       }
@@ -440,7 +426,6 @@ class AIbitat {
     const nodes = this.getGroupMembers(channel);
     const channelConfig = this.getChannelConfig(channel);
 
-    // TODO: move this to when the group is created
     // warn if the group is underpopulated
     if (nodes.length < 3) {
       console.warn(
@@ -462,12 +447,8 @@ class AIbitat {
       }
     }
 
-    // TODO: what should it do when there is no node to chat with?
     if (!availableNodes.length) return;
 
-    // get the provider that will be used for the channel
-    // if the channel has a provider, use that otherwise
-    // use the GPT-4 because it has a better reasoning
     const provider = this.getProviderForConfig({
       // @ts-expect-error
       model: "gpt-4",
@@ -500,13 +481,10 @@ Only return the role.
       },
     ];
 
-    // ask the provider to select the next node to chat with
-    // and remove the @ from the response
     const { result } = await provider.complete(messages);
     const name = result?.replace(/^@/g, "");
     if (this.agents.get(name)) return name;
 
-    // if the name is not in the nodes, return a random node
     return availableNodes[Math.floor(Math.random() * availableNodes.length)];
   }
 
@@ -514,9 +492,6 @@ Only return the role.
    *
    * @param {string} pluginName this name of the plugin being called
    * @returns string of the plugin to be called compensating for children denoted by # in the string.
-   * eg: sql-agent:list-database-connections
-   * or is a custom plugin
-   * eg: @@custom-plugin-name
    */
   #parseFunctionName(pluginName = "") {
     if (!pluginName.includes("#") && !pluginName.startsWith("@@"))
@@ -569,7 +544,6 @@ ${this.getHistory({ to: route.to })
    * Then before calling the provider, it will check if the provider supports agent streaming.
    * If it does, it will call the provider asynchronously (streaming).
    * Otherwise, it will call the provider synchronously (non-streaming).
-   * `.supportsAgentStreaming` is used to determine if the provider supports agent streaming on the respective provider.
    *
    * @param route.to The node that sent the chat.
    * @param route.from The node that will reply to the chat.
@@ -694,7 +668,7 @@ ${this.getHistory({ to: route.to })
       // If the tool call has direct output enabled, return the result directly to the chat
       // without any further processing and no further tool calls will be run.
       if (this.skipHandleExecution) {
-        this.skipHandleExecution = false; // reset the flag to prevent next tool call from being skipped
+        this.skipHandleExecution = false;
         this?.introspect?.(
           `The tool call has direct output enabled! The result will be returned directly to the chat without any further processing and no further tool calls will be run.`
         );
@@ -704,6 +678,12 @@ ${this.getHistory({ to: route.to })
         );
         return result;
       }
+
+      // ─── FIX: Remove the tool that just ran from the functions list ───
+      // This prevents weak models (e.g. small Ollama models) from calling
+      // the same tool again on the next iteration. The tool is physically
+      // absent from the schema sent to the LLM, so it cannot be invoked again.
+      const remainingFunctions = functions.filter((f) => f.name !== name);
 
       return await this.handleAsyncExecution(
         provider,
@@ -716,7 +696,7 @@ ${this.getHistory({ to: route.to })
             originalFunctionCall: completionStream.functionCall,
           },
         ],
-        functions,
+        remainingFunctions, // ← pass filtered list, not original
         byAgent
       );
     }
@@ -788,7 +768,7 @@ ${this.getHistory({ to: route.to })
       // If the tool call has direct output enabled, return the result directly to the chat
       // without any further processing and no further tool calls will be run.
       if (this.skipHandleExecution) {
-        this.skipHandleExecution = false; // reset the flag to prevent next tool call from being skipped
+        this.skipHandleExecution = false;
         this?.introspect?.(
           `The tool call has direct output enabled! The result will be returned directly to the chat without any further processing and no further tool calls will be run.`
         );
@@ -798,6 +778,12 @@ ${this.getHistory({ to: route.to })
         );
         return result;
       }
+
+      // ─── FIX: Remove the tool that just ran from the functions list ───
+      // This prevents weak models (e.g. small Ollama models) from calling
+      // the same tool again on the next iteration. The tool is physically
+      // absent from the schema sent to the LLM, so it cannot be invoked again.
+      const remainingFunctions = functions.filter((f) => f.name !== name);
 
       return await this.handleExecution(
         provider,
@@ -810,7 +796,7 @@ ${this.getHistory({ to: route.to })
             originalFunctionCall: completion.functionCall,
           },
         ],
-        functions,
+        remainingFunctions, // ← pass filtered list, not original
         byAgent
       );
     }
@@ -820,8 +806,6 @@ ${this.getHistory({ to: route.to })
 
   /**
    * Continue the chat from the last interruption.
-   * If the last chat was not an interruption, it will throw an error.
-   * Provide a feedback where it was interrupted if you want to.
    *
    * @param feedback The feedback to the interruption if any.
    * @returns
@@ -832,7 +816,6 @@ ${this.getHistory({ to: route.to })
       throw new Error("No chat to continue");
     }
 
-    // remove the last chat's that was interrupted
     this._chats.pop();
 
     const { from, to } = lastChat;
@@ -848,10 +831,8 @@ ${this.getHistory({ to: route.to })
         content: feedback,
       };
 
-      // register the message in the chat history
       this.newMessage(message);
 
-      // ask the node to reply
       await this.chat({
         to: message.from,
         from: message.to,
@@ -865,7 +846,6 @@ ${this.getHistory({ to: route.to })
 
   /**
    * Retry the last chat that threw an error.
-   * If the last chat was not an error, it will throw an error.
    */
   async retry() {
     const lastChat = this._chats.at(-1);
@@ -873,7 +853,6 @@ ${this.getHistory({ to: route.to })
       throw new Error("No chat to retry");
     }
 
-    // remove the last chat's that threw an error
     const { from, to } = this?._chats?.pop();
 
     await this.chat({ from, to });
@@ -887,17 +866,14 @@ ${this.getHistory({ to: route.to })
     return this._chats.filter((chat) => {
       const isSuccess = chat.state === "success";
 
-      // return all chats to the node
       if (!from) {
         return isSuccess && chat.to === to;
       }
 
-      // get all chats from the node
       if (!to) {
         return isSuccess && chat.from === from;
       }
 
-      // check if the chat is between the two nodes
       const hasSent = chat.from === from && chat.to === to;
       const hasReceived = chat.from === to && chat.to === from;
       const mutual = hasSent || hasReceived;
@@ -983,7 +959,6 @@ ${this.getHistory({ to: route.to })
 
   /**
    * Register a new function to be called by the AIbitat agents.
-   * You are also required to specify the which node can call the function.
    * @param functionConfig The function configuration.
    */
   function(functionConfig) {

@@ -8,6 +8,13 @@ class UnTooled {
   constructor() {
     this.deduplicator = new Deduplicator();
   }
+  extractJsonFromText(text = "") {
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start === -1 || end === -1 || end <= start) return null;
+    return safeJsonParse(text.substring(start, end + 1), null);
+  }
 
   cleanMsgs(messages) {
     const modifiedMessages = [];
@@ -126,7 +133,7 @@ ${JSON.stringify(def.parameters.properties, null, 4)}\n`;
     const historyMessages = this.buildToolCallMessages(history, functions);
     const response = await chatCb({ messages: historyMessages });
 
-    const call = safeJsonParse(response, null);
+    const call = extractJsonFromText(response);
     if (call === null) return { toolCall: null, text: response }; // failed to parse, so must be text.
 
     const { valid, reason } = this.validFuncCall(call, functions);
@@ -181,7 +188,17 @@ ${JSON.stringify(def.parameters.properties, null, 4)}\n`;
       }
     }
 
-    const call = safeJsonParse(textResponse, null);
+    function extractJsonFromText(text = "") {
+  // Strip <think>...</think> blocks
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  // Find the first { and last } to extract the JSON object
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  return safeJsonParse(text.substring(start, end + 1), null);
+}
+
+const call = extractJsonFromText(textResponse);
     if (call === null)
       return { toolCall: null, text: textResponse, uuid: msgUUID }; // failed to parse, so must be regular text response.
 

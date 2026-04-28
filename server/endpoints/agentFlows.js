@@ -311,7 +311,6 @@ EXACT JSON FORMAT REQUIRED:
 
 - ${Math.ceil(numQuestions/2)} MCQ questions (4 options each, labeled A-D)
 - ${Math.floor(numQuestions/2)} short-answer questions
-- Use Zimbabwean context and ZIMSEC/Cambridge curriculum alignment where relevant
 ${wantsHistoryBased ? '- Base on recent conversation context below' : ''}
 ${contextInfo}
 
@@ -531,7 +530,6 @@ Each card must:
 - front: A clear, concise question about "${flashcardTopic}"
 - back: A detailed, educational answer about "${flashcardTopic}"
 - category: A subtopic within "${flashcardTopic}"
-Use Zimbabwean context, local examples, and ZIMSEC/Cambridge curriculum alignment where relevant.
 
 ${wantsHistoryBased ? 'Base flashcards on the topics discussed in the recent conversation.' : ''}
 ${contextInfo}
@@ -759,73 +757,98 @@ app.get("/agent-flows/flashcard/history/:userId", [validatedRequest], async (req
   }
 });
 
+// ✅ quiz_create_agent
 setTimeout(() => {
   try {
-    const existing = AgentFlows.listFlows()?.find(
-      (f) => f.name === "web_search_tool"
-    );
-
+    const existing = AgentFlows.listFlows()?.find(f => f.name === "quiz_create_agent");
     if (!existing) {
       const flowConfig = {
-        description: "Performs live web search for current information and research",
+        description: "Generates curriculum-aligned quizzes for Chikoro AI",
         active: true,
-        blocks: [
+        steps: [
           {
-            type: "tool",
-            name: "web_search",
-            endpoint: "/agent-flows/web-search",
-            method: "POST",
-            params: ["query", "provider", "numResults"],
+            type: "start",
+            config: {
+              variables: [
+                { name: "subject", value: "" },
+                { name: "userMessage", value: "" },
+                { name: "grade", value: "" },
+                { name: "numQuestions", value: 5 },
+                { name: "difficulty", value: "medium" },
+              ]
+            }
           },
-        ],
+          {
+            type: "api-call",
+            config: {
+              endpoint: "/api/agent-flows/quiz/create",
+              method: "POST",
+              body: {
+                subject: "${subject}",
+                userMessage: "${userMessage}",
+                grade: "${grade}",
+                numQuestions: "${numQuestions}",
+                difficulty: "${difficulty}",
+              },
+              resultVariable: "quizResult",
+              directOutput: true,
+            }
+          }
+        ]
       };
-
-      if (!Array.isArray(flowConfig.blocks)) flowConfig.blocks = [];
-
-      const saved = AgentFlows.saveFlow("web_search_tool", flowConfig);
-      if (!saved || !saved.success) {
-        console.error("⚠️ Failed to save web_search_tool:", saved?.error);
-      } else {
-        console.log("✅ web_search_tool registered successfully.");
-      }
+      const saved = AgentFlows.saveFlow("quiz_create_agent", flowConfig);
+      if (!saved?.success) console.error("⚠️ Failed to save quiz agent flow:", saved?.error);
+      else console.log("✅ quiz_create_agent registered successfully.");
     } else {
-      console.log("ℹ️ web_search_tool already registered.");
+      console.log("ℹ️ quiz_create_agent already registered.");
     }
   } catch (err) {
-    console.error("⚠️ Failed to register web_search_tool:", err.message);
+    console.error("⚠️ Failed to register quiz agent:", err.message);
   }
 }, 2000);
 
-// Register flashcard agent flow
+// ✅ flashcard_create_agent
 setTimeout(() => {
   try {
-    const existing = AgentFlows.listFlows()?.find(
-      (f) => f.name === "flashcard_create_agent"
-    );
-
+    const existing = AgentFlows.listFlows()?.find(f => f.name === "flashcard_create_agent");
     if (!existing) {
       const flowConfig = {
         description: "Generates curriculum-aligned flashcards for Chikoro AI",
         active: true,
-        blocks: [
+        steps: [
           {
-            type: "tool",
-            name: "flashcard_create",
-            endpoint: "/agent-flows/flashcard/create",
-            method: "POST",
-            params: ["subject", "userMessage", "grade", "numCards", "difficulty"],
+            type: "start",
+            config: {
+              variables: [
+                { name: "subject", value: "" },
+                { name: "userMessage", value: "" },
+                { name: "grade", value: "" },
+                { name: "numCards", value: 10 },
+                { name: "difficulty", value: "medium" },
+              ]
+            }
           },
-        ],
+          {
+            type: "api-call",
+            config: {
+              endpoint: "/api/agent-flows/flashcard/create",
+              method: "POST",
+              body: {
+                subject: "${subject}",
+                userMessage: "${userMessage}",
+                grade: "${grade}",
+                numCards: "${numCards}",
+                difficulty: "${difficulty}",
+              },
+              resultVariable: "flashcardResult",
+              directOutput: true,
+            }
+          }
+        ]
       };
-
-      if (!Array.isArray(flowConfig.blocks)) flowConfig.blocks = [];
-
       const saved = AgentFlows.saveFlow("flashcard_create_agent", flowConfig);
-      if (!saved || !saved.success) {
-        console.error("⚠️ Failed to save flashcard agent flow:", saved?.error);
-      } else {
-        console.log("✅ flashcard_create_agent registered successfully.");
-      }
+      if (!saved?.success) console.error("⚠️ Failed to save flashcard agent flow:", saved?.error);
+      else console.log("✅ flashcard_create_agent registered successfully.");
     } else {
       console.log("ℹ️ flashcard_create_agent already registered.");
     }
@@ -834,41 +857,49 @@ setTimeout(() => {
   }
 }, 2000);
 
+// ✅ web_search_tool
 setTimeout(() => {
   try {
-    const existing = AgentFlows.listFlows()?.find(
-      (f) => f.name === "quiz_create_agent"
-    );
-
+    const existing = AgentFlows.listFlows()?.find(f => f.name === "web_search_tool");
     if (!existing) {
       const flowConfig = {
-        description: "Generates curriculum-aligned quizzes for Chikoro AI",
+        description: "Performs live web search for current information and research",
         active: true,
-        blocks: [
+        steps: [
           {
-            type: "tool",
-            name: "quiz_create",
-            endpoint: "/agent-flows/quiz/create",
-            method: "POST",
-            params: ["subject", "userMessage", "grade", "numQuestions", "difficulty"],
+            type: "start",
+            config: {
+              variables: [
+                { name: "query", value: "" },
+                { name: "provider", value: "tavily" },
+                { name: "numResults", value: 5 },
+              ]
+            }
           },
-        ],
+          {
+            type: "api-call",
+            config: {
+              endpoint: "/api/agent-flows/web-search",
+              method: "POST",
+              body: {
+                query: "${query}",
+                provider: "${provider}",
+                numResults: "${numResults}",
+              },
+              resultVariable: "searchResult",
+              directOutput: true,
+            }
+          }
+        ]
       };
-
-      // ✅ Make sure blocks array exists
-      if (!Array.isArray(flowConfig.blocks)) flowConfig.blocks = [];
-
-      const saved = AgentFlows.saveFlow("quiz_create_agent", flowConfig);
-      if (!saved || !saved.success) {
-        console.error("⚠️ Failed to save quiz agent flow:", saved?.error);
-      } else {
-        console.log("✅ quiz_create_agent registered successfully.");
-      }
+      const saved = AgentFlows.saveFlow("web_search_tool", flowConfig);
+      if (!saved?.success) console.error("⚠️ Failed to save web_search_tool:", saved?.error);
+      else console.log("✅ web_search_tool registered successfully.");
     } else {
-      console.log("ℹ️ quiz_create_agent already registered.");
+      console.log("ℹ️ web_search_tool already registered.");
     }
   } catch (err) {
-    console.error("⚠️ Failed to register quiz agent:", err.message);
+    console.error("⚠️ Failed to register web_search_tool:", err.message);
   }
 }, 2000);
 }

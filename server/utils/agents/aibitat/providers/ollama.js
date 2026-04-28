@@ -2,36 +2,35 @@ const Provider = require("./ai-provider.js");
 const InheritMultiple = require("./helpers/classes.js");
 const UnTooled = require("./helpers/untooled.js");
 const { OllamaAILLM } = require("../../../AiProviders/ollama");
-const { Ollama } = require("ollama");
 const { v4 } = require("uuid");
 const { safeJsonParse } = require("../../../http");
 
 /**
- * The agent provider for the Ollama provider.
+ * The agent provider for the Ollama (patched for vLLM/OpenAI) provider.
  */
 class OllamaProvider extends InheritMultiple([Provider, UnTooled]) {
   model;
 
   constructor(config = {}) {
-    const {
-      // options = {},
-      model = null,
-    } = config;
+    const { model = null } = config;
 
     super();
-    const headers = process.env.OLLAMA_AUTH_TOKEN
-      ? { Authorization: `Bearer ${process.env.OLLAMA_AUTH_TOKEN}` }
-      : {};
-    this._client = new Ollama({
-      host: process.env.OLLAMA_BASE_PATH,
-      headers: headers,
-    });
+    
+    // Clean trailing slashes from the base path to ensure valid URLs
+    let basePath = process.env.OLLAMA_BASE_PATH || "http://192.168.1.128:11434/v1";
+    if (basePath.endsWith("/")) basePath = basePath.slice(0, -1);
+    
+    this.basePath = basePath;
+    this.headers = {
+      "Content-Type": "application/json",
+    };
+    
+    if (process.env.OLLAMA_AUTH_TOKEN) {
+      this.headers["Authorization"] = `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`;
+    }
+    
     this.model = model;
     this.verbose = true;
-  }
-
-  get client() {
-    return this._client;
   }
 
   get supportsAgentStreaming() {
@@ -42,6 +41,8 @@ class OllamaProvider extends InheritMultiple([Provider, UnTooled]) {
     return process.env.OLLAMA_PERFORMANCE_MODE || "base";
   }
 
+  // Kept for legacy compatibility, but not appended to vLLM requests 
+  // to avoid HTTP 400 Bad Request on unknown parameters.
   get queryOptions() {
     return {
       ...(this.performanceMode === "base"
@@ -57,23 +58,77 @@ class OllamaProvider extends InheritMultiple([Provider, UnTooled]) {
    * @returns {Promise<string|null>} The completion.
    */
   async #handleFunctionCallChat({ messages = [] }) {
-    await OllamaAILLM.cacheContextWindows();
-    const response = await this.client.chat({
-      model: this.model,
-      messages,
-      options: this.queryOptions,
+    try { await OllamaAILLM.cacheContextWindows(); } catch (e) {}
+    
+    const response = await fetch(`${this.basePath}/chat/completions`, {
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify({
+        model: this.model,
+        messages,
+        stream: false,
+      }),
     });
-    return response?.message?.content || null;
+
+    if (!response.ok) {
+      throw new Error(`vLLM Agent HTTP Error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data?.choices?.[0]?.message?.content || null;
   }
 
-  async #handleFunctionCallStream({ messages = [] }) {
-    await OllamaAILLM.cacheContextWindows();
-    return await this.client.chat({
-      model: this.model,
-      messages,
-      stream: true,
-      options: this.queryOptions,
+  /**
+   * Handle a streaming chat completion
+   * Converts vLLM/OpenAI SSE streams into the chunk format Aibitat expects
+   */
+  async *#handleFunctionCallStream({ messages = [] }) {
+    try { await OllamaAILLM.cacheContextWindows(); } catch (e) {}
+
+    const response = await fetch(`${this.basePath}/chat/completions`, {
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify({
+        model: this.model,
+        messages,
+        stream: true,
+      }),
     });
+
+    if (!response.ok) {
+      throw new Error(`vLLM Agent Stream HTTP Error: ${response.status} ${response.statusText}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop(); // Keep incomplete lines in the buffer
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === "data: [DONE]") continue;
+        
+        if (trimmed.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(trimmed.slice(6));
+            const content = data.choices?.[0]?.delta?.content || "";
+            if (content) {
+              // Yield in the exact format Aibitat's internal parser expects
+              yield { message: { content } };
+            }
+          } catch (e) {
+            console.error("Error parsing vLLM stream chunk:", e);
+          }
+        }
+      }
+    }
   }
 
   async streamingFunctionCall(
@@ -152,8 +207,6 @@ class OllamaProvider extends InheritMultiple([Provider, UnTooled]) {
 
   /**
    * Stream a chat completion from the LLM with tool calling
-   * This is overriding the inherited `stream` method since Ollamas
-   * SDK has different response structures to other OpenAI.
    *
    * @param messages A list of messages to send to the API.
    * @param functions
@@ -246,9 +299,6 @@ class OllamaProvider extends InheritMultiple([Provider, UnTooled]) {
         }
       }
 
-      // The UnTooled class inherited Deduplicator is mostly useful to prevent the agent
-      // from calling the exact same function over and over in a loop within a single chat exchange
-      // _but_ we should enable it to call previously used tools in a new chat interaction.
       this.deduplicator.reset("runs");
       return {
         textResponse: completion.content,
@@ -304,9 +354,6 @@ class OllamaProvider extends InheritMultiple([Provider, UnTooled]) {
         completion.content = textResponse;
       }
 
-      // The UnTooled class inherited Deduplicator is mostly useful to prevent the agent
-      // from calling the exact same function over and over in a loop within a single chat exchange
-      // _but_ we should enable it to call previously used tools in a new chat interaction.
       this.deduplicator.reset("runs");
       return {
         textResponse: completion.content,
@@ -317,13 +364,6 @@ class OllamaProvider extends InheritMultiple([Provider, UnTooled]) {
     }
   }
 
-  /**
-   * Get the cost of the completion.
-   *
-   * @param _usage The completion to get the cost for.
-   * @returns The cost of the completion.
-   * Stubbed since LMStudio has no cost basis.
-   */
   getCost(_usage) {
     return 0;
   }

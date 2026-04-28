@@ -57,6 +57,7 @@ import ChikoroAIApkPure from "./pages/Blog/ChikoroAIApkPure";
 import Landing from "@/pages/Landing";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import TermsOfService from "@/pages/TermsofService";
+import ThePowerOfHomeLanguage from "@/pages/Blog/ThePowerOfHomeLanguage";
 
 const Main = lazy(() => import("@/pages/Main"));
 
@@ -162,6 +163,7 @@ export default function App() {
                   <Route path="/blog/best-ai-tools-homework-help-zimbabwe-2026" element={<BestAiToolsZimbabwe2026 />} />
                   <Route path="/blog/how-to-pass-zimsec-o-level-maths" element={<HowToPassZimsecOLevelMaths />} />
                   <Route path="/blog/chikoro-ai-apk-available-on-apk-pure" element={<ChikoroAIApkPure />} />
+                  <Route path="/blog/the-power-of-home-language-learning" element={<ThePowerOfHomeLanguage />} />
                   <Route path="/enrol" element={<Enrol />} />
                   <Route path="/payment" element={<PaymentPage />} />
                   <Route path="/test" element={<Test />} />

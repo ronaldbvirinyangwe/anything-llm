@@ -10,7 +10,6 @@ const rechart = {
     return {
       name: this.name,
       setup(aibitat) {
-        // Scrape a website and summarize the content based on objective if the content is too large.',
         aibitat.function({
           super: aibitat,
           name: this.name,
@@ -59,7 +58,7 @@ Make sure the format use double quotes and property names are string literals. P
                 this.super.handlerProps.log(
                   `${this.name} has been run for this chat response already. It can only be called once per chat.`
                 );
-                return "The chart was generated and returned to the user. This function completed successfully. Do not call this function again.";
+                return "The chart was already generated and displayed to the user. Task is complete. Do not call any more tools.";
               }
 
               const data = safeJsonParse(dataset, null);
@@ -90,6 +89,15 @@ Make sure the format use double quotes and property names are string literals. P
               };
 
               this.tracker.markUnique(this.name);
+
+              // Mark this tool as used in the provider so it is filtered
+              // out of the tools schema on all subsequent LLM API calls.
+              try {
+                if (this.super.provider?.markToolUsed) {
+                  this.super.provider.markToolUsed(this.name);
+                }
+              } catch (_) {}
+
               return "The chart was generated and returned to the user. This function completed successfully. Do not make another chart.";
             } catch (error) {
               this.super.handlerProps.log(

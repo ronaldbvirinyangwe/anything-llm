@@ -20,6 +20,7 @@ import { useNavigate } from "react-router-dom";
 import './notification.css';
 import { useVirtualizer } from "@tanstack/react-virtual";
 import  { MascotWithBubble, ChikoroMascot, MascotSpeechBubble, MASCOT_EXPRESSIONS } from "@/components/ChikoroMascot";
+import { ThoughtChainComponent, THOUGHT_REGEX_OPEN } from "../ChatHistory/ThoughtContainer/index";
 
 // ═══════════════════════════════════════════════════════════════
 // NOTIFICATION MESSAGE — now with mascot based on notification type
@@ -424,48 +425,60 @@ function buildMessages({
         <Chartable key={props.uuid} workspace={workspace} props={props} />
       );
     } else if (isLastBotReply && props.animate) {
-      // 🤖 Show mascot inline during the entire streaming phase
-      // - "thinking" when pending with no content yet
-      // - "explaining" once tokens start streaming in
-      const mascotExpr = (!props.content || props.pending)
-        ? MASCOT_EXPRESSIONS.thinking
-        : MASCOT_EXPRESSIONS.explaining;
+  const mascotExpr = (!props.content || props.pending)
+    ? MASCOT_EXPRESSIONS.thinking
+    : MASCOT_EXPRESSIONS.explaining;
 
-      acc.push(
-        <div key={`mascot-reply-${props.uuid}`}>
-          <div className="chk-thinking-inline">
-            <ChikoroMascot
-              expression={mascotExpr}
-              size={36}
-              animate={true}
-            />
-            <MascotSpeechBubble
-              message={mascotExpr === "thinking" ? "Let me think..." : "Here's what I found..."}
-              visible={!props.content}
-              position="right"
-            />
-          </div>
-          <PromptReply
-            key={props.uuid || `reply-${index}`}
-            uuid={props.uuid}
-            reply={props.content}
-            pending={props.pending}
-            sources={props.sources}
-            error={props.error}
-            workspace={workspace}
-            closed={props.closed}
-          />
-        </div>
-      );
+  const hasThought = props.content && THOUGHT_REGEX_OPEN.test(props.content);
+
+  acc.push(
+    <div key={`mascot-reply-${props.uuid}`}>
+      <div className="chk-thinking-inline">
+        <ChikoroMascot expression={mascotExpr} size={36} animate={true} />
+        <MascotSpeechBubble
+          message={mascotExpr === "thinking" ? "Let me think..." : "Here's what I found..."}
+          visible={!props.content}
+          position="right"
+        />
+      </div>
+
+      {/* 🧠 Show thought chain if model is reasoning */}
+      {hasThought && (
+        <ThoughtChainComponent
+          content={props.content}
+          expanded={false}
+        />
+      )}
+
+      <PromptReply
+        key={props.uuid || `reply-${index}`}
+        uuid={props.uuid}
+        reply={props.content}
+        pending={props.pending}
+        sources={props.sources}
+        error={props.error}
+        workspace={workspace}
+        closed={props.closed}
+      />
+    </div>
+  );
     } else {
+      const hasThought = props.content && THOUGHT_REGEX_OPEN.test(props.content);
       acc.push(
-        <div
-          key={props.chatId || `msg-${index}`}
-          onClick={() => isClickable && onMessageClick?.(props)}
-          className={isClickable ? "cursor-pointer ring-1 ring-transparent hover:ring-blue-400 rounded-xl transition-all" : ""}
-          title={isClickable ? "Click to reopen" : undefined}
-        >
-          <HistoricalMessage
+         <div
+      key={props.chatId || `msg-${index}`}
+      onClick={() => isClickable && onMessageClick?.(props)}
+      className={isClickable ? "cursor-pointer ring-1 ring-transparent hover:ring-blue-400 rounded-xl transition-all" : ""}
+      title={isClickable ? "Click to reopen" : undefined}
+    >
+      {/* 🧠 Show completed thought chain for assistant messages */}
+      {props.role === "assistant" && hasThought && (
+        <ThoughtChainComponent
+          content={props.content}
+          expanded={false}
+        />
+      )}
+      <HistoricalMessage
             message={props.content}
             role={props.role}
             workspace={workspace}

@@ -430,29 +430,62 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
         });
 
         socket.addEventListener("message", (event) => {
-          setLoadingResponse(true);
-          try {
-            const parsed = JSON.parse(event.data);
+  setLoadingResponse(true);
+  try {
+    const parsed = JSON.parse(event.data);
 
-            if (parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0) {
-              openQuizPanel(parsed.quiz);
-              setMascotExpression(MASCOT_EXPRESSIONS.quizzing);
-              parsed.display_message = `✅ Quiz generated on **${parsed.parameters?.subject || "a subject"}** (${parsed.quiz.questions.length} questions). Click to reopen.`;
-            }
+    // ── Filter internal agent debug messages ──────────────────
+    const content = parsed?.content ?? parsed?.text ?? parsed?.message ?? "";
+    const rawData = typeof event.data === "string" ? event.data : "";
 
-            if (parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0) {
-              setMascotExpression(MASCOT_EXPRESSIONS.studying);
-              parsed.display_message = `🎴 Flashcards created — ${parsed.flashcards.cards.length} cards ready. Click to reopen.`;
-            }
+    const FILTERED_PREFIXES = [
+      '{"name":',
+      "Parsed Tool Call:",
+      "Agent is thinking",
+      "Done thinking",
+    ];
+    const FILTERED_PATTERNS = [
+      /^@\w+ is executing `.+` tool/,
+    ];
 
-            handleSocketResponse(socket, event, setChatHistory, parsed);
-          } catch (e) {
-            console.error("Failed to parse data");
-            window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
-            socket.close();
-          }
-          setLoadingResponse(false);
-        });
+    const isInternalAgentLog =
+      FILTERED_PREFIXES.some((prefix) =>
+        content.trimStart().startsWith(prefix) ||
+        rawData.trimStart().startsWith(prefix)
+      ) ||
+      FILTERED_PATTERNS.some((pattern) =>
+        pattern.test(content) || pattern.test(rawData)
+      ) ||
+      parsed?.type === "agentThought" ||
+      parsed?.type === "toolCall";
+
+    if (isInternalAgentLog) {
+      setLoadingResponse(false);
+      return;
+    }
+    // ─────────────────────────────────────────────────────────────
+
+    if (parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0) {
+      openQuizPanel(parsed.quiz);
+      setMascotExpression(MASCOT_EXPRESSIONS.quizzing);
+      parsed.display_message = `✅ Quiz generated on **${parsed.parameters?.subject || "a subject"}** (${parsed.quiz.questions.length} questions). Click to reopen.`;
+    }
+
+    if (parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0) {
+        setFlashcardData(parsed.flashcards);   // ✅ add this
+  setShowFlashcards(true);               // ✅ add this
+      setMascotExpression(MASCOT_EXPRESSIONS.studying);
+      parsed.display_message = `🎴 Flashcards created — ${parsed.flashcards.cards.length} cards ready. Click to reopen.`;
+    }
+
+    handleSocketResponse(socket, event, setChatHistory, parsed);
+  } catch (e) {
+    console.error("Failed to parse data");
+    window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
+    socket.close();
+  }
+  setLoadingResponse(false);
+});
 
         socket.addEventListener("close", (_event) => {
           window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));

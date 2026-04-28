@@ -26,6 +26,7 @@ const {
 const { WorkspaceChats } = require("../models/workspaceChats");
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
+const { grepAgents } = require("../utils/chats/agents");
 
 function chatEndpoints(app) {
   if (!app) return;
@@ -155,11 +156,6 @@ ${struggledDetail ? `  Struggled questions:\n${struggledDetail}` : "  No struggl
 
   // ============================================================
   // 🧠 SHARED: Intelligent retrieval helper
-  // Used by both workspace and thread endpoints to avoid duplication.
-  //
-  // Returns { enhancedMessage, retrievedContext, retrievalMetadata }
-  // enhancedMessage always contains the full context + original message,
-  // ready to pass directly as the message arg to streamChatWithWorkspace.
   // ============================================================
   async function runIntelligentRetrieval(message, workspace) {
     let enhancedMessage = message;
@@ -204,11 +200,6 @@ ${struggledDetail ? `  Struggled questions:\n${struggledDetail}` : "  No struggl
         retrievalMetadata.method = "intelligent_retrieval";
 
         retrievedContext = formatContextForLLM(results, message);
-
-        // ✅ FIX 1 & 3: Always build enhancedMessage here so both endpoints
-        // can pass it directly as the message arg to streamChatWithWorkspace.
-        // Previously the workspace endpoint passed raw `message` and the thread
-        // endpoint only set enhancedMessage in the legacy fallback path.
         enhancedMessage = `${retrievedContext}\n\n---\n\nStudent Question: ${message}`;
 
         console.log("🎯 Message enhanced with document context");
@@ -218,7 +209,6 @@ ${struggledDetail ? `  Struggled questions:\n${struggledDetail}` : "  No struggl
     } catch (retrievalError) {
       console.error("⚠️ Intelligent retrieval failed:", retrievalError.message);
 
-      // Fallback: legacy question context for specific question queries
       const questionMatch = message.match(/(?:question|q\.?)\s*(\d+)/i);
       if (questionMatch) {
         const questionNum = parseInt(questionMatch[1]);
@@ -313,6 +303,29 @@ ${quizHistory.quizContextBlocks.join("\n\n")}
           });
         }
 
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("Content-Type", "text/event-stream");
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        response.setHeader("Connection", "keep-alive");
+        response.flushHeaders();
+
+        // ✅ FIX: Strip injected prefix tags before passing to grepAgents.
+        // The client prepends tags like [Subject: X] [Grade: Y] to the message
+        // for LLM context, but grepAgents tries to JSON.parse the message which
+        // breaks if those tags are present.
+        const rawMessage = message.replace(/^(\[[^\]]+\]\s*)+/, '').trim();
+
+        const isAgentInvocation = await grepAgents({
+          uuid: uuidv4(),
+          response,
+          message: rawMessage,
+          workspace,
+          user,
+          thread: null,
+        });
+
+        if (isAgentInvocation) return;
+
         // 🧠 Intelligent retrieval
         const { enhancedMessage, retrievedContext, retrievalMetadata } =
           await runIntelligentRetrieval(message, workspace);
@@ -330,12 +343,6 @@ ${quizHistory.quizContextBlocks.join("\n\n")}
           );
         }
 
-        response.setHeader("Cache-Control", "no-cache");
-        response.setHeader("Content-Type", "text/event-stream");
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        response.setHeader("Connection", "keep-alive");
-        response.flushHeaders();
-
         if (multiUserMode(response) && !(await User.canSendChat(user))) {
           writeResponseChunk(response, {
             id: uuidv4(),
@@ -351,7 +358,7 @@ ${quizHistory.quizContextBlocks.join("\n\n")}
         // 📊 Quiz history (passed as extra context, separate from the message)
         const quizHistoryContext = await buildQuizHistoryContext(user?.id);
 
-        // 🎓 Fetch student profile for grade and curriculum (users table has no grade field)
+        // 🎓 Fetch student profile for grade and curriculum
         let studentProfile = null;
         if (user?.id) {
           try {
@@ -362,13 +369,6 @@ ${quizHistory.quizContextBlocks.join("\n\n")}
           } catch (_) {}
         }
 
-        // ✅ FIX 1: Pass enhancedMessage (contains document context + original message)
-        //    as the message arg. Quiz history goes in the extra context arg separately.
-        //    Previously raw `message` was passed here, so context was silently ignored.
-        // Pass original `message` as the prompt — this is what gets saved to WorkspaceChats
-        // and shown in chat history on refresh. The document context + quiz history go
-        // into the extra context arg (8th param) so the LLM sees them but they are never
-        // persisted as the user's prompt.
         const extraContext = [
           quizHistoryContext,
           retrievedContext || "",
@@ -388,6 +388,7 @@ ${quizHistory.quizContextBlocks.join("\n\n")}
         // ============================================================
         // 🧩 TOOL CALL HANDLING
         // ============================================================
+console.log("🔎 DEBUG streamChatWithWorkspace result:", JSON.stringify(result));
 
         if (result?.tool_call === "quiz_create") {
           console.log("⚙️ Tool call detected: quiz_create");
@@ -601,7 +602,7 @@ INSTRUCTIONS:
                 },
                 { role: "user", content: synthesisPrompt },
               ],
-              { temperature: 0.7 }
+              { temperature: 0.1}
             );
 
             const synthesizedText = await LLMConnector.handleStream(response, stream, {
@@ -699,6 +700,10 @@ INSTRUCTIONS:
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
 
+        // ✅ FIX: Strip injected prefix tags before passing to grepAgents.
+        // Already used for agent invocation; also used for thread auto-rename below.
+        const rawMessage = message.replace(/^(\[[^\]]+\]\s*)+/, '').trim();
+
         if (!message?.length) {
           return response.status(400).json({
             id: uuidv4(),
@@ -709,6 +714,23 @@ INSTRUCTIONS:
             error: "Message is empty.",
           });
         }
+
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("Content-Type", "text/event-stream");
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        response.setHeader("Connection", "keep-alive");
+        response.flushHeaders();
+
+        const isAgentInvocation = await grepAgents({
+          uuid: uuidv4(),
+          response,
+          message: rawMessage,  // ✅ stripped message — no prefix tags
+          workspace,
+          user,
+          thread: thread,
+        });
+
+        if (isAgentInvocation) return;
 
         // 🧠 Intelligent retrieval (shared helper — same logic as workspace endpoint)
         const { enhancedMessage, retrievedContext, retrievalMetadata } =
@@ -727,12 +749,6 @@ INSTRUCTIONS:
           );
         }
 
-        response.setHeader("Cache-Control", "no-cache");
-        response.setHeader("Content-Type", "text/event-stream");
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        response.setHeader("Connection", "keep-alive");
-        response.flushHeaders();
-
         if (multiUserMode(response) && !(await User.canSendChat(user))) {
           writeResponseChunk(response, {
             id: uuidv4(),
@@ -748,12 +764,6 @@ INSTRUCTIONS:
         // 📊 Quiz history
         const quizHistoryContext = await buildQuizHistoryContext(user?.id);
 
-        // ✅ FIX 2 & 3: Pass enhancedMessage (document context + message) as the
-        //    message arg. Pass quiz history separately as extra context.
-        //    Previously: thread passed raw enhancedMessage (which was only set in
-        //    fallback path) and dropped retrievedContext entirely.
-        // Same pattern as workspace endpoint: original message saved to DB,
-        // context passed separately so it never appears in chat history.
         const extraContext = [
           quizHistoryContext,
           retrievedContext || "",
@@ -774,7 +784,7 @@ INSTRUCTIONS:
           thread,
           workspace,
           user,
-          newName: truncate(message, 22),
+          newName: truncate(rawMessage, 22),  // ✅ use rawMessage so thread name is clean
           onRename: (thread) => {
             writeResponseChunk(response, {
               action: "rename_thread",

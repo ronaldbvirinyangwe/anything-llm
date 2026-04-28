@@ -15,7 +15,6 @@ const {
 
 const VALID_CHAT_MODE = ["chat", "query"];
 
-// Add this at the top of the file, after the requires
 const AVAILABLE_TOOLS = [
   {
     type: "function",
@@ -101,7 +100,7 @@ async function streamChatWithWorkspace(
   user = null,
   thread = null,
   attachments = [],
-  systemAddition = "" 
+  systemAddition = ""
 ) {
   const uuid = uuidv4();
   const updatedMessage = await grepCommand(message, user);
@@ -170,9 +169,6 @@ async function streamChatWithWorkspace(
     return;
   }
 
-  // If we are here we know that we are in a workspace that is:
-  // 1. Chatting in "chat" mode and may or may _not_ have embeddings
-  // 2. Chatting in "query" mode and has at least 1 embedding
   let completeText;
   let metrics = {};
   let contextTexts = [];
@@ -185,13 +181,11 @@ async function streamChatWithWorkspace(
     messageLimit,
   });
 
-     const visionContext = [];
-  
+  const visionContext = [];
   if (attachments && attachments.length > 0) {
     attachments.forEach((attachment) => {
       if (attachment.analysis) {
-       const text = attachment.analysis.description || attachment.analysis.extractedText;
-        
+        const text = attachment.analysis.description || attachment.analysis.extractedText;
         visionContext.push(`
 [Visual Content Analysis: ${attachment.name}]
 ${text}
@@ -201,18 +195,11 @@ ${text}
     });
   }
 
-  // Add vision analysis to context texts
   if (visionContext.length > 0) {
     console.log(`👁️ Adding ${visionContext.length} vision analyses to context`);
     contextTexts = [...visionContext, ...contextTexts];
   }
-  
-  // Look for pinned documents and see if the user decided to use this feature. We will also do a vector search
-  // as pinning is a supplemental tool but it should be used with caution since it can easily blow up a context window.
-  // However we limit the maximum of appended context to 80% of its overall size, mostly because if it expands beyond this
-  // it will undergo prompt compression anyway to make it work. If there is so much pinned that the context here is bigger than
-  // what the model can support - it would get compressed anyway and that really is not the point of pinning. It is really best
-  // suited for high-context models.
+
   await new DocumentManager({
     workspace,
     maxTokens: LLMConnector.promptWindowLimit(),
@@ -232,7 +219,6 @@ ${text}
       });
     });
 
-  // Inject any parsed files for this workspace/thread/user
   const parsedFiles = await WorkspaceParsedFiles.getContextFiles(
     workspace,
     thread || null,
@@ -265,7 +251,6 @@ ${text}
           message: null,
         };
 
-  // Failed similarity search if it was run at all and failed.
   if (!!vectorSearchResults.message) {
     writeResponseChunk(response, {
       id: uuid,
@@ -286,18 +271,9 @@ ${text}
     filterIdentifiers: pinnedDocIdentifiers,
   });
 
-  // Why does contextTexts get all the info, but sources only get current search?
-  // This is to give the ability of the LLM to "comprehend" a contextual response without
-  // populating the Citations under a response with documents the user "thinks" are irrelevant
-  // due to how we manage backfilling of the context to keep chats with the LLM more correct in responses.
-  // If a past citation was used to answer the question - that is visible in the history so it logically makes sense
-  // and does not appear to the user that a new response used information that is otherwise irrelevant for a given prompt.
-  // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
   contextTexts = [...contextTexts, ...filledSources.contextTexts];
   sources = [...sources, ...vectorSearchResults.sources];
 
-  // If in query mode and no context chunks are found from search, backfill, or pins -  do not
-  // let the LLM try to hallucinate a response or use general knowledge and exit early
   if (chatMode === "query" && contextTexts.length === 0) {
     const textResponse =
       workspace?.queryRefusalResponse ??
@@ -310,7 +286,6 @@ ${text}
       close: true,
       error: null,
     });
-
     await WorkspaceChats.new({
       workspaceId: workspace.id,
       prompt: message,
@@ -328,12 +303,13 @@ ${text}
   }
 
   // Only include web_search if no document context was injected
-const activeTools = systemAddition?.includes("== EXAM PAPER CONTENT ==")
-  ? AVAILABLE_TOOLS.filter(t => t.function.name !== "web_search")
-  : AVAILABLE_TOOLS;
+  const activeTools = systemAddition?.includes("== EXAM PAPER CONTENT ==")
+    ? AVAILABLE_TOOLS.filter(t => t.function.name !== "web_search")
+    : AVAILABLE_TOOLS;
+
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: (await chatPrompt(workspace, user)) + 
+      systemPrompt: (await chatPrompt(workspace, user)) +
                     (systemAddition ? "\n\n" + systemAddition : ""),
       userPrompt: updatedMessage,
       contextTexts,
@@ -343,98 +319,127 @@ const activeTools = systemAddition?.includes("== EXAM PAPER CONTENT ==")
     rawHistory,
   );
 
+  // =========================================================
+  // OPTION B: Tool intent pre-check (non-streaming, fast)
+  // Run a lightweight completion first to detect tool calls
+  // BEFORE opening the stream. This ensures the stream is
+  // never opened/closed before tool results are written.
+  // =========================================================
+  try {
+    console.log("🔍 Running tool intent pre-check...");
+    const { textResponse: intentResponse } = await LLMConnector.getChatCompletion(
+      messages,
+      {
+        temperature: 0,
+        tools: activeTools,
+        tool_choice: "auto",
+        max_tokens: 150, // Only need the tool call decision, not a full reply
+      }
+    );
+
+    // intentResponse may be a raw message object (with tool_calls) or a string
+    const toolCalls =
+      intentResponse?.tool_calls ||                          // object form
+      (Array.isArray(intentResponse) ? intentResponse : null); // array form
+
+    if (toolCalls && toolCalls.length > 0) {
+      const toolCall = toolCalls[0];
+      const toolName = toolCall.function?.name || toolCall.name;
+      const rawArgs = toolCall.function?.arguments || toolCall.arguments || "{}";
+
+      let parsedArgs;
+      try {
+        parsedArgs = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
+      } catch (parseError) {
+        console.error("❌ Failed to parse tool call arguments:", parseError.message);
+        console.error("Raw arguments:", rawArgs);
+        throw new Error(`Invalid tool call arguments: ${parseError.message}`);
+      }
+
+      console.log(`✅ Tool intent detected: ${toolName}`, parsedArgs);
+
+      // Return early — stream has NOT been opened yet.
+      // chat.js will handle writing the response chunks.
+      return {
+        tool_call: toolName,
+        parameters: parsedArgs,
+      };
+    }
+
+    console.log("ℹ️ No tool call detected in pre-check — proceeding with normal stream");
+  } catch (intentError) {
+    // Non-fatal: if the pre-check fails (e.g. model doesn't support tools in
+    // non-streaming mode), log and fall through to normal streaming.
+    console.warn("⚠️ Tool intent pre-check failed, falling back to normal stream:", intentError.message);
+  }
+  // =========================================================
+  // END Option B pre-check
+  // =========================================================
+
   // If streaming is not explicitly enabled for connector
   // we do regular waiting of a response and send a single chunk.
   if (LLMConnector.streamingEnabled() !== true) {
-  console.log(
-    `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming is not available for ${LLMConnector.constructor.name}. Will use regular chat method.`
-  );
-  const { textResponse, metrics: performanceMetrics } =
-    await LLMConnector.getChatCompletion(messages, {
+    console.log(
+      `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming is not available for ${LLMConnector.constructor.name}. Will use regular chat method.`
+    );
+    const { textResponse, metrics: performanceMetrics } =
+      await LLMConnector.getChatCompletion(messages, {
+        temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+      });
+
+    completeText = textResponse;
+    metrics = performanceMetrics;
+
+    writeResponseChunk(response, {
+      uuid,
+      sources,
+      type: "textResponseChunk",
+      textResponse: completeText,
+      close: true,
+      error: false,
+      metrics,
+    });
+  } else {
+    const stream = await LLMConnector.streamGetChatCompletion(messages, {
       temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-      tools: activeTools,  // 👈 ADD THIS
-      tool_choice: "auto",     // 👈 ADD THIS
     });
 
-  // 👇 NEW: Check if textResponse is a message object with tool_calls
-  if (textResponse?.tool_calls && textResponse.tool_calls.length > 0) {
-    const toolCall = textResponse.tool_calls[0];
-    console.log(`🧩 Native tool call detected: ${toolCall.function.name}`);
-    
-    return {
-      tool_call: toolCall.function.name,
-      parameters: JSON.parse(toolCall.function.arguments)
-    };
-  }
-
-  completeText = textResponse;
-  metrics = performanceMetrics;
-  
-  writeResponseChunk(response, {
-    uuid,
-    sources,
-    type: "textResponseChunk",
-    textResponse: completeText,
-    close: true,
-    error: false,
-    metrics,
-  });
-} else {
-  const stream = await LLMConnector.streamGetChatCompletion(messages, {
-    temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-    tools: activeTools,
-    tool_choice: "auto",
-  });
-  
-  const result = await LLMConnector.handleStream(response, stream, {
-    uuid,
-    sources,
-  });
-  
-  // 👇 NEW: Check if result contains tool_calls
-  if (result && typeof result === 'object' && result.tool_calls && result.tool_calls.length > 0) {
-    const toolCall = result.tool_calls[0];
-    console.log(`🧩 Native tool call detected (streamed): ${toolCall.function.name}`);
-    
-    // 🔧 FIX: Don't parse here - arguments should already be a string
-    // The handleStream method should have accumulated all chunks
-    let parsedArgs;
-    try {
-      parsedArgs = typeof toolCall.function.arguments === 'string' 
-        ? JSON.parse(toolCall.function.arguments)
-        : toolCall.function.arguments;
-    } catch (parseError) {
-      console.error("Failed to parse tool arguments:", parseError);
-      console.log("Raw arguments:", toolCall.function.arguments);
-      throw new Error(`Invalid tool call arguments: ${parseError.message}`);
-    }
-    
-    return {
-      tool_call: toolCall.function.name,
-      parameters: parsedArgs
-    };
-  }
-  
-  completeText = typeof result === 'string' ? result : result.fullText || result;
-  metrics = stream.metrics;
-}
-if (completeText?.length > 0) {
-  // 🧠 Save chat
-  const { chat } = await WorkspaceChats.new({
-    workspaceId: workspace.id,
-    prompt: message,
-    response: {
-      text: completeText,
+    const result = await LLMConnector.handleStream(response, stream, {
+      uuid,
       sources,
-      type: chatMode,
-      attachments,
-      metrics,
-    },
-    threadId: thread?.id || null,
-    user,
-  });
+    });
 
-  // ✅ Stream a normal completion
+    completeText = typeof result === "string" ? result : result?.fullText || result;
+    metrics = stream.metrics;
+  }
+
+  if (completeText?.length > 0) {
+    await WorkspaceChats.new({
+      workspaceId: workspace.id,
+      prompt: message,
+      response: {
+        text: completeText,
+        sources,
+        type: chatMode,
+        attachments,
+        metrics,
+      },
+      threadId: thread?.id || null,
+      user,
+    });
+
+    writeResponseChunk(response, {
+      uuid,
+      type: "finalizeResponseStream",
+      close: true,
+      error: false,
+      metrics,
+    });
+
+    return { text: completeText };
+  }
+
+  // Fallback finalize
   writeResponseChunk(response, {
     uuid,
     type: "finalizeResponseStream",
@@ -442,32 +447,7 @@ if (completeText?.length > 0) {
     error: false,
     metrics,
   });
-
-  // ✅ Try to detect tool_call JSON (e.g. { "tool_call": "quiz_create", ... })
-  let parsedResponse = {};
-  try {
-    parsedResponse = JSON.parse(completeText);
-  } catch {
-    parsedResponse = { text: completeText };
-  }
-
-  // If it contains a tool_call, return it so chatEndpoints can trigger that flow
-  if (parsedResponse?.tool_call) {
-    console.log(`🧩 Detected tool call: ${parsedResponse.tool_call}`);
-  }
-
-  return parsedResponse;
-}
-
-// fallback finalize
-writeResponseChunk(response, {
-  uuid,
-  type: "finalizeResponseStream",
-  close: true,
-  error: false,
-  metrics,
-});
-return;
+  return;
 }
 
 module.exports = {
