@@ -20,7 +20,12 @@ import { useNavigate } from "react-router-dom";
 import './notification.css';
 import { useVirtualizer } from "@tanstack/react-virtual";
 import  { MascotWithBubble, ChikoroMascot, MascotSpeechBubble, MASCOT_EXPRESSIONS } from "@/components/ChikoroMascot";
-import { ThoughtChainComponent, THOUGHT_REGEX_OPEN } from "../ChatHistory/ThoughtContainer/index";
+import {
+  ThoughtChainComponent,
+  THOUGHT_REGEX_OPEN,
+  THOUGHT_REGEX_CLOSE,
+  THOUGHT_REGEX_COMPLETE,
+} from "./ThoughtContainer/index";
 
 // ═══════════════════════════════════════════════════════════════
 // NOTIFICATION MESSAGE — now with mascot based on notification type
@@ -422,7 +427,7 @@ function buildMessages({
 
     if (props.type === "rechartVisualize" && !!props.content) {
       acc.push(
-        <Chartable key={props.uuid} workspace={workspace} props={props} />
+      <Chartable key={`chart-${props.uuid}`} workspace={workspace} props={props} />
       );
     } else if (isLastBotReply && props.animate) {
   const mascotExpr = (!props.content || props.pending)
@@ -430,6 +435,15 @@ function buildMessages({
     : MASCOT_EXPRESSIONS.explaining;
 
   const hasThought = props.content && THOUGHT_REGEX_OPEN.test(props.content);
+
+  // Strip thought tags so PromptReply only gets the response body
+  const replyContent = hasThought
+    ? props.content
+        .replace(THOUGHT_REGEX_COMPLETE, "")          // remove complete <thought>...</thought>
+        .replace(THOUGHT_REGEX_OPEN, "")              // remove dangling open tags (mid-stream)
+        .replace(THOUGHT_REGEX_CLOSE, "")             // remove dangling close tags
+        .trim()
+    : props.content;
 
   acc.push(
     <div key={`mascot-reply-${props.uuid}`}>
@@ -442,18 +456,16 @@ function buildMessages({
         />
       </div>
 
-      {/* 🧠 Show thought chain if model is reasoning */}
       {hasThought && (
         <ThoughtChainComponent
-          content={props.content}
+          content={props.content}   // full content — ThoughtChainComponent handles extraction
           expanded={false}
         />
       )}
 
       <PromptReply
-        key={props.uuid || `reply-${index}`}
         uuid={props.uuid}
-        reply={props.content}
+        reply={replyContent}        // ✅ thought-stripped content only
         pending={props.pending}
         sources={props.sources}
         error={props.error}
@@ -472,12 +484,6 @@ function buildMessages({
       title={isClickable ? "Click to reopen" : undefined}
     >
       {/* 🧠 Show completed thought chain for assistant messages */}
-      {props.role === "assistant" && hasThought && (
-        <ThoughtChainComponent
-          content={props.content}
-          expanded={false}
-        />
-      )}
       <HistoricalMessage
             message={props.content}
             role={props.role}

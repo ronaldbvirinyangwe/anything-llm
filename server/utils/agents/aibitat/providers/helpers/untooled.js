@@ -228,6 +228,11 @@ const call = extractJsonFromText(textResponse);
     }
 
     eventHandler?.("reportStreamEvent", {
+  type: "removeStatusResponse",
+  uuid: msgUUID,
+  content: "Tool call identified.",
+});
+    eventHandler?.("reportStreamEvent", {
       uuid: `${msgUUID}:tool_call_invocation`,
       type: "toolCallInvocation",
       content: `Parsed Tool Call: ${call.name}(${JSON.stringify(call.arguments)})`,

@@ -6,4 +6,5 @@ export {
   getQuizExpression,
   FloatingMascot,
   getFlashcardExpression,
+  TOOL_MASCOT_STATE,
 } from "./ChikoroMascot";

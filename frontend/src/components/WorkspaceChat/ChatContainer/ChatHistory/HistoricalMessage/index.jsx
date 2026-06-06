@@ -10,16 +10,21 @@ import DOMPurify from "@/utils/chat/purify";
 import { EditMessageForm, useEditMessage } from "./Actions/EditMessage";
 import { useWatchDeleteMessage } from "./Actions/DeleteMessage";
 import TTSMessage from "./Actions/TTSButton";
-import {
-  THOUGHT_REGEX_CLOSE,
-  THOUGHT_REGEX_COMPLETE,
-  THOUGHT_REGEX_OPEN,
-  ThoughtChainComponent,
-} from "../ThoughtContainer";
+import { 
+  ThoughtChainComponent, 
+  THOUGHT_REGEX_OPEN, 
+  THOUGHT_REGEX_CLOSE, 
+  THOUGHT_REGEX_COMPLETE 
+} from "../ThoughtContainer/index";
 import paths from "@/utils/paths";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { chatQueryRefusalResponse } from "@/utils/chat";
+import StudyPlannerForm from "@/components/StudyPlannerForm/StudyPlannerForm";
+import FollowUpQuestions from "@/components/FollowUpQuestions/FollowUpQuestions";
+
+const FORM_PREFIX = "STUDY_PLAN_FORM::";
+const FOLLOW_UP_PREFIX = "FOLLOW_UP_QUESTIONS::";
 
 const HistoricalMessage = ({
   uuid = v4(),
@@ -118,31 +123,30 @@ const HistoricalMessage = ({
               <RenderChatContent
                 role={role}
                 message={message}
-                expanded={isLastMessage}
+                expanded={false}
               />
               {tool_call === "quiz_create" && quizData && (
-  <button
-    onClick={() => window.dispatchEvent(
-      new CustomEvent("QUIZ_CREATED", { detail: { quiz: quizData } })
-    )}
-    className="flex items-center gap-x-2 bg-purple-600 hover:bg-purple-700
-               text-white px-4 py-2 rounded-lg text-sm font-medium transition"
-  >
-    📝 View Quiz — {quizData.topic || quizData.subject || "Quiz"}
-  </button>
-)}
-
-{tool_call === "flashcard_create" && flashcardData && (
-  <button
-    onClick={() => window.dispatchEvent(
-      new CustomEvent("FLASHCARD_CREATED", { detail: { flashcards: flashcardData } })
-    )}
-    className="flex items-center gap-x-2 bg-blue-600 hover:bg-blue-700
-               text-white px-4 py-2 rounded-lg text-sm font-medium transition"
-  >
-    🎴 View Flashcards — {flashcardData.topic || flashcardData.subject || "Flashcards"}
-  </button>
-)}
+                <button
+                  onClick={() => window.dispatchEvent(
+                    new CustomEvent("QUIZ_CREATED", { detail: { quiz: quizData } })
+                  )}
+                  className="flex items-center gap-x-2 bg-purple-600 hover:bg-purple-700
+                             text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+                >
+                  📝 View Quiz — {quizData.topic || quizData.subject || "Quiz"}
+                </button>
+              )}
+              {tool_call === "flashcard_create" && flashcardData && (
+                <button
+                  onClick={() => window.dispatchEvent(
+                    new CustomEvent("FLASHCARD_CREATED", { detail: { flashcards: flashcardData } })
+                  )}
+                  className="flex items-center gap-x-2 bg-blue-600 hover:bg-blue-700
+                             text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+                >
+                  🎴 View Flashcards — {flashcardData.topic || flashcardData.subject || "Flashcards"}
+                </button>
+              )}
               {isRefusalMessage && (
                 <Link
                   data-tooltip-id="query-refusal-info"
@@ -260,10 +264,46 @@ const RenderChatContent = memo(
       );
     }
 
+    if (!message) return null;
+
+    // 🎓 Study planner form — render interactive form instead of raw text
+    if (typeof message === "string" && message.startsWith(FORM_PREFIX)) {
+      let prefill = {};
+      try {
+        prefill = JSON.parse(message.slice(FORM_PREFIX.length)).prefill ?? {};
+      } catch (_) {}
+      return (
+        <StudyPlannerForm
+          prefill={prefill}
+          onSubmit={(prompt) =>
+            window.dispatchEvent(
+              new CustomEvent("SEND_CHAT_MESSAGE", { detail: { prompt } })
+            )
+          }
+        />
+      );
+    }
+
+    if (typeof message === "string" && message.startsWith(FOLLOW_UP_PREFIX)) {
+  let payload = { questions: [], subject: null };
+  try {
+    payload = JSON.parse(message.slice(FOLLOW_UP_PREFIX.length));
+  } catch (_) {}
+  return (
+    <FollowUpQuestions
+      questions={payload.questions}
+      subject={payload.subject}
+      onSelect={(question) =>
+        window.dispatchEvent(
+          new CustomEvent("SEND_CHAT_MESSAGE", { detail: { prompt: question } })
+        )
+      }
+    />
+  );
+}
+
     let thoughtChain = null;
     let msgToRender = message;
-
-    if (!message) return null;
 
     // 🧩 Try parsing JSON (tool calls, structured messages, etc.)
     let displayMsg = null;
@@ -297,9 +337,7 @@ const RenderChatContent = memo(
       if (msgToRender.match(THOUGHT_REGEX_COMPLETE)) {
         thoughtChain = msgToRender.match(THOUGHT_REGEX_COMPLETE)?.[0];
         msgToRender = msgToRender.replace(THOUGHT_REGEX_COMPLETE, "");
-      }
-
-      if (
+      } else if (
         msgToRender.match(THOUGHT_REGEX_OPEN) &&
         msgToRender.match(THOUGHT_REGEX_CLOSE)
       ) {

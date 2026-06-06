@@ -30,10 +30,10 @@ class OllamaAILLM {
     this.visionBasePath =
       process.env.VLLM_VISION_BASE_PATH || this.basePath;
 
-    this.keepAlive = Number(process.env.OLLAMA_KEEP_ALIVE_TIMEOUT || 300);
+    this.keepAlive = Number(process.env.OLLAMA_KEEP_ALIVE_TIMEOUT || 3000);
     this.defaultTemp = 0.3;
     this.contextWindow =
-      Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT) || 8192;
+      Number(process.env.OLLAMA_MODEL_TOKEN_LIMIT) || 128000;
 
     this.client = new OpenAI({
       baseURL: this.basePath,

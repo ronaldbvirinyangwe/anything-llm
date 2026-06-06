@@ -390,6 +390,7 @@ ${quizHistory.quizContextBlocks.join("\n\n")}
         // ============================================================
 console.log("🔎 DEBUG streamChatWithWorkspace result:", JSON.stringify(result));
 
+
         if (result?.tool_call === "quiz_create") {
           console.log("⚙️ Tool call detected: quiz_create");
           writeResponseChunk(response, {
@@ -502,7 +503,7 @@ console.log("🔎 DEBUG streamChatWithWorkspace result:", JSON.stringify(result)
               role: "assistant",
               tool_call: "flashcard_create",
               flashcards: flashcardData.flashcards || {},
-              savedFlashcardSetId: flashcardData.savedFlashcardSetId ?? null,
+              savedFlashcardSetId: flashcardData.savedFlashcardSetId ?? null, 
               close: false,
             });
             writeResponseChunk(response, {
@@ -769,7 +770,7 @@ INSTRUCTIONS:
           retrievedContext || "",
         ].filter(Boolean).join("\n\n");
 
-        await streamChatWithWorkspace(
+        const result = await streamChatWithWorkspace(
           response,
           workspace,
           message,                // ← saved to DB: clean original message only

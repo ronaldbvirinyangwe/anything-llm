@@ -249,7 +249,7 @@ export function chatPrompt(workspace, profile = {}) {
 - Name: ${name}
 - Curriculum: ${curriculum}
 - Academic Level: ${academicLevel}
-- Grade: ${grade}
+- Level: ${grade}
 - Age: ${age} years
 
 ### Core Role

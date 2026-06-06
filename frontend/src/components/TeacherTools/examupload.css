@@ -502,3 +502,39 @@
   .eu-act-btn { width: 100%; justify-content: center; }
   .eu-results-header { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
 }
+/* ── Question type: left border colours ─────────────────────── */
+.eu-question-card.structured    { border-left: 4px solid #8b5cf6; }
+.eu-question-card.multiple-choice { border-left: 4px solid #3b82f6; }
+.eu-question-card.fill-blank    { border-left: 4px solid #f59e0b; }
+.eu-question-card.true-false    { border-left: 4px solid #10b981; }
+.eu-question-card.data-response { border-left: 4px solid #06b6d4; }
+.eu-question-card.essay         { border-left: 4px solid #ec4899; }
+.eu-question-card.matching      { border-left: 4px solid #f97316; }
+
+/* ── Type badge colours ──────────────────────────────────────── */
+.eu-badge.type-structured     { background: #f3e8ff; color: #7e22ce; }
+.eu-badge.type-multiple-choice { background: #dbeafe; color: #1d4ed8; }
+.eu-badge.type-fill-blank     { background: #fef3c7; color: #b45309; }
+.eu-badge.type-true-false     { background: #d1fae5; color: #065f46; }
+.eu-badge.type-data-response  { background: #cffafe; color: #0e7490; }
+.eu-badge.type-essay          { background: #fce7f3; color: #9d174d; }
+.eu-badge.type-matching       { background: #ffedd5; color: #c2410c; }
+.eu-question-body {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  font-size: 0.93rem;
+  color: #334155;
+  line-height: 1.6;
+}
+
+/* Figure reference callout */
+.eu-question-body p:has(> em) {
+  padding: 0.5rem 0.75rem;
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  font-size: 0.88rem;
+  color: #92400e;
+}

@@ -9,9 +9,17 @@ export default function StatusResponse({ messages = [], isThinking = false }) {
   const currentThought = messages[messages.length - 1];
   const previousThoughts = messages.slice(0, -1);
 
-  function handleExpandClick() {
-    if (!previousThoughts.length > 0) return;
-    setIsExpanded(!isExpanded);
+ function handleExpandClick() {
+  if (previousThoughts.length === 0) return;
+  setIsExpanded(!isExpanded);
+}
+
+  // Add this helper at the top of StatusResponse.jsx
+  function stripThoughtTags(content = "") {
+    return content
+      .replace(/<thought[^>]*>/gi, "")
+      .replace(/<\/thought>/gi, "")
+      .trim();
   }
 
   return (
@@ -55,8 +63,9 @@ export default function StatusResponse({ messages = [], isThinking = false }) {
                 <div className="text-theme-text-secondary font-mono leading-6">
                   {!isExpanded ? (
                     <span className="block w-full truncate mt-[2px]">
-                      {currentThought.content}
+                      {stripThoughtTags(currentThought.content)}
                     </span>
+
                   ) : (
                     <>
                       {previousThoughts.map((thought, index) => (
@@ -64,10 +73,10 @@ export default function StatusResponse({ messages = [], isThinking = false }) {
                           key={`cot-${thought.uuid || index}`}
                           className="mb-2"
                         >
-                          {thought.content}
+                          {stripThoughtTags(thought.content)}
                         </div>
                       ))}
-                      <div>{currentThought.content}</div>
+                      <div>{stripThoughtTags(currentThought.content)}</div>
                     </>
                   )}
                 </div>

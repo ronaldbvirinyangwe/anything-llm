@@ -1,10 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
+import katex from "katex";
 import "katex/dist/katex.min.css";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -15,66 +12,142 @@ import {
 import ClassSelectorModal from "./ClassSelectorModal";
 import "./quizgenerator.css";
 
-// Reusable component to render text with LaTeX math
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Returns true only when the string contains proper LaTeX math delimiters */
+const hasMath = (text) =>
+  /\$[^\$\n]+\$|\$\$[\s\S]+?\$\$|\\\(|\\\[/.test(text ?? "");
+
+/**
+ * Normalise LaTeX delimiters:
+ *   \(...\)  →  $...$
+ *   \[...\]  →  $$...$$
+ *   bare (expr containing \command)  →  $expr$
+ */
+const normaliseMath = (text) => {
+  if (!text) return text;
+  let out = text;
+
+  // \(...\) → $...$
+  out = out.replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `$${m}$`);
+  // \[...\] → $$...$$
+  out = out.replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `$$${m}$$`);
+  // bare (expr) containing any \command → inline math
+  out = out.replace(
+    /\(([^()]*?\\[a-zA-Z]+[^()]*?)\)/g,
+    (_, inner) => `$${inner}$`
+  );
+
+  return out;
+};
+
+// ─── Direct KaTeX renderer (bypasses remark-math pipeline) ──────────────────
+
+/**
+ * Splits text on $...$ and $$...$$ tokens and renders each with KaTeX directly.
+ * This avoids the remark-math / rehype-katex pipeline which silently drops
+ * content containing backslash-space (e.g. $30\ \text{km}$).
+ */
 function MathText({ text }) {
   if (!text) return null;
-  let processed = text;
-  processed = processed.replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `$${m}$`);
-  processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `$$${m}$$`);
-  processed = processed.replace(
-    /\(([^)]*(?:\\[a-zA-Z]+|[_^{}\d])[^)]*)\)/g,
-    (match, inner) => {
-      if (/\\[a-zA-Z]+|[_^]|\{.*\}/.test(inner)) {
-        return `$${inner}$`;
-      }
-      return match;
-    }
-  );
+  const normalized = normaliseMath(text);
+
+  // Split into alternating plain / $math$ / $$math$$ segments
+  const parts = normalized.split(/(\$\$[\s\S]*?\$\$|\$[^\$\n]+?\$)/g);
+
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkMath]}
-      rehypePlugins={[rehypeKatex]}
-      components={{ p: ({ children }) => <span>{children}</span> }}
-    >
-      {processed}
-    </ReactMarkdown>
+    <span style={{ textTransform: "none" }}>
+      {parts.map((part, i) => {
+        // Block math $$...$$
+        if (part.startsWith("$$") && part.endsWith("$$") && part.length > 4) {
+          try {
+            return (
+              <span
+                key={i}
+                dangerouslySetInnerHTML={{
+                  __html: katex.renderToString(part.slice(2, -2), {
+                    displayMode: true,
+                    throwOnError: false,
+                  }),
+                }}
+              />
+            );
+          } catch {
+            return <span key={i}>{part}</span>;
+          }
+        }
+        // Inline math $...$
+        if (part.startsWith("$") && part.endsWith("$") && part.length > 2) {
+          try {
+            return (
+              <span
+                key={i}
+                dangerouslySetInnerHTML={{
+                  __html: katex.renderToString(part.slice(1, -1), {
+                    throwOnError: false,
+                  }),
+                }}
+              />
+            );
+          } catch {
+            return <span key={i}>{part}</span>;
+          }
+        }
+        // Plain text — preserve line breaks
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
   );
 }
 
+/**
+ * Block renderer for multi-line content (mark schemes, etc.).
+ * Splits on newlines and renders each line through MathText.
+ */
 function MathMarkdown({ children }) {
   if (!children) return null;
-  let processed = children;
-  processed = processed.replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `$${m}$`);
-  processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `$$${m}$$`);
-  processed = processed.replace(
-    /\(([^)]*(?:\\[a-zA-Z]+|[_^{}\d])[^)]*)\)/g,
-    (match, inner) => {
-      if (/\\[a-zA-Z]+|[_^]|\{.*\}/.test(inner)) {
-        return `$${inner}$`;
-      }
-      return match;
-    }
-  );
+  const lines = normaliseMath(children).split("\n");
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-      {processed}
-    </ReactMarkdown>
+    <div>
+      {lines.map((line, i) => (
+        <p key={i} style={{ margin: "0.3rem 0" }}>
+          <MathText text={line} />
+        </p>
+      ))}
+    </div>
   );
 }
+
+/** Small preview box shown beneath an input when the value contains math */
+function MathPreview({ text, block = false }) {
+  if (!text || !hasMath(text)) return null;
+  return (
+    <div className="math-preview">
+      <span className="math-preview-label">Preview:</span>
+      {block ? <MathMarkdown>{text}</MathMarkdown> : <MathText text={text} />}
+    </div>
+  );
+}
+
+// ─── Question action buttons ─────────────────────────────────────────────────
 
 function QuestionActions({ item, idx, isRegenerating, onStartEdit, onRegenerate }) {
   return (
     <div className="question-actions">
       <button className="edit-btn" onClick={() => onStartEdit(idx, item)} disabled={isRegenerating}>
-        <FiEdit2 style={{ marginRight: '6px' }} /> Edit Question
+        <FiEdit2 style={{ marginRight: "6px" }} /> Edit Question
       </button>
       <button className="regen-btn" onClick={() => onRegenerate(idx, item)} disabled={isRegenerating}>
-        {isRegenerating ? <span className="spinner" style={{ borderTopColor: '#2563eb', width: '14px', height: '14px', display: 'inline-block' }}></span> : <FiRefreshCw style={{ marginRight: '6px' }} />} 
-        {isRegenerating ? ' Regenerating...' : ' Regenerate with AI'}
+        {isRegenerating
+          ? <span className="spinner" style={{ borderTopColor: "#2563eb", width: "14px", height: "14px", display: "inline-block" }} />
+          : <FiRefreshCw style={{ marginRight: "6px" }} />}
+        {isRegenerating ? " Regenerating..." : " Regenerate with AI"}
       </button>
     </div>
   );
 }
+
+// ─── Question card (view + edit modes) ──────────────────────────────────────
 
 function QuestionCard({
   item, idx, editingIndex, editForm, setEditForm,
@@ -83,6 +156,7 @@ function QuestionCard({
   const isEditing = editingIndex === idx;
   const isRegenerating = regeneratingIndex === idx;
 
+  // ── Edit mode ──
   if (isEditing && editForm) {
     return (
       <div className="quiz-question-card editing">
@@ -92,6 +166,8 @@ function QuestionCard({
         </div>
 
         <div className="edit-form">
+
+          {/* Question text */}
           <div className="form-group">
             <label>Question Text</label>
             <textarea
@@ -99,14 +175,16 @@ function QuestionCard({
               onChange={(e) => setEditForm({ ...editForm, question: e.target.value })}
               rows="3"
             />
+            <MathPreview text={editForm.question} />
           </div>
 
-          {editForm.type === 'multiple-choice' ? (
+          {editForm.type === "multiple-choice" ? (
             <>
+              {/* Options */}
               <div className="form-group">
                 <label>Options</label>
                 {editForm.options.map((opt, i) => (
-                  <div key={i} style={{ marginBottom: '10px' }}>
+                  <div key={i} style={{ marginBottom: "10px" }}>
                     <input
                       type="text"
                       value={opt}
@@ -117,13 +195,16 @@ function QuestionCard({
                         setEditForm({ ...editForm, options: newOptions });
                       }}
                     />
+                    <MathPreview text={opt} />
                   </div>
                 ))}
               </div>
+
+              {/* Correct answer selector */}
               <div className="form-group">
                 <label>Correct Answer</label>
                 <select
-                  value={editForm.answer || 'A'}
+                  value={editForm.answer || "A"}
                   onChange={(e) => setEditForm({ ...editForm, answer: e.target.value })}
                 >
                   <option value="A">A</option>
@@ -134,6 +215,7 @@ function QuestionCard({
               </div>
             </>
           ) : (
+            /* Mark scheme */
             <div className="form-group">
               <label>Mark Scheme / Expected Answer</label>
               <textarea
@@ -141,15 +223,24 @@ function QuestionCard({
                 onChange={(e) => setEditForm({ ...editForm, markScheme: e.target.value })}
                 rows="5"
               />
+              <MathPreview text={editForm.markScheme} block />
             </div>
           )}
         </div>
 
-        <div className="question-actions" style={{ borderTop: 'none', padding: 0 }}>
-          <button onClick={() => onSaveEdit(idx)} className="action-btn save" style={{ flex: 1, justifyContent: 'center' }}>
+        <div className="question-actions" style={{ borderTop: "none", padding: 0 }}>
+          <button
+            onClick={() => onSaveEdit(idx)}
+            className="action-btn save"
+            style={{ flex: 1, justifyContent: "center" }}
+          >
             <FiCheck /> Save
           </button>
-          <button onClick={onCancelEdit} className="action-btn" style={{ flex: 1, justifyContent: 'center', background: '#fee2e2', color: '#dc2626' }}>
+          <button
+            onClick={onCancelEdit}
+            className="action-btn"
+            style={{ flex: 1, justifyContent: "center", background: "#fee2e2", color: "#dc2626" }}
+          >
             <FiX /> Cancel
           </button>
         </div>
@@ -157,18 +248,19 @@ function QuestionCard({
     );
   }
 
+  // ── View mode ──
   return (
-    <div className={`quiz-question-card ${item.type === 'structured' ? 'structured' : ''}`}>
+    <div className={`quiz-question-card ${item.type === "structured" ? "structured" : ""}`}>
       <div className="question-header">
         <div style={{ flex: 1 }}>
-          <span className={`question-badge ${item.type === 'structured' ? 'structured-badge' : ''}`}>
-            {item.type === 'multiple-choice' ? 'Multiple Choice' : 'Structured'}
+          <span className={`question-badge ${item.type === "structured" ? "structured-badge" : ""}`}>
+            {item.type === "multiple-choice" ? "Multiple Choice" : "Structured"}
           </span>
           <h3>{idx + 1}. <MathText text={item.question} /></h3>
         </div>
       </div>
 
-      {item.type === 'multiple-choice' ? (
+      {item.type === "multiple-choice" ? (
         <>
           <ul className="option-list">
             {item.options.map((opt, i) => (
@@ -193,6 +285,7 @@ function QuestionCard({
           </div>
         )
       )}
+
       <QuestionActions
         item={item} idx={idx} isRegenerating={isRegenerating}
         onStartEdit={onStartEdit} onRegenerate={onRegenerate}
@@ -200,6 +293,8 @@ function QuestionCard({
     </div>
   );
 }
+
+// ─── Main component ──────────────────────────────────────────────────────────
 
 export default function QuizGenerator() {
   const [form, setForm] = useState({
@@ -219,123 +314,275 @@ export default function QuizGenerator() {
   const [selectedClassIdx, setSelectedClassIdx] = useState(null);
   const [shareNotice, setShareNotice] = useState("");
 
+  // Fetch teacher's classes
   useEffect(() => {
     const fetchClasses = async () => {
       try {
         const token = localStorage.getItem("chikoroai_authToken");
         const user = JSON.parse(localStorage.getItem("chikoroai_user"));
-        const res = await axios.get(`https://api.chikoro-ai.com/api/system/teacher/my-students/${user.id}`, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await axios.get(
+          `https://api.chikoro-ai.com/api/system/teacher/my-students/${user.id}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
         if (res.data.success) {
-          const uniqueSubjects = [...new Set(res.data.students.map(s => s.subject))];
-          setClasses(uniqueSubjects.map(subject => ({ subject, students: res.data.students.filter(s => s.subject === subject) })));
+          const uniqueSubjects = [...new Set(res.data.students.map((s) => s.subject))];
+          setClasses(
+            uniqueSubjects.map((subject) => ({
+              subject,
+              students: res.data.students.filter((s) => s.subject === subject),
+            }))
+          );
         }
-      } catch (err) { console.error("Error fetching classes:", err); }
+      } catch (err) {
+        console.error("Error fetching classes:", err);
+      }
     };
     fetchClasses();
   }, []);
 
-  useEffect(() => { if (quiz) setParsedQuestions(parseQuiz(quiz)); }, [quiz]);
+  // Re-parse whenever the raw quiz string changes
+  useEffect(() => {
+    if (quiz) setParsedQuestions(parseQuiz(quiz));
+  }, [quiz]);
 
-  const cleanQuizText = (raw) => raw.replace(/^.*?(?:here'?s?|here is).*?quiz.*?:/i, '').replace(/^(sure|certainly|okay|alright)[!,.\s]*/i, '').replace(/```.*?```/gs, '').trim();
+  // ── Quiz text helpers ──
+
+  const cleanQuizText = (raw) =>
+    raw
+      .replace(/^.*?(?:here'?s?|here is).*?quiz.*?:/i, "")
+      .replace(/^(sure|certainly|okay|alright)[!,.\s]*/i, "")
+      .replace(/```.*?```/gs, "")
+      .trim();
 
   const parseQuiz = (raw) => {
     const cleaned = cleanQuizText(raw);
     const blocks = cleaned.split(/(?=\d+\.\s+)/);
     const parsed = [];
-    blocks.forEach(block => {
+
+    blocks.forEach((block) => {
       if (!block.trim()) return;
-      const lines = block.split('\n').filter(l => l.trim());
+      const lines = block.split("\n").filter((l) => l.trim());
       const qMatch = lines[0].match(/^(\d+)\.\s+(.+)/);
       if (!qMatch) return;
-      const hasOptions = lines.some(line => /^[A-D]\)/.test(line.trim()));
+
+      const hasOptions = lines.some((line) => /^[A-D]\)/.test(line.trim()));
+
       if (hasOptions) {
-        const options = lines.filter(line => /^[A-D]\)/.test(line.trim()));
-        const ansLine = lines.find(line => /\*?\*?Answer:\s*([A-D])/i.test(line));
-        parsed.push({ type: 'multiple-choice', question: qMatch[2].trim(), options, answer: ansLine?.match(/Answer:\s*([A-D])/i)?.[1], raw: block.trim() });
-      } else {
-        const msIdx = lines.findIndex(line => /^(Mark Scheme|Answer|Expected Answer|Marking Points?):/i.test(line));
+        const options = lines.filter((line) => /^[A-D]\)/.test(line.trim()));
+        const ansLine = lines.find((line) => /\*?\*?Answer:\s*([A-D])/i.test(line));
         parsed.push({
-          type: 'structured',
-          question: msIdx > 0 ? lines.slice(0, msIdx).join('\n').replace(/^\d+\.\s+/, '') : qMatch[2].trim(),
-          markScheme: msIdx > 0 ? lines.slice(msIdx).join('\n') : (lines.slice(1).join('\n') || 'No mark scheme provided'),
-          raw: block.trim()
+          type: "multiple-choice",
+          question: qMatch[2].trim(),
+          options,
+          answer: ansLine?.match(/Answer:\s*([A-D])/i)?.[1],
+          raw: block.trim(),
+        });
+      } else {
+        const msIdx = lines.findIndex((line) =>
+          /^(Mark Scheme|Answer|Expected Answer|Marking Points?):/i.test(line)
+        );
+        parsed.push({
+          type: "structured",
+          question:
+            msIdx > 0
+              ? lines.slice(0, msIdx).join("\n").replace(/^\d+\.\s+/, "")
+              : qMatch[2].trim(),
+          markScheme:
+            msIdx > 0
+              ? lines.slice(msIdx).join("\n")
+              : lines.slice(1).join("\n") || "No mark scheme provided",
+          raw: block.trim(),
         });
       }
     });
+
     return parsed;
   };
 
-  const reconstructQuiz = (questions) => questions.map((q, i) => q.type === 'multiple-choice' ? `${i + 1}. ${q.question}\n${q.options.join('\n')}${q.answer ? `\nAnswer: ${q.answer}` : ''}` : `${i + 1}. ${q.question}\n${q.markScheme}`).join('\n\n');
+  const reconstructQuiz = (questions) =>
+    questions
+      .map((q, i) =>
+        q.type === "multiple-choice"
+          ? `${i + 1}. ${q.question}\n${q.options.join("\n")}${q.answer ? `\nAnswer: ${q.answer}` : ""}`
+          : `${i + 1}. ${q.question}\n${q.markScheme}`
+      )
+      .join("\n\n");
+
+  // ── Form submit ──
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true); setQuiz(""); setError("");
     try {
       const token = localStorage.getItem("chikoroai_authToken");
-      const res = await axios.post("https://api.chikoro-ai.com/api/system/teacher/generate-quiz", { ...form, numQuestions: form.numQuestions || 10, tabLimit: form.tabLimit || 1, timeLimit: form.timeLimit || 0 }, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.post(
+        "https://api.chikoro-ai.com/api/system/teacher/generate-quiz",
+        { ...form, numQuestions: form.numQuestions || 10, tabLimit: form.tabLimit || 1, timeLimit: form.timeLimit || 0 },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       if (res.data.success) setQuiz(res.data.quiz);
       else setError(res.data.error || "Failed to generate quiz.");
-    } catch (err) { setError("Error generating quiz."); } finally { setLoading(false); }
+    } catch {
+      setError("Error generating quiz.");
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // ── Edit handlers ──
 
   const startEdit = (idx, item) => {
     setEditingIndex(idx);
-    setEditForm(item.type === 'multiple-choice' ? { type: 'multiple-choice', question: item.question, options: item.options.map(o => o.replace(/^[A-D]\)\s*/, '')), answer: item.answer } : { type: 'structured', question: item.question, markScheme: item.markScheme.replace(/^(Mark Scheme|Answer|Expected Answer|Marking Points?):\s*/i, '') });
+    setEditForm(
+      item.type === "multiple-choice"
+        ? {
+            type: "multiple-choice",
+            question: item.question,
+            options: item.options.map((o) => o.replace(/^[A-D]\)\s*/, "")),
+            answer: item.answer,
+          }
+        : {
+            type: "structured",
+            question: item.question,
+            markScheme: item.markScheme.replace(
+              /^(Mark Scheme|Answer|Expected Answer|Marking Points?):\s*/i,
+              ""
+            ),
+          }
+    );
   };
 
   const handleSaveEdit = (idx) => {
     if (!editForm) return;
     const updated = [...parsedQuestions];
-    updated[idx] = editForm.type === 'multiple-choice' 
-      ? { ...updated[idx], question: editForm.question, options: editForm.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`), answer: editForm.answer }
-      : { ...updated[idx], question: editForm.question, markScheme: `Mark Scheme: ${editForm.markScheme}` };
-    setQuiz(reconstructQuiz(updated)); setEditingIndex(null); setEditForm(null);
+    updated[idx] =
+      editForm.type === "multiple-choice"
+        ? {
+            ...updated[idx],
+            question: editForm.question,
+            options: editForm.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`),
+            answer: editForm.answer,
+          }
+        : {
+            ...updated[idx],
+            question: editForm.question,
+            markScheme: `Mark Scheme: ${editForm.markScheme}`,
+          };
+    setQuiz(reconstructQuiz(updated));
+    setEditingIndex(null);
+    setEditForm(null);
   };
+
+  // ── Regenerate handler ──
 
   const handleRegenerate = async (idx, item) => {
     setRegeneratingIndex(idx);
     try {
       const token = localStorage.getItem("chikoroai_authToken");
-      const res = await axios.post("https://api.chikoro-ai.com/api/system/teacher/redo-question", {
-        type: item.type,
-        raw: item.raw,
-        subject: form.subject,
-        topic: form.topic,
-        grade: form.grade,
-        difficulty: form.difficulty,
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.post(
+        "https://api.chikoro-ai.com/api/system/teacher/redo-question",
+        {
+          type: item.type, raw: item.raw,
+          subject: form.subject, topic: form.topic,
+          grade: form.grade, difficulty: form.difficulty,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       if (res.data.success && res.data.question) {
         const updated = [...parsedQuestions];
         const reparsed = parseQuiz(res.data.question);
-        if (reparsed.length) { updated[idx] = reparsed[0]; setQuiz(reconstructQuiz(updated)); }
+        if (reparsed.length) {
+          updated[idx] = reparsed[0];
+          setQuiz(reconstructQuiz(updated));
+        }
       }
-    } catch (err) { console.error(err); } finally { setRegeneratingIndex(null); }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRegeneratingIndex(null);
+    }
   };
+
+  // ── PDF export ──
+
+  const handleSavePDF = async () => {
+    try {
+      const tempDiv = document.createElement("div");
+      Object.assign(tempDiv.style, {
+        position: "absolute", left: "-9999px", width: "800px",
+        padding: "20px", backgroundColor: "white", color: "black",
+      });
+      document.body.appendChild(tempDiv);
+
+      let html = `<div style="font-family: Arial; padding: 20px;">
+        <h1 style="text-align: center;">${form.subject} Quiz</h1>
+        <h2 style="text-align: center; color: #666;">${form.topic}</h2><hr/>`;
+
+      parsedQuestions.forEach((item, i) => {
+        html += `<div style="margin-bottom:30px; page-break-inside: avoid;">
+          <p><b>${i + 1}. ${item.question}</b></p>
+          ${item.type === "multiple-choice"
+            ? item.options.map((o) => `<div>${o}</div>`).join("")
+            : '<div style="border:1px solid #ddd; height:100px;"></div>'}
+        </div>`;
+      });
+
+      html += "</div>";
+      tempDiv.innerHTML = html;
+
+      const canvas = await html2canvas(tempDiv, { scale: 2 });
+      const pdf = new jsPDF("p", "mm", "a4");
+      pdf.addImage(
+        canvas.toDataURL("image/png"), "PNG",
+        0, 0, 210, (canvas.height * 210) / canvas.width
+      );
+      pdf.save(`${form.subject}_Quiz.pdf`);
+      document.body.removeChild(tempDiv);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // ── Render ──
 
   return (
     <div className="quiz-generator-container">
       <nav className="tool-nav">
-        <Link to="/teacher-dashboard" className="back-btn"><FiArrowLeft /> Back to Dashboard</Link>
+        <Link to="/teacher-dashboard" className="back-btn">
+          <FiArrowLeft /> Back to Dashboard
+        </Link>
       </nav>
 
       <header className="tool-header">
-        <h1><FiCpu style={{ marginBottom: '-4px' }} /> Smart Quiz Builder</h1>
+        <h1><FiCpu style={{ marginBottom: "-4px" }} /> Smart Quiz Builder</h1>
         <p>Instantly craft custom quizzes and exams with precision difficulty leveling.</p>
       </header>
 
       <form className="quiz-form" onSubmit={handleSubmit}>
         <div className="form-grid">
           <div className="form-group full-width">
-             <label><FiBook /> Subject</label>
-             <input type="text" placeholder="e.g. Biology" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+            <label><FiBook /> Subject</label>
+            <input
+              type="text" placeholder="e.g. Biology"
+              value={form.subject}
+              onChange={(e) => setForm({ ...form, subject: e.target.value })}
+            />
           </div>
           <div className="form-group full-width">
-             <label><FiLayers /> Topic</label>
-             <input type="text" placeholder="e.g. Photosynthesis" value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })} />
+            <label><FiLayers /> Topic</label>
+            <input
+              type="text" placeholder="e.g. Photosynthesis"
+              value={form.topic}
+              onChange={(e) => setForm({ ...form, topic: e.target.value })}
+            />
           </div>
           <div className="form-group">
             <label>Grade Level</label>
-            <input type="text" placeholder="e.g. 7" value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} />
+            <input
+              type="text" placeholder="e.g. 7"
+              value={form.grade}
+              onChange={(e) => setForm({ ...form, grade: e.target.value })}
+            />
           </div>
           <div className="form-group">
             <label>Difficulty</label>
@@ -362,22 +609,34 @@ export default function QuizGenerator() {
           </div>
           <div className="form-group">
             <label><FiHash /> Question Count</label>
-            <input type="number" min="1" max="50" value={form.numQuestions} onChange={(e) => setForm({ ...form, numQuestions: parseInt(e.target.value) || '' })} />
+            <input
+              type="number" min="1" max="50"
+              value={form.numQuestions}
+              onChange={(e) => setForm({ ...form, numQuestions: parseInt(e.target.value) || "" })}
+            />
           </div>
           <div className="form-group">
             <label><FiClock /> Time Limit (min)</label>
-            <input type="number" min="0" value={form.timeLimit} onChange={(e) => setForm({ ...form, timeLimit: parseInt(e.target.value) || '' })} />
+            <input
+              type="number" min="0"
+              value={form.timeLimit}
+              onChange={(e) => setForm({ ...form, timeLimit: parseInt(e.target.value) || "" })}
+            />
             <span className="helper-text">0 for unlimited</span>
           </div>
           <div className="form-group">
             <label>Tab Limit</label>
-            <input type="number" min="1" max="10" value={form.tabLimit} onChange={(e) => setForm({ ...form, tabLimit: parseInt(e.target.value) || '' })} />
+            <input
+              type="number" min="1" max="10"
+              value={form.tabLimit}
+              onChange={(e) => setForm({ ...form, tabLimit: parseInt(e.target.value) || "" })}
+            />
             <span className="helper-text">Anti-cheating tolerance</span>
           </div>
         </div>
 
         <button className="generate-btn" type="submit" disabled={loading}>
-          {loading ? <div className="spinner"></div> : <FiCpu />}
+          {loading ? <div className="spinner" /> : <FiCpu />}
           {loading ? "Generating Quiz..." : "Generate Quiz"}
         </button>
         {error && <p className="error-message">{error}</p>}
@@ -388,15 +647,16 @@ export default function QuizGenerator() {
           <div className="results-header">
             <h2>Preview Quiz</h2>
             <div className="quiz-badges">
-              <span className="meta-badge"><FiClock style={{marginRight:5}}/> {form.timeLimit || '∞'}m</span>
+              <span className="meta-badge"><FiClock style={{ marginRight: 5 }} /> {form.timeLimit || "∞"}m</span>
               <span className="meta-badge">{parsedQuestions.length} Questions</span>
             </div>
           </div>
-          
+
           {parsedQuestions.map((item, idx) => (
             <QuestionCard
-              key={idx} item={item} idx={idx} editingIndex={editingIndex}
-              editForm={editForm} setEditForm={setEditForm} onSaveEdit={handleSaveEdit}
+              key={idx} item={item} idx={idx}
+              editingIndex={editingIndex} editForm={editForm} setEditForm={setEditForm}
+              onSaveEdit={handleSaveEdit}
               onCancelEdit={() => { setEditingIndex(null); setEditForm(null); }}
               onStartEdit={startEdit} onRegenerate={handleRegenerate}
               regeneratingIndex={regeneratingIndex}
@@ -404,48 +664,50 @@ export default function QuizGenerator() {
           ))}
 
           <div className="quiz-actions-container">
-            <button className="action-btn save" onClick={async () => {
-              /* PDF Logic maintained from original */
-              try {
-                const tempDiv = document.createElement('div');
-                Object.assign(tempDiv.style, { position: 'absolute', left: '-9999px', width: '800px', padding: '20px', backgroundColor: 'white', color: 'black' });
-                document.body.appendChild(tempDiv);
-                let html = `<div style="font-family: Arial; padding: 20px;"><h1 style="text-align: center;">${form.subject} Quiz</h1><h2 style="text-align: center; color: #666;">${form.topic}</h2><hr/>`;
-                parsedQuestions.forEach((item, i) => html += `<div style="margin-bottom:30px; page-break-inside: avoid;"><p><b>${i+1}. ${item.question}</b></p>${item.type === 'multiple-choice' ? item.options.map(o => `<div>${o}</div>`).join('') : '<div style="border:1px solid #ddd; height:100px;"></div>'}</div>`);
-                html += '</div>';
-                tempDiv.innerHTML = html;
-                const canvas = await html2canvas(tempDiv, { scale: 2 });
-                const pdf = new jsPDF("p", "mm", "a4");
-                pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 210, (canvas.height * 210) / canvas.width);
-                pdf.save(`${form.subject}_Quiz.pdf`);
-                document.body.removeChild(tempDiv);
-              } catch(e) { console.error(e); }
-            }}>
+            <button className="action-btn save" onClick={handleSavePDF}>
               <FiSave /> Save PDF
             </button>
-            <button className="action-btn share" onClick={() => {
-              if (!classes.length) { setError("No classes found. Link students first."); return; }
-              setShareNotice(""); setSelectedClassIdx(null); setShowShareModal(true);
-            }}>
+            <button
+              className="action-btn share"
+              onClick={() => {
+                if (!classes.length) { setError("No classes found. Link students first."); return; }
+                setShareNotice(""); setSelectedClassIdx(null); setShowShareModal(true);
+              }}
+            >
               <FiShare2 /> Share to Class
             </button>
-            <button className="action-btn link" onClick={async () => {
-               try {
-                 const token = localStorage.getItem("chikoroai_authToken");
-                 const res = await axios.post("https://api.chikoro-ai.com/api/system/teacher/create-quiz-link", {
-                    quiz, subject: form.subject, topic: form.topic,
-                    timeLimit: form.timeLimit, tabLimit: form.tabLimit
-                 }, { headers: { Authorization: `Bearer ${token}` } });
-                 if (res.data.link) {
-                   try { await navigator.clipboard.writeText(res.data.link); } catch {}
-                   setShareNotice(`Public link copied to clipboard: ${res.data.link}`);
-                 }
-               } catch(e) { setError("Error generating link."); }
-            }}>
+            <button
+              className="action-btn link"
+              onClick={async () => {
+                try {
+                  const token = localStorage.getItem("chikoroai_authToken");
+                  const res = await axios.post(
+                    "https://api.chikoro-ai.com/api/system/teacher/create-quiz-link",
+                    { quiz, subject: form.subject, topic: form.topic, timeLimit: form.timeLimit, tabLimit: form.tabLimit },
+                    { headers: { Authorization: `Bearer ${token}` } }
+                  );
+                  if (res.data.link) {
+                    try { await navigator.clipboard.writeText(res.data.link); } catch {}
+                    setShareNotice(`Public link copied to clipboard: ${res.data.link}`);
+                  }
+                } catch {
+                  setError("Error generating link.");
+                }
+              }}
+            >
               <FiLink /> Public Link
             </button>
           </div>
-          {shareNotice && <p className="error-message" style={{ color: '#059669', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', padding: '0.75rem 1rem', marginTop: '1rem' }}>{shareNotice}</p>}
+
+          {shareNotice && (
+            <p className="error-message" style={{
+              color: "#059669", background: "#ecfdf5",
+              border: "1px solid #a7f3d0", borderRadius: "8px",
+              padding: "0.75rem 1rem", marginTop: "1rem",
+            }}>
+              {shareNotice}
+            </p>
+          )}
         </section>
       )}
 
@@ -460,15 +722,23 @@ export default function QuizGenerator() {
             setShowShareModal(false);
             try {
               const token = localStorage.getItem("chikoroai_authToken");
-              const res = await axios.post("https://api.chikoro-ai.com/api/system/teacher/share-quiz-with-class", {
-                quiz, subject: cls.subject, topic: form.topic,
-                timeLimit: form.timeLimit, tabLimit: form.tabLimit,
-                studentIds: cls.students.map(s => s.id)
-              }, { headers: { Authorization: `Bearer ${token}` } });
-              if (res.data.success) setShareNotice(`Shared with ${cls.subject} (${cls.students.length} students).`);
+              const res = await axios.post(
+                "https://api.chikoro-ai.com/api/system/teacher/share-quiz-with-class",
+                {
+                  quiz, subject: cls.subject, topic: form.topic,
+                  timeLimit: form.timeLimit, tabLimit: form.tabLimit,
+                  studentIds: cls.students.map((s) => s.id),
+                },
+                { headers: { Authorization: `Bearer ${token}` } }
+              );
+              if (res.data.success)
+                setShareNotice(`Shared with ${cls.subject} (${cls.students.length} students).`);
               else setError(`Failed to share: ${res.data.error}`);
-            } catch(e) { setError("Error sharing quiz."); }
-            finally { setSelectedClassIdx(null); }
+            } catch {
+              setError("Error sharing quiz.");
+            } finally {
+              setSelectedClassIdx(null);
+            }
           }}
           onClose={() => setShowShareModal(false)}
         />

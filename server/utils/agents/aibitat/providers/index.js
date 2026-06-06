@@ -31,7 +31,7 @@ module.exports = {
   OpenAIProvider,
   AnthropicProvider,
   LMStudioProvider,
-  OllamaProvider,
+  OllamaProvider: GenericOpenAiProvider,
   GroqProvider,
   TogetherAIProvider,
   AzureOpenAiProvider,

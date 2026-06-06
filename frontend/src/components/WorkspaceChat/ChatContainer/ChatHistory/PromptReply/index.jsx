@@ -8,7 +8,7 @@ import {
   THOUGHT_REGEX_COMPLETE,
   THOUGHT_REGEX_OPEN,
   ThoughtChainComponent,
-} from "../ThoughtContainer";
+} from "../ThoughtContainer/index";
 
 const PromptReply = ({
   uuid,

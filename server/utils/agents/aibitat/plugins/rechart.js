@@ -53,59 +53,58 @@ Make sure the format use double quotes and property names are string literals. P
           },
           required: ["type", "title", "dataset"],
           handler: async function ({ type, dataset, title }) {
-            try {
-              if (!this.tracker.isUnique(this.name)) {
-                this.super.handlerProps.log(
-                  `${this.name} has been run for this chat response already. It can only be called once per chat.`
-                );
-                return "The chart was already generated and displayed to the user. Task is complete. Do not call any more tools.";
-              }
+  try {
+    if (!this.tracker.isUnique(this.name)) {
+      this.super.handlerProps.log(
+        `${this.name} has been run for this chat response already.`
+      );
+      return "The chart was already generated. Task is complete. Do not call any more tools.";
+    }
 
-              const data = safeJsonParse(dataset, null);
-              if (data === null) {
-                this.super.introspect(
-                  `${this.caller}: ${this.name} provided invalid JSON data - so we cant make a ${type} chart.`
-                );
-                return "Invalid JSON provided. Please only provide valid RechartJS JSON to generate a chart.";
-              }
+    const data = safeJsonParse(dataset, null);
+    if (data === null) {
+      this.super.introspect(
+        `${this.caller}: ${this.name} provided invalid JSON data - so we cant make a ${type} chart.`
+      );
+      return "Invalid JSON provided. Please only provide valid RechartJS JSON to generate a chart.";
+    }
 
-              this.super.introspect(`${this.caller}: Rendering ${type} chart.`);
-              this.super.socket.send("rechartVisualize", {
-                type,
-                dataset,
-                title,
-              });
+    this.super.introspect(`${this.caller}: Rendering ${type} chart.`);
+    this.super.socket.send("rechartVisualize", {
+      type,
+      dataset,
+      title,
+    });
 
-              this.super._replySpecialAttributes = {
-                saveAsType: "rechartVisualize",
-                storedResponse: (additionalText = "") =>
-                  JSON.stringify({
-                    type,
-                    dataset,
-                    title,
-                    caption: additionalText,
-                  }),
-                postSave: () => this.tracker.removeUniqueConstraint(this.name),
-              };
+    this.super._replySpecialAttributes = {
+      saveAsType: "rechartVisualize",
+      storedResponse: (additionalText = "") =>
+        JSON.stringify({ type, dataset, title, caption: additionalText }),
+      postSave: () => this.tracker.removeUniqueConstraint(this.name),
+    };
 
-              this.tracker.markUnique(this.name);
+    this.tracker.markUnique(this.name);
 
-              // Mark this tool as used in the provider so it is filtered
-              // out of the tools schema on all subsequent LLM API calls.
-              try {
-                if (this.super.provider?.markToolUsed) {
-                  this.super.provider.markToolUsed(this.name);
-                }
-              } catch (_) {}
+    try {
+      if (this.super.provider?.markToolUsed) {
+        this.super.provider.markToolUsed(this.name);
+      }
+    } catch (_) {}
 
-              return "The chart was generated and returned to the user. This function completed successfully. Do not make another chart.";
-            } catch (error) {
-              this.super.handlerProps.log(
-                `create-chart raised an error. ${error.message}`
-              );
-              return `Let the user know this action was not successful. An error was raised while generating the chart. ${error.message}`;
-            }
-          },
+    // ✅ Close the agent session immediately — no second LLM call needed
+    this.super.socket.send("agentClose", { 
+      message: "Chart generated successfully." 
+    });
+    this.super.close(); // terminate aibitat so it doesn't spin up another LLM pass
+
+    return "The chart was generated and returned to the user. Session complete.";
+  } catch (error) {
+    this.super.handlerProps.log(
+      `create-chart raised an error. ${error.message}`
+    );
+    return `Let the user know this action was not successful. ${error.message}`;
+  }
+},
         });
       },
     };

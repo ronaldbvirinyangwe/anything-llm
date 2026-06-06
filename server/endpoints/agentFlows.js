@@ -94,33 +94,7 @@ app.post(
   );
 
   // Get a specific flow by UUID
-  app.get(
-    "/agent-flows/:uuid",
-    [validatedRequest, flexUserRoleValid([ROLES.admin])],
-    async (request, response) => {
-      try {
-        const { uuid } = request.params;
-        const flow = AgentFlows.loadFlow(uuid);
-        if (!flow) {
-          return response.status(404).json({
-            success: false,
-            error: "Flow not found",
-          });
-        }
 
-        return response.status(200).json({
-          success: true,
-          flow,
-        });
-      } catch (error) {
-        console.error("Error getting flow:", error);
-        return response.status(500).json({
-          success: false,
-          error: error.message,
-        });
-      }
-    }
-  );
 
   // Run a specific flow
   // app.post(
@@ -218,7 +192,7 @@ app.post(
     }
   );
 
-app.post("/agent-flows/quiz/create", [validatedRequest], async (req, res) => {
+app.post("/agent-flows/quiz/create", async (req, res) => {
   try {
     const {
       subject,
@@ -316,7 +290,8 @@ ${contextInfo}
 
 Remember: Return ONLY the JSON object. Start with { and end with }.`;
 
-    const ollamaRes = await fetch(`${process.env.VLLM_BASE_PATH}/chat/completions`, {
+const vllmBase = process.env.VLLM_BASE_PATH || process.env.OLLAMA_BASE_PATH || "http://192.168.1.128:11434/v1";
+    const ollamaRes = await fetch(`${vllmBase}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -444,19 +419,21 @@ try {
 });
 
 
-app.post("/agent-flows/flashcard/create", [validatedRequest], async (req, res) => {
+app.post("/agent-flows/flashcard/create", async (req, res) => {
   try {
     const {
       subject,
       topic = "",
       grade,
       numCards = 10,
+      numQuestions,
       difficulty = "medium",
       userMessage = "",
       userId = null,
       workspaceSlug = null
     } = req.body;
 
+    const resolvedNumCards = numCards || numQuestions || 10;
     const flashcardTopic = topic || userMessage || "general curriculum topics";
 
     if (!subject || !grade) {
@@ -466,20 +443,21 @@ app.post("/agent-flows/flashcard/create", [validatedRequest], async (req, res) =
       });
     }
 
+    console.log(`🎴 VLLM BASE: ${process.env.VLLM_BASE_PATH} || fallback: http://192.168.1.128:11434/v1`);
     console.log(`🎴 Agent is generating flashcards for ${subject} (Grade ${grade})`);
 
-    const wantsHistoryBased = userMessage.toLowerCase().includes('history') || 
+    const wantsHistoryBased = userMessage.toLowerCase().includes('history') ||
                               userMessage.toLowerCase().includes('previous') ||
                               userMessage.toLowerCase().includes('what we discussed') ||
                               userMessage.toLowerCase().includes('based on');
 
     let contextInfo = "";
-    
+
     if (wantsHistoryBased && workspaceSlug) {
       try {
         const { Workspace } = require("../models/workspace");
         const workspace = await Workspace.get({ slug: workspaceSlug });
-        
+
         if (workspace) {
           const { WorkspaceChats } = require("../models/workspaceChats");
           const recentChats = await WorkspaceChats.where(
@@ -487,15 +465,15 @@ app.post("/agent-flows/flashcard/create", [validatedRequest], async (req, res) =
             100,
             { id: "desc" }
           );
-          
+
           if (recentChats && recentChats.length > 0) {
-            contextInfo = "\n\nRecent conversation context:\n" + 
+            contextInfo = "\n\nRecent conversation context:\n" +
               recentChats
                 .filter(chat => chat.role === 'user' || chat.role === 'assistant')
                 .slice(0, 10)
                 .map(chat => `${chat.role}: ${chat.content}`)
                 .join("\n");
-            
+
             console.log(`📚 Added ${recentChats.length} messages as context`);
           }
         }
@@ -504,10 +482,9 @@ app.post("/agent-flows/flashcard/create", [validatedRequest], async (req, res) =
       }
     }
 
-    // === AI Prompt ===
     const prompt = `You are Chikoro AI — a Zimbabwean AI tutor aligned with ZIMSEC and Cambridge curricula.
 
-TASK: Create ${numCards} flashcards STRICTLY about "${flashcardTopic}" for ${subject}, Grade ${grade}, difficulty: ${difficulty}.
+TASK: Create ${resolvedNumCards} flashcards STRICTLY about "${flashcardTopic}" for ${subject}, Grade ${grade}, difficulty: ${difficulty}.
 ALL cards must be about "${flashcardTopic}" only. Do not generate cards on any other topic.
 
 CRITICAL: Your response must be ONLY valid JSON. No text before or after. No markdown. No explanations.
@@ -536,7 +513,8 @@ ${contextInfo}
 
 Return ONLY the JSON object. Start with { and end with }. No other text.`;
 
-    const ollamaRes = await fetch(`${process.env.VLLM_BASE_PATH}/chat/completions`, {
+    const vllmBase = process.env.VLLM_BASE_PATH || process.env.OLLAMA_BASE_PATH || "http://192.168.1.128:11434/v1";
+    const ollamaRes = await fetch(`${vllmBase}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -557,7 +535,6 @@ Return ONLY the JSON object. Start with { and end with }. No other text.`;
 
     console.log("🔍 Raw vLLM response:", raw.substring(0, 200));
 
-    // === Enhanced JSON parsing ===
     function safeParseFlashcardJSON(raw) {
       try {
         return JSON.parse(raw);
@@ -579,7 +556,7 @@ Return ONLY the JSON object. Start with { and end with }. No other text.`;
 
         const start = cleaned.indexOf("{");
         const end = cleaned.lastIndexOf("}");
-        
+
         if (start !== -1 && end !== -1 && end > start) {
           cleaned = cleaned.substring(start, end + 1);
         }
@@ -593,8 +570,7 @@ Return ONLY the JSON object. Start with { and end with }. No other text.`;
     }
 
     let flashcards = safeParseFlashcardJSON(raw);
-    
-    // Fallback if parsing failed
+
     if (!flashcards || !flashcards.cards || flashcards.cards.length === 0) {
       console.warn("⚠️ Invalid flashcard JSON, creating fallback");
       flashcards = {
@@ -612,60 +588,64 @@ Return ONLY the JSON object. Start with { and end with }. No other text.`;
 
     console.log(`✅ Flashcards generated with ${flashcards.cards.length} cards`);
 
-    // ✅ Save to database
-if (userId) {
-  try {
-  const { WorkspaceChats } = require("../models/workspaceChats");
-  const { Workspace } = require("../models/workspace");
-  if (workspaceSlug) {
-    const workspace = await Workspace.get({ slug: workspaceSlug });
-    if (workspace) {
-      await WorkspaceChats.new({
-        workspaceId: workspace.id,
-        prompt: userMessage || `Create ${subject} flashcards`,
-        response: {
-          text: `Flashcards created successfully on ${subject} for Grade ${grade}!`,
-          sources: [],
-          type: "chat",
-          attachments: [],
-          metrics: {},
-          tool_call: "flashcard_create",
-          flashcardData: flashcards,
-        },
-        threadId: null,
-        user: userId ? { id: parseInt(userId) } : null,
-      });
-      console.log("💾 Flashcards saved to chat history");
-    }
-  }
-} catch (chatErr) {
-  console.warn("⚠️ Failed to save flashcards to chat history:", chatErr.message);
-}
+    let savedFlashcardSetId = null;
 
-  // ✅ Save to saved_flashcard_sets for Reports tracking
-  try {
-    const { PrismaClient } = require("@prisma/client");
-    const prisma = new PrismaClient();
-    await prisma.savedFlashcardSet.create({
-      data: {
-        userId: parseInt(userId),
-        subject,
-        grade,
-        difficulty,
-        userMessage: userMessage || null,
-        cards: flashcards.cards,
-      },
-    });
-    console.log("💾 Flashcard set saved to saved_flashcard_sets");
-  } catch (dbErr) {
-    console.warn("⚠️ Failed to save flashcard set to DB:", dbErr.message);
-  }
-}
+    if (userId) {
+      // Save to chat history
+      try {
+        const { WorkspaceChats } = require("../models/workspaceChats");
+        const { Workspace } = require("../models/workspace");
+        if (workspaceSlug) {
+          const workspace = await Workspace.get({ slug: workspaceSlug });
+          if (workspace) {
+            await WorkspaceChats.new({
+              workspaceId: workspace.id,
+              prompt: userMessage || `Create ${subject} flashcards`,
+              response: {
+                text: `Flashcards created successfully on ${subject} for Grade ${grade}!`,
+                sources: [],
+                type: "chat",
+                attachments: [],
+                metrics: {},
+                tool_call: "flashcard_create",
+                flashcardData: flashcards,
+              },
+              threadId: null,
+              user: { id: parseInt(userId) },
+            });
+            console.log("💾 Flashcards saved to chat history");
+          }
+        }
+      } catch (chatErr) {
+        console.warn("⚠️ Failed to save flashcards to chat history:", chatErr.message);
+      }
+
+      // Save to saved_flashcard_sets and capture the ID
+      try {
+        const { PrismaClient } = require("@prisma/client");
+        const prisma = new PrismaClient();
+        const savedSet = await prisma.savedFlashcardSet.create({
+          data: {
+            userId: parseInt(userId),
+            subject,
+            grade,
+            difficulty,
+            userMessage: userMessage || null,
+            cards: flashcards.cards,
+          },
+        });
+        savedFlashcardSetId = savedSet.id;
+        console.log("💾 Flashcard set saved, ID:", savedFlashcardSetId);
+      } catch (dbErr) {
+        console.warn("⚠️ Failed to save flashcard set to DB:", dbErr.message);
+      }
+    }
 
     return res.status(200).json({
       success: true,
       tool: "flashcard_create",
       flashcards,
+      savedFlashcardSetId,
     });
   } catch (error) {
     console.error("🔥 Flashcard agent error:", error);
@@ -677,7 +657,7 @@ if (userId) {
 });
 
 // 🔍 Web Search Tool
-app.post("/agent-flows/web-search", [validatedRequest], async (req, res) => {
+app.post("/agent-flows/web-search", async (req, res) => {
   try {
     const { query, provider = "tavily", numResults = 5 } = req.body;
 
@@ -757,6 +737,64 @@ app.get("/agent-flows/flashcard/history/:userId", [validatedRequest], async (req
   }
 });
 
+// GET a single flashcard set by ID
+app.get("/agent-flows/flashcard/:id", [validatedRequest], async (req, res) => {
+  try {
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    const flashcardSet = await prisma.savedFlashcardSet.findUnique({
+      where: { id: parseInt(req.params.id) },
+    });
+    if (!flashcardSet) return res.status(404).json({ success: false, error: "Not found" });
+    return res.status(200).json({ success: true, flashcardSet });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET a single quiz by ID (same fix needed for quiz reopen)
+app.get("/agent-flows/quiz/:id", [validatedRequest], async (req, res) => {
+  try {
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    const quiz = await prisma.savedQuiz.findUnique({
+      where: { id: parseInt(req.params.id) },
+    });
+    if (!quiz) return res.status(404).json({ success: false, error: "Not found" });
+    return res.status(200).json({ success: true, quiz });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+  app.get(
+    "/agent-flows/:uuid",
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
+    async (request, response) => {
+      try {
+        const { uuid } = request.params;
+        const flow = AgentFlows.loadFlow(uuid);
+        if (!flow) {
+          return response.status(404).json({
+            success: false,
+            error: "Flow not found",
+          });
+        }
+
+        return response.status(200).json({
+          success: true,
+          flow,
+        });
+      } catch (error) {
+        console.error("Error getting flow:", error);
+        return response.status(500).json({
+          success: false,
+          error: error.message,
+        });
+      }
+    }
+  );
+  
 // ✅ quiz_create_agent
 setTimeout(() => {
   try {
@@ -831,15 +869,16 @@ setTimeout(() => {
           {
             type: "api-call",
             config: {
-              endpoint: "/api/agent-flows/flashcard/create",
+              url: `${process.env.API_BASE || "http://localhost:3009"}/api/agent-flows/flashcard/create`, 
               method: "POST",
-              body: {
+              bodyType: "json", 
+              body: JSON.stringify({
                 subject: "${subject}",
                 userMessage: "${userMessage}",
                 grade: "${grade}",
                 numCards: "${numCards}",
                 difficulty: "${difficulty}",
-              },
+              }),
               resultVariable: "flashcardResult",
               directOutput: true,
             }

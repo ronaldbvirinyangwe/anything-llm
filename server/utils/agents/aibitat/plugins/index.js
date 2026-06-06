@@ -7,6 +7,14 @@ const { chatHistory } = require("./chat-history.js");
 const { memory } = require("./memory.js");
 const { rechart } = require("./rechart.js");
 const { sqlAgent } = require("./sql-agent/index.js");
+const { generateNotes } = require("./generate-notes"); 
+const {explainConcept} = require("./explain-concept");
+const { checkMyAnswer } = require("./check-my-answer.js");
+const {StudyPlanner} = require("./study-planner.js");
+const { StudyPlannerElicit } = require("./studyPlannerElicit.js");
+const {StudyContext} = require("./study-context.js");
+const {StudyTracker} = require("./study-tracker.js");
+const {FollowUpQuestions} = require("./follow-up-questions.js");
 
 module.exports = {
   webScraping,
@@ -18,6 +26,14 @@ module.exports = {
   memory,
   rechart,
   sqlAgent,
+  generateNotes,
+  explainConcept,
+  checkMyAnswer,
+    StudyPlannerElicit,
+  StudyPlanner,
+  StudyContext,
+  StudyTracker,
+  FollowUpQuestions,
 
   // Plugin name aliases so they can be pulled by slug as well.
   [webScraping.name]: webScraping,
@@ -29,4 +45,12 @@ module.exports = {
   [memory.name]: memory,
   [rechart.name]: rechart,
   [sqlAgent.name]: sqlAgent,
+  [generateNotes.name]: generateNotes,
+  [explainConcept.name]: explainConcept,
+  [checkMyAnswer.name]: checkMyAnswer,
+    [StudyPlannerElicit.name]: StudyPlannerElicit,
+  [StudyPlanner.name]: StudyPlanner,
+[StudyContext.name]: StudyContext,
+[StudyTracker.name]: StudyTracker,
+[FollowUpQuestions.name]: FollowUpQuestions,
 };

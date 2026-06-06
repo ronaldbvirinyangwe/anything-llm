@@ -10,6 +10,7 @@ const { USER_AGENT, WORKSPACE_AGENT } = require("./defaults");
 const ImportedPlugin = require("./imported");
 const { AgentFlows } = require("../agentFlows");
 const MCPCompatibilityLayer = require("../MCP");
+const { autoMemory } = require("./aibitat/plugins/auto-memory");
 
 class AgentHandler {
   #invocationUUID;
@@ -31,6 +32,7 @@ class AgentHandler {
   closeAlert() {
     this.log(`End ${this.#invocationUUID}::${this.provider}:${this.model}`);
   }
+
 
   async #chatHistory(limit = 10) {
     try {
@@ -72,6 +74,7 @@ class AgentHandler {
     }
   }
 
+
   checkSetup() {
     switch (this.provider) {
       case "openai":
@@ -86,9 +89,11 @@ class AgentHandler {
         if (!process.env.LMSTUDIO_BASE_PATH)
           throw new Error("LMStudio base path must be provided to use agents.");
         break;
+      // Redirecting Ollama to use Generic OpenAI environment checks
       case "ollama":
-        if (!process.env.OLLAMA_BASE_PATH)
-          throw new Error("Ollama base path must be provided to use agents.");
+      case "generic-openai":
+        if (!process.env.GENERIC_OPEN_AI_BASE_PATH)
+          throw new Error("API base path must be provided to use agents.");
         break;
       case "groq":
         if (!process.env.GROQ_API_KEY)
@@ -123,10 +128,6 @@ class AgentHandler {
       case "mistral":
         if (!process.env.MISTRAL_API_KEY)
           throw new Error("Mistral API key must be provided to use agents.");
-        break;
-      case "generic-openai":
-        if (!process.env.GENERIC_OPEN_AI_BASE_PATH)
-          throw new Error("API base path must be provided to use agents.");
         break;
       case "perplexity":
         if (!process.env.PERPLEXITY_API_KEY)
@@ -237,7 +238,8 @@ class AgentHandler {
       case "lmstudio":
         return process.env.LMSTUDIO_MODEL_PREF ?? "server-default";
       case "ollama":
-        return process.env.OLLAMA_MODEL_PREF ?? "llama3:latest";
+      case "generic-openai":
+        return process.env.GENERIC_OPEN_AI_MODEL_PREF ?? "openai/gpt-oss-20b";
       case "groq":
         return process.env.GROQ_MODEL_PREF ?? "llama3-70b-8192";
       case "togetherai":
@@ -255,8 +257,6 @@ class AgentHandler {
         return process.env.OPENROUTER_MODEL_PREF ?? "openrouter/auto";
       case "mistral":
         return process.env.MISTRAL_MODEL_PREF ?? "mistral-medium";
-      case "generic-openai":
-        return process.env.GENERIC_OPEN_AI_MODEL_PREF ?? null;
       case "perplexity":
         return process.env.PERPLEXITY_MODEL_PREF ?? "sonar-small-online";
       case "textgenwebui":
@@ -446,11 +446,6 @@ class AgentHandler {
       }
 
       // Load MCP plugin. This is marked by `@@mcp_` in the array of functions to load.
-      // All sub-tools are loaded here and are denoted by `pluginName:toolName` as their identifier.
-      // This will replace the parent MCP server plugin with the sub-tools as child plugins so they
-      // can be called directly by the agent when invoked.
-      // Since to get to this point, the `activeMCPServers` method has already been called, we can
-      // safely assume that the MCP server is running and the tools are available/loaded.
       if (name.startsWith("@@mcp_")) {
         const mcpPluginName = name.replace("@@mcp_", "");
         const plugins =
@@ -465,8 +460,6 @@ class AgentHandler {
           continue;
         }
 
-        // Remove the old function from the agent functions directly
-        // and push the new ones onto the end of the array so that they are loaded properly.
         this.aibitat.agents.get("@agent").functions = this.aibitat.agents
           .get("@agent")
           .functions.filter((f) => f.name !== name);
@@ -482,8 +475,7 @@ class AgentHandler {
         continue;
       }
 
-      // Load imported plugin. This is marked by `@@` in the array of functions to load.
-      // and is the @@hubID of the plugin.
+      // Load imported plugin.
       if (name.startsWith("@@")) {
         const hubId = name.replace("@@", "");
         const valid = ImportedPlugin.validateImportedPluginHandler(hubId);
@@ -522,14 +514,17 @@ class AgentHandler {
   }
 
   async #loadAgents() {
-    // Default User agent and workspace agent
     this.log(`Attaching user and default agent to Agent cluster.`);
     const user = this.invocation.user_id
       ? await User.get({ id: Number(this.invocation.user_id) })
       : null;
     const userAgentDef = await USER_AGENT.getDefinition();
+    
+    // Switch to generic-openai if provider is ollama to avoid 404 errors
+    const targetProvider = this.provider === "ollama" ? "generic-openai" : this.provider;
+    
     const workspaceAgentDef = await WORKSPACE_AGENT.getDefinition(
-      this.provider,
+      targetProvider,
       this.invocation.workspace,
       user
     );
@@ -553,9 +548,12 @@ class AgentHandler {
       socket,
     }
   ) {
+    // Force usage of generic-openai whenever ollama is requested
+    const effectiveProvider = this.provider === "ollama" ? "generic-openai" : this.provider;
+
     this.aibitat = new AIbitat({
-      provider: this.provider ?? "openai",
-      model: this.model ?? "gpt-4o",
+      provider: effectiveProvider,
+      model: this.model ?? "openai/gpt-oss-20b",
       chats: await this.#chatHistory(20),
       handlerProps: {
         invocation: this.invocation,
@@ -563,7 +561,6 @@ class AgentHandler {
       },
     });
 
-    // Attach standard websocket plugin for frontend communication.
     this.log(`Attached ${AgentPlugins.websocket.name} plugin to Agent cluster`);
     this.aibitat.use(
       AgentPlugins.websocket.plugin({
@@ -573,16 +570,15 @@ class AgentHandler {
       })
     );
 
-    // Attach standard chat-history plugin for message storage.
     this.log(
       `Attached ${AgentPlugins.chatHistory.name} plugin to Agent cluster`
     );
     this.aibitat.use(AgentPlugins.chatHistory.plugin());
 
-    // Load required agents (Default + custom)
-    await this.#loadAgents();
+    this.log(`Attached ${autoMemory.name} plugin to Agent cluster`);
+    this.aibitat.use(autoMemory.plugin());
 
-    // Attach all required plugins for functions to operate.
+    await this.#loadAgents();
     await this.#attachPlugins(args);
   }
 

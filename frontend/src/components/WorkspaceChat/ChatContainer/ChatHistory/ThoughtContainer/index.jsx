@@ -65,9 +65,8 @@ export const ThoughtChainComponent = forwardRef(
     const tagStrippedContent = content
       .replace(THOUGHT_REGEX_OPEN, "")
       .replace(THOUGHT_REGEX_CLOSE, "");
-    const autoExpand =
-      isThinking && tagStrippedContent.length > THOUGHT_PREVIEW_LENGTH;
-    const canExpand = tagStrippedContent.length > THOUGHT_PREVIEW_LENGTH;
+    const autoExpand = false;
+    const canExpand = false;
     if (!content || !content.length || !hasReadableContent) return null;
 
     function handleExpandClick() {

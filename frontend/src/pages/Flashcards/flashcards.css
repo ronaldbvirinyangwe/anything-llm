@@ -29,6 +29,7 @@
 /* --- Internal Header (Inside the panel) --- */
 .flashcard-header {
   background: #fff;
+  position: relative;
   border-bottom: 1px solid #f1f5f9;
   padding-bottom: 1rem;
   margin-bottom: 0.5rem;
@@ -117,10 +118,11 @@
 .flashcard {
   width: 100%;
   aspect-ratio: 4/5; /* Slightly taller for side panel reading */
-  max-height: 400px;
+  max-height: 700px;
   perspective: 1000px;
   cursor: pointer;
   margin: 0 auto;
+  container-type: inline-size;
 }
 
 .flashcard-inner {
@@ -176,7 +178,7 @@
   align-items: center;
   justify-content: center;
   overflow-y: auto;
-  /* Scrollbar styling for content */
+  padding: 1rem 0;
   scrollbar-width: thin;
 }
 
@@ -185,6 +187,11 @@
   font-weight: 600;
   text-align: center;
   line-height: 1.5;
+}
+.card-content p, 
+.card-content ul, 
+.card-content ol {
+  font-size: inherit;
 }
 
 /* --- Controls (Bottom Buttons) --- */
@@ -260,4 +267,63 @@
 
 .primary-action:hover {
   background: #4338ca;
+}
+/* --- Missing Classes --- */
+.flip-hint {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: auto; 
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding-top: 1rem;
+}
+
+.card-category {
+  position: absolute;
+  bottom: 1.2rem;
+  right: 1.5rem;
+  font-size: 0.7rem;
+  background: #dcfce7;
+  color: #166534;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.card-counter {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.control-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.card-content {
+  width: 100%;
+}
+.exit-btn {
+  background: transparent;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #6b7280;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.exit-btn:hover {
+  background: #f1f5f9;
+  color: #374151;
 }

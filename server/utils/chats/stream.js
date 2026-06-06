@@ -12,85 +12,266 @@ const {
   recentChatHistory,
   sourceIdentifier,
 } = require("./index");
+const { TOOL_DEFINITIONS } = require("./tools/definitions");
+
+const TOOL_DISPLAY_MESSAGES = {
+  "flashcard_create":      "🃏 Creating your flashcards...",
+  "quiz_create":           "📝 Building your quiz...",
+  "check-my-answer":       "🦉 Your tutor is marking your answer...",
+  "generate-notes":        "📚 Your tutor is writing your notes...",
+  "study-planner-elicit":  "📅 Opening your study planner...",
+  "study-planner":         "📅 Building your study plan...",
+  "explain-concept":       "🦉 Your tutor is thinking...",
+  "document-summarizer":   "📄 Reading your documents...",
+  "web-browsing":          "🔍 Searching the web...",
+  "web-scraping":          "🌐 Reading that page...",
+  "create-chart":          "📊 Drawing your chart...",
+};
+
+/**
+ * Detects tool intent from the user message using keyword/pattern matching.
+ * This is model-agnostic and works reliably with local LLMs that ignore tool definitions.
+ *
+ * Returns a tool_call object if matched, or null to proceed with normal chat.
+ */
+/**
+ * Detects tool intent from the user message using keyword/pattern matching.
+ * Returns { tool_call, parameters, via } or null.
+ *
+ * via: "api"   → POST to an internal /agent-flows/ route (handled by chat.js)
+ * via: "agent" → trigger WorkspaceAgentInvocation (runs the aibitat plugin)
+ */
+async function detectToolIntent(message) {
+  if (!message || typeof message !== "string") return null;
+
+  // ── Extract frontend-injected metadata ────────────────────────────────────
+  const gradeMatch   = message.match(/\[Grade:\s*([^\]]+)\]/i);
+  const subjectMatch = message.match(/\[Subject:\s*([^\]]+)\]/i);
+  const grade        = gradeMatch?.[1]?.trim()   ?? "unknown";
+  const subject      = subjectMatch?.[1]?.trim() ?? "General";
+  const cleanMessage = message.replace(/\[[^\]]+\]/g, "").trim();
+
+  if (!cleanMessage) return null;
+
+  const WORD_TO_NUM = {
+    one:1, two:2, three:3, four:4, five:5,
+    six:6, seven:7, eight:8, nine:9, ten:10,
+  };
+  function extractNum(str) {
+    const m = str.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i);
+    if (!m) return null;
+    return parseInt(m[1]) || WORD_TO_NUM[m[1].toLowerCase()] || null;
+  }
+
+  // ── Build the intent result from a resolved tool name ────────────────────
+  function buildIntent(tool) {
+    if (!tool || tool === "none") return null;
+    const API_TOOLS = ["quiz_create", "flashcard_create"];
+    const via = API_TOOLS.includes(tool) ? "api" : "agent";
+
+    if (tool === "quiz_create") {
+
+      const explicitTopic = cleanMessage.match(
+    /(?:on|about|for|covering)\s+(.+?)(?:\s*[,.]|$)/i
+  )?.[1]?.trim();
+
+      return {
+        via,
+        tool_call: "quiz_create",
+        parameters: {
+          topic:        explicitTopic ?? "",
+          subject,
+          grade,
+          numQuestions: extractNum(cleanMessage) ?? 5,
+          userMessage:  cleanMessage,
+          difficulty:   "medium",
+        },
+      };
+    }
+    if (tool === "flashcard_create") {
+
+       const explicitTopic = cleanMessage.match(
+    /(?:on|about|for|covering)\s+(.+?)(?:\s*[,.]|$)/i
+  )?.[1]?.trim();
+      return {
+        via,
+        tool_call: "flashcard_create",
+        parameters: {
+          topic:       explicitTopic ?? "",
+          subject,
+          grade,
+          numCards:    extractNum(cleanMessage) ?? 10,
+          userMessage: cleanMessage,
+          difficulty:  "medium",
+        },
+      };
+    }
+    if (tool === "generate-notes") {
+      const topicMatch = cleanMessage.match(/notes?\s+(?:on|about|for|covering)\s+(.+)/i);
+      const topic = topicMatch?.[1]?.trim() ?? cleanMessage;
+      const depth = /\bdetailed?\b|\bin[- ]depth\b|\bcomprehensive\b/i.test(cleanMessage)
+        ? "detailed"
+        : /\bbrief\b|\bshort\b|\bquick\b/i.test(cleanMessage)
+        ? "brief"
+        : "standard";
+      return { via: "agent", tool_call: "generate-notes", parameters: { subject, topic, depth, message: cleanMessage } };
+    }
+    if (tool === "study-planner-elicit") {
+      return { via: "agent", tool_call: "study-planner-elicit", parameters: { message: cleanMessage } };
+    }
+    if (tool === "explain-concept") {
+      const conceptMatch = cleanMessage.match(
+        /^(?:explain|what\s+is|what\s+are|define|describe|tell\s+me\s+about|how\s+does)\s+(.+)/i
+      );
+      const concept = conceptMatch?.[1]?.trim() ?? cleanMessage;
+      return { via: "agent", tool_call: "explain-concept", parameters: { concept, subject, message: cleanMessage } };
+    }
+    if (tool === "document-summarizer") {
+      const fileMatch = cleanMessage.match(/(?:summarize|summarise)\s+(.+)/i);
+      return { via: "agent", tool_call: "document-summarizer", parameters: { filename: fileMatch?.[1]?.trim() ?? null, message: cleanMessage } };
+    }
+    if (tool === "web-browsing") {
+      const queryMatch = cleanMessage.match(/(?:search\s+(?:the\s+web\s+)?for|look\s+up|find)\s+(.+)/i);
+      const query = queryMatch?.[1]?.trim() ?? cleanMessage;
+      return { via: "agent", tool_call: "web-browsing", parameters: { query, message: cleanMessage } };
+    }
+    if (tool === "create-chart") {
+      return { via: "agent", tool_call: "create-chart", parameters: { message: cleanMessage } };
+    }
+    return null;
+  }
+
+  // ── LAYER 1: Fast regex fallback (always runs first, zero latency) ────────
+  function regexClassify(text) {
+    const t = text.toLowerCase();
+
+    if (/flashcard|flash\s*card|study\s*card|memory\s*card/.test(t))
+      return "flashcard_create";
+
+    if (
+      /\bquiz\b/.test(t) ||
+      /\btest\s+me\b/.test(t) ||
+      /practice\s+question/.test(t) ||
+      /revision\s+question/.test(t) ||
+      /past\s+paper/.test(t) ||
+      /exam\s+question/.test(t) ||
+      /\bgive\s+me\s+(?:\w+\s+)?question/.test(t) ||
+      /\bask\s+me\s+(?:some\s+)?question/.test(t) ||
+      /(?:generate|create|make)\s+(?:a\s+)?(?:quiz|test|assessment)/.test(t) ||
+      /\bquestion[s]?\s+(?:on|about|for)\b/.test(t)
+    ) return "quiz_create";
+
+    if (/(?:generate|make|create|write|give\s+me)\s+(?:study\s+)?notes?\s+(?:on|about|for)|study\s+notes?\s+(?:on|about|for)/.test(t))
+      return "generate-notes";
+
+    if (/(?:make|create|build|give\s+me|plan)\s+(?:me\s+)?(?:a\s+)?(?:study|revision|exam)\s+(?:plan|schedule|timetable)|how\s+should\s+i\s+(?:revise|study)\s+for|help\s+me\s+(?:plan|prepare)\s+for/.test(t))
+      return "study-planner-elicit";
+
+    if (/^(?:explain|what\s+is|what\s+are|define|describe|tell\s+me\s+about|how\s+does)\s+/i.test(text))
+      return "explain-concept";
+
+    if (/summarize|summarise|give\s+me\s+a\s+summary\s+of/.test(t))
+      return "document-summarizer";
+
+    if (/search\s+(?:the\s+)?web|look\s+up|find\s+(?:recent|latest|current)|what(?:'s|\s+is)\s+(?:the\s+latest|happening|current)/.test(t))
+      return "web-browsing";
+
+    if (/(?:create|make|generate|show|draw|plot)\s+(?:a\s+)?(?:chart|graph|pie|bar\s+chart|line\s+graph|visuali[sz])/.test(t))
+      return "create-chart";
+
+    return null;
+  }
+
+  // Try regex first — instant, no network call
+  const regexTool = regexClassify(cleanMessage);
+  if (regexTool) {
+    console.log(`⚡ [Classifier regex] "${cleanMessage}" → "${regexTool}"`);
+    return buildIntent(regexTool);
+  }
+
+  // ── LAYER 2: LLM classifier for ambiguous messages ────────────────────────
+  // Only reaches here if regex found nothing — handles natural phrasings
+  // like "fire away", "I want to revise", "can you test me on this"
+  try {
+    const vllmBase =
+      process.env.VLLM_BASE_PATH ||
+      process.env.OLLAMA_BASE_PATH ||
+      "http://192.168.1.128:11434/v1";
+
+    // Use a small dedicated classifier model if configured, 
+    // otherwise fall back to the main model
+   const classifierModel   = process.env.CLASSIFIER_MODEL   || process.env.OLLAMA_MODEL_PREF || "gpt-oss:20b";
+const classifierBaseUrl = process.env.CLASSIFIER_BASE_URL || vllmBase;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+
+    const res = await fetch(`${classifierBaseUrl}/chat/completions`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: classifierModel,
+        messages: [
+          {
+            role: "system",
+            content: "You are a JSON classifier. Respond with ONLY a raw JSON object. No thinking tags. No markdown. No explanation.",
+          },
+          {
+            role: "user",
+            content: `Classify this student message into ONE tool or "none".
+
+TOOLS:
+- "quiz_create"          : wants practice questions, quiz, to be tested, revision questions
+- "flashcard_create"     : wants flashcards, study cards, memory cards
+- "generate-notes"       : wants notes or study guide written out
+- "study-planner-elicit" : wants a study plan or revision schedule
+- "explain-concept"      : wants something explained or defined
+- "document-summarizer"  : wants a document summarised
+- "web-browsing"         : wants to search the web
+- "create-chart"         : wants a chart or graph
+- "none"                 : everything else
+
+Message: "${cleanMessage.replace(/"/g, "'")}"
+
+JSON response:`,
+          },
+        ],
+        stream: false,
+        temperature: 0.0,
+        max_tokens: 50,
+      }),
+    });
+
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+    let raw = data.choices?.[0]?.message?.content ?? "";
+
+    console.log(`🔍 [Classifier LLM raw] "${raw}"`);
+
+    if (!raw.trim()) throw new Error("Empty response from classifier model");
+
+    // Strip think blocks and markdown
+    raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    raw = raw.replace(/```json|```/gi, "").trim();
+
+    const jsonMatch = raw.match(/\{[\s\S]*?\}/);
+    if (!jsonMatch) throw new Error(`No JSON in: "${raw}"`);
+
+    const { tool } = JSON.parse(jsonMatch[0]);
+    console.log(`✅ [Classifier LLM] "${cleanMessage}" → "${tool}"`);
+
+    return buildIntent(tool?.trim());
+
+  } catch (err) {
+    console.warn("⚠️ [Classifier LLM] Failed:", err.message);
+    return null;
+  }
+}
 
 const VALID_CHAT_MODE = ["chat", "query"];
-
-const AVAILABLE_TOOLS = [
-  {
-    type: "function",
-    function: {
-      name: "quiz_create",
-      description: "Generates curriculum-aligned quizzes for students based on ZIMSEC and Cambridge curricula",
-      parameters: {
-        type: "object",
-        properties: {
-          subject: {
-            type: "string",
-            description: "The subject for the quiz (e.g., 'Biology', 'Mathematics')"
-          },
-          topic: {
-            type: "string",
-            description: "The specific topic being discussed in the conversation (e.g., 'Photosynthesis', 'Quadratic Equations'). Extract this from the current conversation context."
-          },
-          grade: {
-            type: "string",
-            description: "Grade level (e.g., '10', '12', 'Form 3')"
-          },
-          userMessage: {
-            type: "string",
-            description: "The user's original request"
-          },
-          numQuestions: {
-            type: "integer",
-            description: "Number of questions to generate",
-            default: 5
-          },
-          difficulty: {
-            type: "string",
-            enum: ["easy", "medium", "hard"],
-            default: "medium"
-          }
-        },
-        required: ["subject", "topic", "grade", "userMessage"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "flashcard_create",
-      description: "Creates educational flashcards for studying",
-      parameters: {
-        type: "object",
-        properties: {
-          subject: { type: "string", description: "Subject for flashcards" },
-          topic: { type: "string", description: "The specific topic being discussed in the conversation. Extract this from the current conversation context." },
-          grade: { type: "string", description: "Grade level" },
-          userMessage: { type: "string", description: "The user's original request" },
-          numCards: { type: "integer", default: 10 },
-          difficulty: { type: "string", enum: ["easy", "medium", "hard"], default: "medium" }
-        },
-        required: ["subject", "topic", "grade", "userMessage"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "web_search",
-      description: "Search the web for current information, facts, or recent events",
-      parameters: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "Search query" },
-          provider: { type: "string", enum: ["tavily", "serper"], default: "tavily" },
-          numResults: { type: "integer", default: 5 }
-        },
-        required: ["query"]
-      }
-    }
-  }
-];
 
 async function streamChatWithWorkspace(
   response,
@@ -117,7 +298,7 @@ async function streamChatWithWorkspace(
     return;
   }
 
-  // If is agent enabled chat we will exit this flow early.
+  // Exit early if this is an agent-handled chat
   const isAgentChat = await grepAgents({
     uuid,
     response,
@@ -138,30 +319,28 @@ async function streamChatWithWorkspace(
   const hasVectorizedSpace = await VectorDb.hasNamespace(workspace.slug);
   const embeddingsCount = await VectorDb.namespaceCount(workspace.slug);
 
-  // User is trying to query-mode chat a workspace that has no data in it - so
-  // we should exit early as no information can be found under these conditions.
+  // Query-mode requires documents — exit early if none exist
   if ((!hasVectorizedSpace || embeddingsCount === 0) && chatMode === "query") {
     const textResponse =
       workspace?.queryRefusalResponse ??
       "There is no relevant information in this workspace to answer your query.";
+
+        const toolIntent = await detectToolIntent(updatedMessage);
+        
     writeResponseChunk(response, {
       id: uuid,
       type: "textResponse",
-      textResponse,
+      textResponse: TOOL_DISPLAY_MESSAGES[toolIntent.tool_call] ?? "🦉 Your tutor is thinking...",
       sources: [],
       attachments,
       close: true,
       error: null,
     });
+
     await WorkspaceChats.new({
       workspaceId: workspace.id,
       prompt: message,
-      response: {
-        text: textResponse,
-        sources: [],
-        type: chatMode,
-        attachments,
-      },
+      response: { text: textResponse, sources: [], type: chatMode, attachments },
       threadId: thread?.id || null,
       include: false,
       user,
@@ -174,6 +353,7 @@ async function streamChatWithWorkspace(
   let contextTexts = [];
   let sources = [];
   let pinnedDocIdentifiers = [];
+
   const { rawHistory, chatHistory } = await recentChatHistory({
     user,
     workspace,
@@ -181,25 +361,22 @@ async function streamChatWithWorkspace(
     messageLimit,
   });
 
-  const visionContext = [];
-  if (attachments && attachments.length > 0) {
-    attachments.forEach((attachment) => {
-      if (attachment.analysis) {
-        const text = attachment.analysis.description || attachment.analysis.extractedText;
-        visionContext.push(`
-[Visual Content Analysis: ${attachment.name}]
-${text}
----
-`);
-      }
-    });
+  // Inject vision analysis from attachments into context
+  if (attachments?.length > 0) {
+    const visionContext = attachments
+      .filter((a) => a.analysis)
+      .map((a) => {
+        const text = a.analysis.description || a.analysis.extractedText;
+        return `[Visual Content Analysis: ${a.name}]\n${text}\n---`;
+      });
+
+    if (visionContext.length > 0) {
+      console.log(`👁️ Adding ${visionContext.length} vision analyses to context`);
+      contextTexts = [...visionContext, ...contextTexts];
+    }
   }
 
-  if (visionContext.length > 0) {
-    console.log(`👁️ Adding ${visionContext.length} vision analyses to context`);
-    contextTexts = [...visionContext, ...contextTexts];
-  }
-
+  // Inject pinned docs
   await new DocumentManager({
     workspace,
     maxTokens: LLMConnector.promptWindowLimit(),
@@ -209,16 +386,15 @@ ${text}
       pinnedDocs.forEach((doc) => {
         const { pageContent, ...metadata } = doc;
         pinnedDocIdentifiers.push(sourceIdentifier(doc));
-        contextTexts.push(doc.pageContent);
+        contextTexts.push(pageContent);
         sources.push({
-          text:
-            pageContent.slice(0, 1_000) +
-            "...continued on in source document...",
+          text: pageContent.slice(0, 1_000) + "...continued on in source document...",
           ...metadata,
         });
       });
     });
 
+  // Inject parsed workspace files
   const parsedFiles = await WorkspaceParsedFiles.getContextFiles(
     workspace,
     thread || null,
@@ -226,14 +402,14 @@ ${text}
   );
   parsedFiles.forEach((doc) => {
     const { pageContent, ...metadata } = doc;
-    contextTexts.push(doc.pageContent);
+    contextTexts.push(pageContent);
     sources.push({
-      text:
-        pageContent.slice(0, 1_000) + "...continued on in source document...",
+      text: pageContent.slice(0, 1_000) + "...continued on in source document...",
       ...metadata,
     });
   });
 
+  // Vector similarity search
   const vectorSearchResults =
     embeddingsCount !== 0
       ? await VectorDb.performSimilaritySearch({
@@ -245,13 +421,9 @@ ${text}
           filterIdentifiers: pinnedDocIdentifiers,
           rerank: workspace?.vectorSearchMode === "rerank",
         })
-      : {
-          contextTexts: [],
-          sources: [],
-          message: null,
-        };
+      : { contextTexts: [], sources: [], message: null };
 
-  if (!!vectorSearchResults.message) {
+  if (vectorSearchResults.message) {
     writeResponseChunk(response, {
       id: uuid,
       type: "abort",
@@ -274,10 +446,12 @@ ${text}
   contextTexts = [...contextTexts, ...filledSources.contextTexts];
   sources = [...sources, ...vectorSearchResults.sources];
 
+  // Query mode still needs context after vector search
   if (chatMode === "query" && contextTexts.length === 0) {
     const textResponse =
       workspace?.queryRefusalResponse ??
       "There is no relevant information in this workspace to answer your query.";
+
     writeResponseChunk(response, {
       id: uuid,
       type: "textResponse",
@@ -286,15 +460,11 @@ ${text}
       close: true,
       error: null,
     });
+
     await WorkspaceChats.new({
       workspaceId: workspace.id,
       prompt: message,
-      response: {
-        text: textResponse,
-        sources: [],
-        type: chatMode,
-        attachments,
-      },
+      response: { text: textResponse, sources: [], type: chatMode, attachments },
       threadId: thread?.id || null,
       include: false,
       user,
@@ -302,86 +472,90 @@ ${text}
     return;
   }
 
-  // Only include web_search if no document context was injected
+  // Suppress web_search when exam paper content is injected
   const activeTools = systemAddition?.includes("== EXAM PAPER CONTENT ==")
-    ? AVAILABLE_TOOLS.filter(t => t.function.name !== "web_search")
-    : AVAILABLE_TOOLS;
+    ? TOOL_DEFINITIONS.filter((t) => t.function.name !== "web_search")
+    : TOOL_DEFINITIONS;
 
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: (await chatPrompt(workspace, user)) +
-                    (systemAddition ? "\n\n" + systemAddition : ""),
+      systemPrompt:
+        (await chatPrompt(workspace, user)) +
+        (systemAddition ? "\n\n" + systemAddition : ""),
       userPrompt: updatedMessage,
       contextTexts,
       chatHistory,
       attachments,
     },
-    rawHistory,
+    rawHistory
   );
 
-  // =========================================================
-  // OPTION B: Tool intent pre-check (non-streaming, fast)
-  // Run a lightweight completion first to detect tool calls
-  // BEFORE opening the stream. This ensures the stream is
-  // never opened/closed before tool results are written.
-  // =========================================================
-  try {
-    console.log("🔍 Running tool intent pre-check...");
-    const { textResponse: intentResponse } = await LLMConnector.getChatCompletion(
-      messages,
-      {
-        temperature: 0,
-        tools: activeTools,
-        tool_choice: "auto",
-        max_tokens: 150, // Only need the tool call decision, not a full reply
-      }
-    );
+  // ─── Tool intent pre-check ────────────────────────────────────────────────
+  // Use a non-streaming completion with tool definitions to detect whether the
+  // LLM wants to invoke a tool. If it does, return the tool call early so the
+  // caller (chat.js) can route to the appropriate handler without ever opening
+  // the stream.
+// ─── Keyword-based tool routing ───────────────────────────────────────────
 
-    // intentResponse may be a raw message object (with tool_calls) or a string
-    const toolCalls =
-      intentResponse?.tool_calls ||                          // object form
-      (Array.isArray(intentResponse) ? intentResponse : null); // array form
+const toolIntent = await detectToolIntent(updatedMessage);
 
-    if (toolCalls && toolCalls.length > 0) {
-      const toolCall = toolCalls[0];
-      const toolName = toolCall.function?.name || toolCall.name;
-      const rawArgs = toolCall.function?.arguments || toolCall.arguments || "{}";
+  if (toolIntent) {
+    console.log(`✅ Tool intent detected [${toolIntent.via}]: ${toolIntent.tool_call}`);
 
-      let parsedArgs;
-      try {
-        parsedArgs = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
-      } catch (parseError) {
-        console.error("❌ Failed to parse tool call arguments:", parseError.message);
-        console.error("Raw arguments:", rawArgs);
-        throw new Error(`Invalid tool call arguments: ${parseError.message}`);
-      }
-
-      console.log(`✅ Tool intent detected: ${toolName}`, parsedArgs);
-
-      // Return early — stream has NOT been opened yet.
-      // chat.js will handle writing the response chunks.
-      return {
-        tool_call: toolName,
-        parameters: parsedArgs,
-      };
+    if (toolIntent.via === "api") {
+      // Direct route — return to chat.js which POSTs to /agent-flows/
+      return { tool_call: toolIntent.tool_call, parameters: toolIntent.parameters };
     }
 
-    console.log("ℹ️ No tool call detected in pre-check — proceeding with normal stream");
-  } catch (intentError) {
-    // Non-fatal: if the pre-check fails (e.g. model doesn't support tools in
-    // non-streaming mode), log and fall through to normal streaming.
-    console.warn("⚠️ Tool intent pre-check failed, falling back to normal stream:", intentError.message);
-  }
-  // =========================================================
-  // END Option B pre-check
-  // =========================================================
+    if (toolIntent.via === "agent") {
+      // Spin up an agent invocation so the aibitat plugin handles it
+      const { WorkspaceAgentInvocation } = require("../../models/workspaceAgentInvocation");
 
-  // If streaming is not explicitly enabled for connector
-  // we do regular waiting of a response and send a single chunk.
+      const { invocation: agentInvocation } = await WorkspaceAgentInvocation.new({
+        prompt: updatedMessage,
+        workspace,
+        user,
+        thread,
+      });
+
+      if (!agentInvocation) {
+        console.warn(`⚠️ Could not start agent for tool: ${toolIntent.tool_call} — falling through to normal chat`);
+        // Fall through — don't return, let the stream run
+      } else {
+        writeResponseChunk(response, {
+          id: uuid,
+          type: "agentInitWebsocketConnection",
+          textResponse: null,
+          sources: [],
+          close: false,
+          error: null,
+          websocketUUID: agentInvocation.uuid,
+        });
+
+        writeResponseChunk(response, {
+          id: uuid,
+          type: "statusResponse",
+          textResponse: `Opening ${toolIntent.tool_call}...`,
+          sources: [],
+          close: true,
+          error: null,
+          animate: true,
+        });
+
+        return;
+      }
+    }
+  }
+
+  console.log("ℹ️ No tool intent detected — proceeding with normal stream");
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Non-streaming path
   if (LLMConnector.streamingEnabled() !== true) {
     console.log(
-      `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming is not available for ${LLMConnector.constructor.name}. Will use regular chat method.`
+      `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming not available for ${LLMConnector.constructor.name}.`
     );
+
     const { textResponse, metrics: performanceMetrics } =
       await LLMConnector.getChatCompletion(messages, {
         temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
@@ -400,6 +574,7 @@ ${text}
       metrics,
     });
   } else {
+    // Streaming path
     const stream = await LLMConnector.streamGetChatCompletion(messages, {
       temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
     });
@@ -447,7 +622,6 @@ ${text}
     error: false,
     metrics,
   });
-  return;
 }
 
 module.exports = {

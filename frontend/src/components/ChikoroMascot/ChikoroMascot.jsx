@@ -19,7 +19,21 @@ export const MASCOT_EXPRESSIONS = {
   disappointed: "disappointed",
   waving: "waving",
 };
-
+export const TOOL_MASCOT_STATE = {
+  "study-planner-elicit":  { expression: "studying",    message: "📅 Let me open your study planner..." },
+  "study-planner":         { expression: "studying",    message: "📅 Building your study plan, one day at a time..." },
+  "generate-notes":        { expression: "explaining",  message: "📚 Writing your notes now..." },
+  "check-my-answer":       { expression: "quizzing",    message: "🦉 Marking your answer carefully..." },
+  "explain-concept":       { expression: "explaining",  message: "💡 Let me break this down for you..." },
+  "document-summarizer":   { expression: "studying",    message: "📄 Reading through your documents..." },
+  "web-browsing":          { expression: "thinking",    message: "🔍 Searching the web for you..." },
+  "web-scraping":          { expression: "thinking",    message: "🌐 Reading that page..." },
+  "flashcard_create":      { expression: "quizzing",    message: "🃏 Shuffling your flashcards..." },
+  "quiz_create":           { expression: "quizzing",    message: "📝 Writing your quiz questions..." },
+  "create-chart":          { expression: "mindblown",   message: "📊 Drawing your chart..." },
+  "__thinking__":          { expression: "thinking",    message: "Hmm, let me think about that... 🧠" },
+  "__done__":              { expression: "happy",       message: null },
+};
 // ═══════════════════════════════════════════════════════════════
 // SPEECH MESSAGES — context-aware per expression
 // ═══════════════════════════════════════════════════════════════

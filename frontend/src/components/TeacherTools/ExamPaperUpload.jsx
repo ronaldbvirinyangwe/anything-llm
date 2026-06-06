@@ -16,6 +16,26 @@ import "./examupload.css";
 function QuestionCard({ item, idx, editingIndex, editForm, setEditForm, onSaveEdit, onCancelEdit, onStartEdit }) {
   const isEditing = editingIndex === idx;
 
+  const TYPE_LABELS = {
+    'multiple-choice': 'Multiple Choice',
+    'structured':      'Structured',
+    'essay':           'Essay',
+    'fill-blank':      'Fill in the Blank',
+    'true-false':      'True / False',
+    'data-response':   'Data Response',
+    'matching':        'Matching',
+  };
+
+  const TYPE_ICONS = {
+    'multiple-choice': '🔤',
+    'structured':      '📝',
+    'essay':           '✍️',
+    'fill-blank':      '🔲',
+    'true-false':      '✅',
+    'data-response':   '📊',
+    'matching':        '🔗',
+  };
+
   if (isEditing && editForm) {
     return (
       <div className="eu-question-card editing">
@@ -26,103 +46,125 @@ function QuestionCard({ item, idx, editingIndex, editForm, setEditForm, onSaveEd
         <div className="eu-edit-form">
           <div className="eu-form-group">
             <label>Question Text</label>
-            <textarea
-              value={editForm.question}
-              rows="3"
-              onChange={e => setEditForm({ ...editForm, question: e.target.value })}
-            />
+            <textarea rows="3" value={editForm.question}
+              onChange={e => setEditForm({ ...editForm, question: e.target.value })} />
           </div>
-          {editForm.type === "multiple-choice" ? (
-            <>
-              <div className="eu-form-group">
-                <label>Options</label>
-                {editForm.options.map((opt, i) => (
-                  <input
-                    key={i}
-                    type="text"
-                    value={opt}
-                    placeholder={`Option ${String.fromCharCode(65 + i)}`}
-                    onChange={e => {
-                      const opts = [...editForm.options];
-                      opts[i] = e.target.value;
-                      setEditForm({ ...editForm, options: opts });
-                    }}
-                  />
-                ))}
-              </div>
-              <div className="eu-form-group">
-                <label>Correct Answer</label>
-                <select
-                  value={editForm.answer || "A"}
-                  onChange={e => setEditForm({ ...editForm, answer: e.target.value })}
-                >
-                  <option value="A">A</option>
-                  <option value="B">B</option>
-                  <option value="C">C</option>
-                  <option value="D">D</option>
-                </select>
-              </div>
-            </>
-          ) : (
+
+          {editForm.type === 'multiple-choice' && (<>
+            <div className="eu-form-group">
+              <label>Options</label>
+              {editForm.options.map((opt, i) => (
+                <input key={i} type="text" value={opt} placeholder={`Option ${String.fromCharCode(65+i)}`}
+                  onChange={e => { const o = [...editForm.options]; o[i] = e.target.value; setEditForm({ ...editForm, options: o }); }} />
+              ))}
+            </div>
+            <div className="eu-form-group">
+              <label>Correct Answer</label>
+              <select value={editForm.answer || 'A'} onChange={e => setEditForm({ ...editForm, answer: e.target.value })}>
+                {['A','B','C','D'].map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+          </>)}
+
+          {editForm.type === 'true-false' && (
+            <div className="eu-form-group">
+              <label>Answer</label>
+              <select value={editForm.answer} onChange={e => setEditForm({ ...editForm, answer: e.target.value })}>
+                <option value="True">True</option>
+                <option value="False">False</option>
+              </select>
+            </div>
+          )}
+
+          {(editForm.type === 'fill-blank') && (
+            <div className="eu-form-group">
+              <label>Answer</label>
+              <input type="text" value={editForm.answer}
+                onChange={e => setEditForm({ ...editForm, answer: e.target.value })} />
+            </div>
+          )}
+
+          {['structured', 'essay', 'data-response'].includes(editForm.type) && (
             <div className="eu-form-group">
               <label>Mark Scheme</label>
-              <textarea
-                value={editForm.markScheme}
-                rows="5"
-                onChange={e => setEditForm({ ...editForm, markScheme: e.target.value })}
-              />
+              <textarea rows="6" value={editForm.markScheme}
+                onChange={e => setEditForm({ ...editForm, markScheme: e.target.value })} />
             </div>
           )}
         </div>
         <div className="eu-edit-actions">
-          <button className="eu-edit-btn save" onClick={() => onSaveEdit(idx)}>
-            <FiCheck /> Save
-          </button>
-          <button className="eu-edit-btn cancel" onClick={onCancelEdit}>
-            <FiX /> Cancel
-          </button>
+          <button className="eu-edit-btn save" onClick={() => onSaveEdit(idx)}><FiCheck /> Save</button>
+          <button className="eu-edit-btn cancel" onClick={onCancelEdit}><FiX /> Cancel</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`eu-question-card${item.type === "structured" ? " structured" : ""}`}>
+    <div className={`eu-question-card ${item.type}`}>
       <div className="eu-question-header">
-        <span className={`eu-badge${item.type === "structured" ? " structured-badge" : ""}`}>
-          {item.type === "multiple-choice" ? "Multiple Choice" : "Structured"}
+        <span className={`eu-badge type-${item.type}`}>
+          {TYPE_ICONS[item.type]} {TYPE_LABELS[item.type] || item.type}
         </span>
-        <h3>{idx + 1}. {item.question}</h3>
+       <h3>
+  {idx + 1}. {item.question.split('\n')[0]}
+</h3>
       </div>
 
-      {item.type === "multiple-choice" && (
-        <>
-          {item.options.length > 0 && (
-            <ul className="eu-option-list">
-              {item.options.map((opt, i) => <li key={i}>{opt}</li>)}
-            </ul>
-          )}
-          {item.answer && (
-            <div className="eu-answer-box">
-              ✅ <strong>Correct Answer:</strong> {item.answer}
-            </div>
-          )}
-        </>
-      )}
+      {/* Multiple Choice */}
+      {item.type === 'multiple-choice' && (<>
+        {item.options.length > 0 && <ul className="eu-option-list">{item.options.map((o,i) => <li key={i}>{o}</li>)}</ul>}
+        {item.answer && <div className="eu-answer-box">✅ <strong>Correct Answer:</strong> {item.answer}</div>}
+      </>)}
 
-      {item.type === "structured" && item.markScheme && (
-        <div className="eu-mark-scheme-box">
-          <h4>📋 Mark Scheme</h4>
-          <div className="eu-mark-scheme-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.markScheme}</ReactMarkdown>
-          </div>
+      {/* True / False */}
+      {item.type === 'true-false' && (
+        <div className="eu-answer-box">
+          {item.answer === 'True' ? '✅' : '❌'} <strong>Answer:</strong> {item.answer}
         </div>
       )}
 
+      {/* Fill in the Blank */}
+      {item.type === 'fill-blank' && (
+        <div className="eu-answer-box">💡 <strong>Answer:</strong> {item.answer}</div>
+      )}
+
+      {/* Matching */}
+      {item.type === 'matching' && (
+        <div className="eu-mark-scheme-box">
+          <h4>🔗 Match</h4>
+          <div style={{ display: 'flex', gap: '2rem' }}>
+            <div><strong>Terms</strong><ul>{item.terms.map((t,i) => <li key={i}>{t}</li>)}</ul></div>
+            <div><strong>Definitions</strong><ul>{item.definitions.map((d,i) => <li key={i}>{d}</li>)}</ul></div>
+          </div>
+          {item.answer && <div className="eu-answer-box" style={{ marginTop: '0.5rem' }}>✅ <strong>Answers:</strong> {item.answer}</div>}
+        </div>
+      )}
+
+   {/* Data Response */}
+{item.type === 'data-response' && (
+  <>
+    {/* Render multi-line question body (figure notes, sub-questions) */}
+    {item.question.includes('\n') && (
+      <div className="eu-question-body">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {item.question.split('\n').slice(1).join('\n')}
+        </ReactMarkdown>
+      </div>
+    )}
+    {item.markScheme && (
+      <div className="eu-mark-scheme-box">
+        <h4>📋 Mark Scheme</h4>
+        <div className="eu-mark-scheme-content">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.markScheme}</ReactMarkdown>
+        </div>
+      </div>
+    )}
+  </>
+)}
+
       <div className="eu-card-actions">
-        <button className="eu-action-card-btn" onClick={() => onStartEdit(idx, item)}>
-          <FiEdit2 /> Edit
-        </button>
+        <button className="eu-action-card-btn" onClick={() => onStartEdit(idx, item)}><FiEdit2 /> Edit</button>
       </div>
     </div>
   );
@@ -223,93 +265,220 @@ export default function ExamPaperUpload() {
   };
 
   // ── Quiz parsing ─────────────────────────────────────────────────────────
-  const parseQuiz = (rawQuiz) => {
-    const blocks = rawQuiz.trim().split(/\n(?=\d+\.)/);
-    const parsed = [];
-    blocks.forEach(block => {
-      const trimmed = block.trim();
-      if (!trimmed) return;
-      const lines = trimmed.split('\n');
-      const qMatch = lines[0].match(/^(\d+)\.\s+(.+)/);
-      if (!qMatch) return;
-      const options = lines.filter(l => /^[A-D]\)/.test(l.trim()));
-      const answerMatch = trimmed.match(/\*{0,2}Answer:\s*([A-D])\*{0,2}/i);
-      if (options.length >= 4 || answerMatch) {
-        parsed.push({
-          type: "multiple-choice",
-          question: qMatch[2],
-          options: options.length >= 4 ? options : [],
-          answer: answerMatch ? answerMatch[1].toUpperCase() : null,
-          raw: trimmed
-        });
-      } else {
-        const msIdx = lines.findIndex(l => /^Mark Scheme:/i.test(l.trim()));
-        parsed.push({
-          type: "structured",
-          question: msIdx > 0
-            ? lines.slice(0, msIdx).join('\n').replace(/^\d+\.\s*/, '')
-            : qMatch[2],
-          markScheme: msIdx > 0
-            ? lines.slice(msIdx).join('\n')
-            : (lines.slice(1).join('\n') || "No mark scheme provided"),
-          raw: trimmed
-        });
-      }
-    });
-    return parsed;
-  };
+  // ─── Universal Quiz Parser ────────────────────────────────────────────────────
+const parseQuiz = (rawQuiz) => {
+  // Normalise: move tags that appear BEFORE the number to after it
+  // "[STRUCTURED] 2.\n(b) text" → "2. [STRUCTURED] (b) text"
+  let normalised = rawQuiz
+    .replace(/\[(\w+)\]\s*(\d+)\.\s*/g, '$2. [$1] ')   // [TAG] N. → N. [TAG]
+    .replace(/^[📝📋✅💡📊🔗✍️🔲]\s*\w+\s*\n/gm, '')   // strip emoji prefix lines
+    .replace(/^\s*\d{1,3}\s*$/gm, '')                   // strip bare page numbers
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
-  const reconstructQuiz = (questions) =>
-    questions.map((q, i) =>
-      q.type === "multiple-choice"
-        ? `${i+1}. ${q.question}\n${q.options.join('\n')}${q.answer ? `\nAnswer: ${q.answer}` : ''}`
-        : `${i+1}. ${q.question}\n${q.markScheme}`
-    ).join('\n\n');
+  // Split on every line that starts a new numbered question
+  const blocks = normalised.split(/\n(?=\d+\.\s)/);
+  const parsed = [];
+
+  blocks.forEach(block => {
+    const trimmed = block.trim();
+    if (!trimmed) return;
+
+    const lines = trimmed.split('\n');
+    const firstLine = lines[0];
+
+    // "N. [TAG] question text" or "N. question text"
+    const qMatch = firstLine.match(/^(\d+)\.\s+(?:\[([A-Z_]+)\]\s+)?([\s\S]*)/i);
+    if (!qMatch) return;
+
+    const detectedTag  = qMatch[2]?.toUpperCase() || null;
+    let   questionText = qMatch[3]?.trim() || '';
+
+    // Clean PDF noise: leading stray numbers like "10 5 (a) actual question"
+    questionText = questionText.replace(/^\d+\s+\d+\s+/, '');
+
+    const body  = lines.slice(1).join('\n').trim();
+    const msIdx = lines.findIndex(l => /^Mark Scheme:/i.test(l.trim()));
+    const markScheme = msIdx > 0
+      ? lines.slice(msIdx + 1).join('\n').trim()
+      : '';
+
+    // ── Route by tag ────────────────────────────────────────────────
+    if (detectedTag === 'MCQ' || (!detectedTag && /^[A-D]\)/m.test(body))) {
+      const options     = lines.filter(l => /^\s*[A-D]\)/.test(l)).map(l => l.trim());
+      const answerMatch = trimmed.match(/\*{0,2}Answer:\s*([A-D])\*{0,2}/i);
+      parsed.push({ type: 'multiple-choice', question: questionText, options, answer: answerMatch?.[1]?.toUpperCase() || null });
+      return;
+    }
+
+    if (detectedTag === 'TRUE_FALSE') {
+      const answerMatch = body.match(/Answer:\s*(True|False)/i);
+      parsed.push({ type: 'true-false', question: questionText, answer: answerMatch?.[1] || '' });
+      return;
+    }
+
+    if (detectedTag === 'FILL' || (!detectedTag && /_{3,}/.test(questionText))) {
+      const answerMatch = body.match(/Answer:\s*(.+)/i);
+      parsed.push({ type: 'fill-blank', question: questionText, answer: answerMatch?.[1]?.trim() || '' });
+      return;
+    }
+
+    if (detectedTag === 'MATCH') {
+      const termsMatch  = body.match(/Terms:\s*(.+)/i);
+      const defsMatch   = body.match(/Definitions:\s*(.+)/i);
+      const answerMatch = body.match(/Answer:\s*(.+)/i);
+      parsed.push({
+        type: 'matching',
+        question: questionText,
+        terms:       termsMatch?.[1]?.split('|').map(s => s.trim()) || [],
+        definitions: defsMatch?.[1]?.split('|').map(s => s.trim()) || [],
+        answer:      answerMatch?.[1]?.trim() || ''
+      });
+      return;
+    }
+
+    if (detectedTag === 'ESSAY') {
+      parsed.push({ type: 'essay', question: questionText, markScheme });
+      return;
+    }
+
+    if (detectedTag === 'DATA') {
+      // Combine question text with any body before Mark Scheme
+      const bodyBeforeMS = msIdx > 0
+        ? lines.slice(1, msIdx).join('\n').trim()
+        : body;
+      const fullQuestion = bodyBeforeMS
+        ? `${questionText}\n${bodyBeforeMS}`
+        : questionText;
+      parsed.push({ type: 'data-response', question: fullQuestion, markScheme });
+      return;
+    }
+
+    // Default → structured
+    const bodyBeforeMS = msIdx > 0 ? lines.slice(1, msIdx).join('\n').trim() : body;
+    const fullQuestion = bodyBeforeMS ? `${questionText}\n${bodyBeforeMS}` : questionText;
+    parsed.push({
+      type: 'structured',
+      question: fullQuestion,
+      markScheme: markScheme || 'No mark scheme provided'
+    });
+  });
+
+  return parsed;
+};
+
+// ─── Reconstruct quiz text from parsed questions ──────────────────────────────
+const reconstructQuiz = (questions) =>
+  questions.map((q, i) => {
+    switch (q.type) {
+      case 'multiple-choice':
+        return `${i+1}. [MCQ] ${q.question}\n${q.options.join('\n')}${q.answer ? `\n**Answer: ${q.answer}**` : ''}`;
+      case 'true-false':
+        return `${i+1}. [TRUE_FALSE] ${q.question}\nAnswer: ${q.answer}`;
+      case 'fill-blank':
+        return `${i+1}. [FILL] ${q.question}\nAnswer: ${q.answer}`;
+      case 'matching':
+        return `${i+1}. [MATCH] ${q.question}\nTerms: ${q.terms.join(' | ')}\nDefinitions: ${q.definitions.join(' | ')}\nAnswer: ${q.answer}`;
+      case 'essay':
+        return `${i+1}. [ESSAY] ${q.question}\nMark Scheme:\n${q.markScheme}`;
+      case 'data-response':
+        return `${i+1}. [DATA] ${q.question}\nMark Scheme:\n${q.markScheme}`;
+      default:
+        return `${i+1}. [STRUCTURED] ${q.question}\nMark Scheme:\n${q.markScheme}`;
+    }
+  }).join('\n\n');
 
   // ── Edit handlers ────────────────────────────────────────────────────────
   const startEdit = (idx, item) => {
-    setEditingIndex(idx);
-    setEditForm(
-      item.type === "multiple-choice"
-        ? { type: "multiple-choice", question: item.question, options: item.options.map(o => o.replace(/^[A-D]\)\s*/, "")), answer: item.answer }
-        : { type: "structured", question: item.question, markScheme: item.markScheme.replace(/^Mark Scheme:\s*/i, "") }
-    );
-  };
+  setEditingIndex(idx);
+  const base = { type: item.type, question: item.question };
+  switch (item.type) {
+    case 'multiple-choice':
+      return setEditForm({ ...base, options: item.options.map(o => o.replace(/^[A-D]\)\s*/, '')), answer: item.answer });
+    case 'true-false':
+      return setEditForm({ ...base, answer: item.answer });
+    case 'fill-blank':
+      return setEditForm({ ...base, answer: item.answer });
+    case 'matching':
+      return setEditForm({ ...base, terms: item.terms, definitions: item.definitions, answer: item.answer });
+    default:
+      return setEditForm({ ...base, markScheme: item.markScheme?.replace(/^Mark Scheme:\s*/i, '') || '' });
+  }
+};
 
-  const handleSaveEdit = (idx) => {
-    if (!editForm) return;
-    const updated = [...parsedQuestions];
-    updated[idx] = editForm.type === "multiple-choice"
-      ? { ...updated[idx], question: editForm.question, options: editForm.options.map((o, i) => `${String.fromCharCode(65+i)}) ${o}`), answer: editForm.answer }
-      : { ...updated[idx], question: editForm.question, markScheme: `Mark Scheme: ${editForm.markScheme}` };
-    const newQuizContent = reconstructQuiz(updated);
-    setParsedQuestions(updated);
-    setExtractedQuiz(prev => ({ ...prev, content: newQuizContent }));
-    setEditingIndex(null); setEditForm(null);
-  };
+const handleSaveEdit = (idx) => {
+  if (!editForm) return;
+  const updated = [...parsedQuestions];
+  switch (editForm.type) {
+    case 'multiple-choice':
+      updated[idx] = { ...updated[idx], question: editForm.question,
+        options: editForm.options.map((o, i) => `${String.fromCharCode(65+i)}) ${o}`),
+        answer: editForm.answer };
+      break;
+    case 'true-false':
+    case 'fill-blank':
+      updated[idx] = { ...updated[idx], question: editForm.question, answer: editForm.answer };
+      break;
+    case 'matching':
+      updated[idx] = { ...updated[idx], question: editForm.question,
+        terms: editForm.terms, definitions: editForm.definitions, answer: editForm.answer };
+      break;
+    default:
+      updated[idx] = { ...updated[idx], question: editForm.question, markScheme: editForm.markScheme };
+  }
+  setParsedQuestions(updated);
+  setExtractedQuiz(prev => ({ ...prev, content: reconstructQuiz(updated) }));
+  setEditingIndex(null); setEditForm(null);
+};
 
   // ── PDF helpers ──────────────────────────────────────────────────────────
   const buildPdfHtml = (questions, withAnswers) => {
-    let html = '<div style="font-family: Arial, sans-serif; color: #000;">';
-    questions.forEach((item, idx) => {
-      if (item.type === "multiple-choice") {
-        html += `<div style="margin-bottom:30px;page-break-inside:avoid;">
-          <p style="font-weight:bold;font-size:16px;margin-bottom:10px;">${idx+1}. ${item.question}</p>
-          <div style="margin-left:20px;line-height:1.8;">${item.options.map(o => `<div>${o}</div>`).join("")}</div>
-          <div style="margin-top:12px;${withAnswers ? "padding:10px;background:#d4edda;border-left:4px solid #28a745;border-radius:4px;" : "border-top:1px solid #eee;padding-top:10px;"}">
-            ${withAnswers ? `<strong style="color:#155724;">Correct Answer: ${item.answer}</strong>` : "<strong>Answer: __________</strong>"}
-          </div></div>`;
-      } else {
-        html += `<div style="margin-bottom:30px;page-break-inside:avoid;">
-          <p style="font-weight:bold;font-size:16px;margin-bottom:10px;">${idx+1}. ${item.question}</p>
-          ${withAnswers
-            ? `<div style="margin-top:10px;padding:15px;background:#e7f3ff;border-left:4px solid #4f46e5;border-radius:4px;"><strong>Mark Scheme:</strong><div style="margin-top:8px;line-height:1.6;">${item.markScheme.replace(/\n/g,"<br>")}</div></div>`
-            : `<div style="margin-top:15px;border:1px solid #ddd;padding:15px;min-height:100px;background:#f9f9f9;"><em style="color:#aaa;">Write your answer here...</em></div>`
-          }</div>`;
+  let html = '<div style="font-family: Georgia, serif; color: #000;">';
+  questions.forEach((item, idx) => {
+    html += `<div style="margin-bottom:28px;page-break-inside:avoid;">
+      <p style="font-weight:bold;font-size:15px;margin-bottom:8px;">${idx+1}. ${item.question}</p>`;
+
+    if (item.type === 'multiple-choice') {
+      html += `<div style="margin-left:20px;line-height:1.9;">${item.options.map(o => `<div>${o}</div>`).join('')}</div>`;
+      html += withAnswers
+        ? `<div style="margin-top:10px;padding:8px 12px;background:#d4edda;border-left:4px solid #28a745;border-radius:4px;"><strong>Answer: ${item.answer}</strong></div>`
+        : `<div style="margin-top:10px;"><strong>Answer:</strong> _______</div>`;
+    }
+
+    else if (item.type === 'true-false') {
+      html += withAnswers
+        ? `<div style="margin-top:10px;padding:8px 12px;background:#d4edda;border-left:4px solid #28a745;border-radius:4px;"><strong>Answer: ${item.answer}</strong></div>`
+        : `<div style="margin-top:10px;"><strong>Circle one:</strong> &nbsp;&nbsp; True &nbsp;&nbsp;&nbsp; False</div>`;
+    }
+
+    else if (item.type === 'fill-blank') {
+      html += withAnswers
+        ? `<div style="margin-top:10px;padding:8px 12px;background:#d4edda;border-left:4px solid #28a745;border-radius:4px;"><strong>Answer: ${item.answer}</strong></div>`
+        : '';
+    }
+
+    else if (item.type === 'matching') {
+      html += `<div style="display:flex;gap:40px;margin-top:10px;margin-left:20px;">
+        <div><strong>Terms</strong><ol>${item.terms.map(t => `<li>${t}</li>`).join('')}</ol></div>
+        <div><strong>Definitions</strong><ol type="A">${item.definitions.map(d => `<li>${d}</li>`).join('')}</ol></div>
+      </div>`;
+      if (withAnswers && item.answer) {
+        html += `<div style="margin-top:10px;padding:8px 12px;background:#d4edda;border-left:4px solid #28a745;border-radius:4px;"><strong>Answers:</strong> ${item.answer}</div>`;
       }
-    });
-    return html + "</div>";
-  };
+    }
+
+    else {
+      // structured, essay, data-response
+      const lines = withAnswers && item.markScheme ? item.markScheme.replace(/\n/g, '<br>') : null;
+      html += withAnswers && lines
+        ? `<div style="margin-top:10px;padding:12px 15px;background:#e7f3ff;border-left:4px solid #4f46e5;border-radius:4px;"><strong>Mark Scheme:</strong><div style="margin-top:6px;line-height:1.6;">${lines}</div></div>`
+        : `<div style="margin-top:12px;border:1px solid #ccc;min-height:${item.type === 'essay' ? '200px' : '80px'};padding:12px;background:#fafafa;"><em style="color:#bbb;">Answer space</em></div>`;
+    }
+
+    html += '</div>';
+  });
+  return html + '</div>';
+};
 
   const generatePdf = async (html, filename) => {
     const div = document.createElement("div");
@@ -416,22 +585,22 @@ export default function ExamPaperUpload() {
         {/* Metadata */}
         <div className="eu-form-grid">
           <div className="eu-form-group full-width">
-            <label>Subject</label>
+            <label>Subject / Class</label>
             <input
-              name="subject" type="text" placeholder="e.g. Biology"
+              name="subject" type="text" placeholder="e.g. Geography"
               value={metadata.subject}
               onChange={e => setMetadata(p => ({ ...p, subject: e.target.value }))}
             />
           </div>
           <div className="eu-form-group full-width">
-            <label>Topic</label>
+            <label>Code of Paper</label>
             <input
-              name="topic" type="text" placeholder="e.g. Cell Biology"
+              name="topic" type="text" placeholder="e.g. 6037/2"
               value={metadata.topic}
               onChange={e => setMetadata(p => ({ ...p, topic: e.target.value }))}
             />
           </div>
-          <div className="eu-form-group">
+          {/* <div className="eu-form-group">
             <label>Grade / Year Group</label>
             <input
               name="grade" type="text" placeholder="e.g. Form 4"
@@ -454,7 +623,7 @@ export default function ExamPaperUpload() {
               value={metadata.year}
               onChange={e => setMetadata(p => ({ ...p, year: e.target.value }))}
             />
-          </div>
+          </div> */}
         </div>
 
         {/* File uploads */}

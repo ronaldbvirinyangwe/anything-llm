@@ -540,63 +540,17 @@ async function extractTextFromPDF(filePath) {
 // AI EXTRACTION WITH PROPER ERROR HANDLING
 // ==========================================
 
-async function generateExamExtraction(prompt) {
-  try {
-    const response = await textClient.chat.completions.create({
-      model: process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b",
-      messages: [
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.1,
-      max_tokens: 8000
-    });
-    
-    return response.choices[0].message.content;
-  } catch (error) {
-    console.error('AI generation error:', error);
-    throw new Error('Failed to generate exam extraction: ' + error.message);
-  }
-}
-
-function chunkTextByQuestions(text, maxCharsPerChunk = 12000) {
-  // Match main question numbers: "1 ", "2 ", etc. (with space after number)
-  const mainQuestionPattern = /(?=^\d+\s+[A-Z(])/gm;
-  const potentialQuestions = text.split(mainQuestionPattern).filter(q => q.trim());
-  
-  const chunks = [];
-  let currentChunk = '';
-  
-  for (const question of potentialQuestions) {
-    // If adding this question exceeds limit AND we have content, push chunk
-    if ((currentChunk + question).length > maxCharsPerChunk && currentChunk) {
-      chunks.push(currentChunk.trim());
-      currentChunk = question;
-    } else {
-      currentChunk += question;
-    }
-  }
-  
-  if (currentChunk) {
-    chunks.push(currentChunk.trim());
-  }
-  
-  // Fallback if no questions detected
-  if (chunks.length === 0) {
-    for (let i = 0; i < text.length; i += maxCharsPerChunk) {
-      chunks.push(text.substring(i, i + maxCharsPerChunk));
-    }
-  }
-  
-  return chunks;
-}
-
-// ==========================================
-// MODIFIED AI EXTRACTION WITH CHUNKING
-// ==========================================
-
 async function generateExamExtractionChunked(examText, markSchemeText, metadata) {
-  const maxInputChars = 12000; // Increased
-  const examChunks = chunkTextByQuestions(examText, maxInputChars);
+    const CHUNK_SIZE = 4000;  // safe limit for input + prompt overhead
+  
+  // Try question-aware split first, fall back to hard split
+  let examChunks = chunkTextByQuestions(examText, CHUNK_SIZE);
+  
+  // Fallback: if it gave us 1 huge chunk, force-split it
+  if (examChunks.length === 1 && examText.length > CHUNK_SIZE) {
+    console.warn('⚠️  chunkTextByQuestions returned 1 chunk — using fallback splitter');
+    examChunks = hardSplitByParagraph(examText, CHUNK_SIZE);
+  }
   
   console.log(`📦 Split exam into ${examChunks.length} chunks`);
   
@@ -619,48 +573,67 @@ async function generateExamExtractionChunked(examText, markSchemeText, metadata)
       );
     }
     
-    const prompt = `You are extracting questions from a Cambridge IGCSE Biology exam paper.
+    const subjectLine = metadata.subject 
+  ? `${metadata.subject} exam paper` 
+  : 'an exam paper (infer subject from content)';
+
+   const prompt = `You are an expert at digitising questions from ${subjectLine}.
+Exam board / level: ${metadata.grade || 'unknown'}.
 
 EXAM PAPER TEXT (CHUNK ${i + 1}/${examChunks.length}):
 ${examChunks[i]}
 
 ${relevantMarkScheme ? `MARK SCHEME:\n${relevantMarkScheme}\n` : ''}
 
-CRITICAL INSTRUCTIONS:
-1. Extract EVERY complete question from this chunk
-2. Preserve ALL sub-questions: (a), (b), (i), (ii), etc.
-3. For structured questions, include mark schemes in this format:
+OUTPUT FORMAT — prefix every question with its type tag:
 
+[STRUCTURED] — short/long answer with sub-parts:
+${questionOffset + 1}. [STRUCTURED] Full question text. Include ALL sub-parts (a)(b)(i)(ii) in one block.
 Mark Scheme:
-- Point 1 (1 mark)
-- Point 2 (1 mark)
+- Point one (1 mark)
+- Point two (1 mark)
 
-4. For multiple choice questions, ALWAYS use this exact format - list ALL four options then the answer:
-A) First option text
-B) Second option text
-C) Third option text
-D) Fourth option text
-**Answer: [letter]**
+[FILL] — complete the sentence / fill the blank:
+${questionOffset + 1}. [FILL] As concentration increases, the rate __________ and then remains the same.
+Answer: increases
 
-If the options are shown as diagrams/images and cannot be extracted as text, write:
-A) [diagram]
-B) [diagram]
-C) [diagram]
-D) [diagram]
-**Answer: [letter]**
+[DATA] — references a graph, table, figure, or calculation:
+${questionOffset + 1}. [DATA] Describe the changes shown in Fig. 2.1. [FIGURE: bar chart showing plastic mass 1950-2010] [3 marks]
+Mark Scheme:
+- Both plastics increase over time (1 mark)
+- Macroplastics rise sharply after 2000 (1 mark)
 
-5. Start numbering from ${questionOffset + 1}
-6. DO NOT add preamble - start immediately with the first question number
-7. Include ALL parts - if a question has parts (a) through (d), extract ALL of them
+[MCQ] — multiple choice:
+${questionOffset + 1}. [MCQ] Which cell contains haemoglobin?
+A) Cell A
+B) Cell B
+C) Cell C
+D) Cell D
+**Answer: A**
 
-Extract questions now:`;
+[MATCH] — draw lines / link items:
+${questionOffset + 1}. [MATCH] Draw lines to link each letter to its function.
+Terms: P | Q | R
+Definitions: changes shape to focus light | contains light receptors | carries impulses to brain
+Answer: P→changes shape to focus light | Q→contains light receptors | R→carries impulses to brain
+
+CRITICAL RULES:
+1. Start numbering from ${questionOffset + 1} — NO preamble, start immediately
+2. Always include the type tag e.g. [STRUCTURED], [FILL], [DATA] on the question line
+3. For questions referencing diagrams write [FIGURE: brief description of what it shows]
+4. Keep all sub-parts (a)(b)(i)(ii) together under ONE question number
+5. Include mark allocations e.g. [2 marks] where visible
+6. If the chunk contains no questions (cover page, blank page), output nothing
+7. DO NOT output JSON
+
+EXTRACT ALL QUESTIONS NOW:`;
 
     try {
       const response = await textClient.chat.completions.create({
         model: process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1, // Lower for more accuracy
-        max_tokens: 6000  // Increased
+        max_tokens: 12000  // Increased
       });
       
       let extracted = response.choices[0]?.message?.content;
@@ -703,21 +676,45 @@ Extract questions now:`;
   return combined;
 }
 
+function hardSplitByParagraph(text, maxChars) {
+  const chunks = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = start + maxChars;
+    if (end < text.length) {
+      // break at last double newline before the limit
+      const boundary = text.lastIndexOf('\n\n', end);
+      if (boundary > start + maxChars * 0.4) end = boundary;
+    }
+    chunks.push(text.slice(start, Math.min(end, text.length)));
+    start = end;
+  }
+  return chunks;
+}
+
 // Helper functions
 function extractQuestionNumbers(text) {
-  const matches = text.matchAll(/^(\d+)\s+/gm);
+  const matches = text.matchAll(/^(?:Q(?:uestion)?\s*)?(\d+)[\.\):\s]/gm);
   return [...new Set([...matches].map(m => parseInt(m[1])))].sort((a, b) => a - b);
 }
 
 function extractRelevantMarkScheme(markSchemeText, startQ, endQ) {
-  // Find sections for questions startQ through endQ
-  const questionPattern = new RegExp(
-    `Question Answer Marks.*?\\b${startQ}\\b[\\s\\S]*?(?=\\bQuestion Answer Marks.*?\\b${endQ + 1}\\b|$)`,
-    'i'
+  // Try structured header format first
+  const strictPattern = new RegExp(
+    `(?:Question|Q\\.?)\\s*${startQ}[\\s\\S]*?(?=(?:Question|Q\\.?)\\s*${endQ + 1}|$)`, 'i'
   );
-  
-  const match = markSchemeText.match(questionPattern);
-  return match ? match[0].substring(0, 4000) : ''; // Limit to 4000 chars
+  const strictMatch = markSchemeText.match(strictPattern);
+  if (strictMatch) return strictMatch[0].substring(0, 4000);
+
+  // Fallback: find the rough position of startQ in the mark scheme and take a slice
+  const roughPattern = new RegExp(`\\b${startQ}\\b`);
+  const roughMatch = roughPattern.exec(markSchemeText);
+  if (roughMatch) {
+    return markSchemeText.substring(roughMatch.index, roughMatch.index + 4000);
+  }
+
+  // Last resort: return the whole mark scheme (truncated)
+  return markSchemeText.substring(0, 4000);
 }
 
 
@@ -810,7 +807,12 @@ app.post("/teacher/extract-exam-paper",
       }
 
       // STEP 3: Single AI call - Extract questions directly (NO structure analysis)
-      const extractionPrompt = `You are extracting questions from a Cambridge IGCSE Biology exam paper.
+      // STEP 3: Build a universal extraction prompt
+const subjectHint = parsedMetadata.subject 
+  ? `Subject: ${parsedMetadata.subject}` 
+  : "Subject: Unknown (infer from content)";
+
+const extractionPrompt = `You are an expert at digitising exam papers from any subject, exam board, or education level.
 
 EXAM PAPER TEXT:
 ${examText}
@@ -818,34 +820,63 @@ ${examText}
 ${markSchemeText ? `MARK SCHEME TEXT:\n${markSchemeText}\n` : ''}
 
 METADATA:
-- Subject: ${parsedMetadata.subject}
-- Grade: ${parsedMetadata.grade}
+- ${subjectHint}
+- Grade/Level: ${parsedMetadata.grade || 'Unknown'}
+- Topic: ${parsedMetadata.topic || 'Unknown'}
 
-OUTPUT FORMAT - MUST FOLLOW EXACTLY:
+OUTPUT FORMAT — choose the correct type tag for each question:
 
-For Multiple Choice Questions:
-1. Question text goes here?
-A) First option
-B) Second option
-C) Third option
-D) Fourth option
+[MCQ] Multiple Choice:
+1. [MCQ] Question text here?
+A) Option one
+B) Option two
+C) Option three
+D) Option four
 **Answer: B**
 
-For Structured Questions:
-2. Question text including sub-parts (a), (b), (i), (ii) etc.
-
+[STRUCTURED] Short/Structured Answer:
+2. [STRUCTURED] Question text. Include all sub-parts (a)(b)(i)(ii) in the same block.
 Mark Scheme:
-- First point (1 mark)
-- Second point (1 mark)
+- Point one (1 mark)
+- Point two (1 mark)
+
+[ESSAY] Extended/Essay Question:
+3. [ESSAY] Full essay question here. [X marks]
+Mark Scheme:
+- Key argument or point (2 marks)
+- Supporting evidence expected (2 marks)
+
+[FILL] Fill in the Blank:
+4. [FILL] The process by which plants make food is called __________.
+Answer: photosynthesis
+
+[TRUE_FALSE] True or False:
+5. [TRUE_FALSE] Water boils at 90°C at sea level.
+Answer: False
+
+[DATA] Data Response / Calculation:
+6. [DATA] Using the information provided, calculate the rate of reaction. [FIGURE referenced in original]
+Mark Scheme:
+- Correct method shown (1 mark)
+- Answer: 2.5 mol/s (1 mark)
+
+[MATCH] Matching:
+7. [MATCH] Match each term to its definition.
+Terms: Osmosis | Diffusion | Active Transport
+Definitions: Movement against concentration gradient | Movement of water through membrane | Passive movement of particles
+Answer: Osmosis→Movement of water through membrane | Diffusion→Passive movement of particles | Active Transport→Movement against concentration gradient
 
 CRITICAL RULES:
-1. Start IMMEDIATELY with "1." - NO introduction, preamble, or explanation
-2. Each question starts on a new line with its number: "1.", "2.", "3."
-3. Put ONE blank line between questions
-4. For multiple choice: list options A) B) C) D) then **Answer: X**
-5. For structured: include sub-questions in the question text, then add "Mark Scheme:" section
-6. Extract ALL questions from the exam paper
-7. DO NOT output JSON or any other format - just plain numbered questions
+1. Start IMMEDIATELY with "1." — NO preamble, intro, or commentary
+2. Always include the type tag e.g. [MCQ], [STRUCTURED], [ESSAY] at the start of the question line
+3. Number questions sequentially: 1. 2. 3. — even if the original uses Q1, Part A, Section B etc.
+4. One blank line between questions, NO blank lines within a question block
+5. If a question references a figure, diagram, or table not reproducible as text, write [FIGURE: description of what it shows]
+6. Include ALL mark allocations where visible e.g. [3 marks]
+7. For multi-part questions, keep all parts together under one number
+8. DO NOT output JSON — plain text only
+9. Adapt intelligently to the subject — maths papers have calculations, English papers have extracts, etc.
+10. If the subject appears to be a language paper, preserve any passage/extract the question references
 
 NOW EXTRACT ALL QUESTIONS (start with "1." immediately):`;
 
@@ -968,6 +999,7 @@ NOW EXTRACT ALL QUESTIONS (start with "1." immediately):`;
     }
   }
 );
+
 
 
 

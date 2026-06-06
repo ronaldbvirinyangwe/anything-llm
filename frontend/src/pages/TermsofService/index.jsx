@@ -226,6 +226,7 @@ export default function TermsOfService() {
             <ul className="space-y-2">
               <li><button onClick={()=>navigate("/privacy-policy")} className="text-xs text-white/40 hover:text-white transition-colors">Privacy Policy</button></li>
               <li><button onClick={()=>navigate("/terms-of-service")} className="text-xs text-white/40 hover:text-white transition-colors">Terms of Service</button></li>
+              <li><button onClick={()=>navigate("/delete-account")} className="text-xs text-white/40 hover:text-white transition-colors">Delete Account</button></li>
             </ul>
           </div>
         </div>

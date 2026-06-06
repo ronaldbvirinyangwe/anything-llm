@@ -5,7 +5,7 @@ import react from "@vitejs/plugin-react";
 import dns from "dns";
 import { visualizer } from "rollup-plugin-visualizer";
 
-dns.setDefaultResultOrder("verbatim");
+dns.setDefaultResultOrder("ipv4first");
 
 export default defineConfig({
   assetsInclude: [
@@ -18,15 +18,21 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: "localhost",
+    host: "127.0.0.1",
     proxy: {
-      // 🧠 Automatically forward all API requests to backend (port 3001)
       "/api": {
-        target: "http://localhost:3001",
+        target: "http://127.0.0.1:3001",
         changeOrigin: true,
         secure: false,
       },
     },
+  },
+  preview: {
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0",
+    }
   },
   define: {
     "process.env": process.env
@@ -37,7 +43,7 @@ export default defineConfig({
   plugins: [
     react(),
     visualizer({
-      template: "treemap", // or sunburst
+      template: "treemap",
       open: false,
       gzipSize: true,
       brotliSize: true,
@@ -62,13 +68,6 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      output: {
-        entryFileNames: 'index.js',
-        assetFileNames: (assetInfo) => {
-          if (assetInfo.name === 'index.css') return `index.css`;
-          return assetInfo.name;
-        },
-      },
       external: [
         /@phosphor-icons\/react\/dist\/ssr/,
       ]

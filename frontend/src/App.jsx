@@ -58,6 +58,7 @@ import Landing from "@/pages/Landing";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import TermsOfService from "@/pages/TermsofService";
 import ThePowerOfHomeLanguage from "@/pages/Blog/ThePowerOfHomeLanguage";
+import DeleteAccount from "./components/DeleteAccount/DeleteAccount";
 
 const Main = lazy(() => import("@/pages/Main"));
 
@@ -168,6 +169,7 @@ export default function App() {
                   <Route path="/payment" element={<PaymentPage />} />
                   <Route path="/test" element={<Test />} />
                   <Route path="/quiz" element={<QuizPage />} />
+                  <Route path="/delete-account" element={<DeleteAccount />} />
                   <Route path="/reports/:id" element={<Reports />} />
                    <Route path="/test/result/:id" element={<ViewTest readOnly={true} />} />
                     <Route path="/teacher-dashboard" element={<TeacherDashboard />} />

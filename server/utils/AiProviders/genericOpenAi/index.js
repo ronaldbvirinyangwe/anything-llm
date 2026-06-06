@@ -24,7 +24,7 @@ class GenericOpenAiLLM {
       baseURL: this.basePath,
       apiKey: process.env.GENERIC_OPEN_AI_API_KEY ?? null,
       defaultHeaders: {
-        "User-Agent": getAnythingLLMUserAgent(),
+        "User-Agent": "ChikoroAI/1.0.0",
       },
     });
     this.model =

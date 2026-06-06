@@ -12,6 +12,14 @@ const DEFAULT_SKILLS = [
   AgentPlugins.memory.name,
   AgentPlugins.docSummarizer.name,
   AgentPlugins.webScraping.name,
+   AgentPlugins.generateNotes.name,
+   AgentPlugins.explainConcept.name,
+   AgentPlugins.checkMyAnswer.name,
+    AgentPlugins.StudyPlannerElicit.name,
+   AgentPlugins.StudyPlanner.name,
+  AgentPlugins.StudyContext.name,
+  AgentPlugins.StudyTracker.name,
+  AgentPlugins.FollowUpQuestions.name,
 ];
 
 const USER_AGENT = {

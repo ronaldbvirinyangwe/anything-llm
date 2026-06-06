@@ -634,6 +634,7 @@ export default function Landing() {
               Zimbabwe's first AI tutor — aligned to ZIMSEC & Cambridge, in English, Shona, and Ndebele.
             </p>
             <p className="text-xs text-white/20 mt-4"><em>Chikoro</em> means "school" in Shona.</p>
+            <p className="text-xs text-white/20 mt-4"><em>It</em> means "isikolo" in Ndebele.</p>
           </div>
           <div>
             <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-4">Product</p>
@@ -650,6 +651,14 @@ export default function Landing() {
                 <li key={l}><button onClick={()=>navigate(p)} className="text-sm text-white/35 hover:text-white transition-colors">{l}</button></li>
               ))}
               <li><a href={`mailto:${SCHOOL_EMAIL}`} className="text-sm text-white/35 hover:text-white transition-colors">Contact us</a></li>
+            </ul>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-4">Legal</p>
+            <ul className="space-y-2">
+              <li><button onClick={()=>navigate("/privacy-policy")} className="text-xs text-white/40 hover:text-white transition-colors">Privacy Policy</button></li>
+              <li><button onClick={()=>navigate("/terms-of-service")} className="text-xs text-white/40 hover:text-white transition-colors">Terms of Service</button></li>
+              <li><button onClick={()=>navigate("/delete-account")} className="text-xs text-white/40 hover:text-white transition-colors">Delete Account</button></li>
             </ul>
           </div>
         </div>

@@ -1,41 +1,111 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import axios from "axios";
+import katex from "katex";
 import "katex/dist/katex.min.css";
+import axios from "axios";
 import "./studentquiz.css";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import { 
-  FiClock, FiShield, FiAlertTriangle, FiCheckCircle, 
-  FiXCircle, FiPrinter, FiArrowLeft, FiSend, FiInfo 
+import {
+  FiClock, FiShield, FiAlertTriangle, FiCheckCircle,
+  FiXCircle, FiPrinter, FiArrowLeft, FiSend, FiInfo
 } from "react-icons/fi";
 
-// Helper to render text with inline LaTeX
+// ─── Math Helpers ────────────────────────────────────────────────────────────
+
+/** Normalise \(...\) and \[...\] → $...$ / $$...$$ */
+const normaliseMath = (text) => {
+  if (!text) return text;
+  let out = text;
+  out = out.replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `$${m}$`);
+  out = out.replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `$$${m}$$`);
+  out = out.replace(
+    /\(([^()]*?\\[a-zA-Z]+[^()]*?)\)/g,
+    (_, inner) => `$${inner}$`
+  );
+  return out;
+};
+
+/**
+ * Renders text with inline/block LaTeX using KaTeX directly.
+ * Bypasses remark-math / rehype-katex which silently drops content
+ * containing backslash-space (e.g. $30\ \text{km}$).
+ */
 function MathText({ text }) {
   if (!text) return null;
+  const normalized = normaliseMath(String(text));
+  const parts = normalized.split(/(\$\$[\s\S]*?\$\$|\$[^\$\n]+?\$)/g);
+
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkMath]}
-      rehypePlugins={[rehypeKatex]}
-      components={{
-        p: ({ children }) => <span>{children}</span>,
-      }}
-    >
-      {text}
-    </ReactMarkdown>
+    <span style={{ textTransform: "none" }}>
+      {parts.map((part, i) => {
+        // Block math $$...$$
+        if (part.startsWith("$$") && part.endsWith("$$") && part.length > 4) {
+          try {
+            return (
+              <span
+                key={i}
+                dangerouslySetInnerHTML={{
+                  __html: katex.renderToString(part.slice(2, -2), {
+                    displayMode: true,
+                    throwOnError: false,
+                  }),
+                }}
+              />
+            );
+          } catch {
+            return <span key={i}>{part}</span>;
+          }
+        }
+        // Inline math $...$
+        if (part.startsWith("$") && part.endsWith("$") && part.length > 2) {
+          try {
+            return (
+              <span
+                key={i}
+                dangerouslySetInnerHTML={{
+                  __html: katex.renderToString(part.slice(1, -1), {
+                    throwOnError: false,
+                  }),
+                }}
+              />
+            );
+          } catch {
+            return <span key={i}>{part}</span>;
+          }
+        }
+        // Plain text
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
   );
 }
 
-// Robust question parser
+/**
+ * Multi-line block renderer — splits on newlines, renders each line with MathText.
+ * Used for mark schemes, explanations, and other multi-line content.
+ */
+function MathBlock({ children }) {
+  if (!children) return null;
+  const lines = normaliseMath(String(children)).split("\n");
+  return (
+    <div>
+      {lines.map((line, i) => (
+        <p key={i} style={{ margin: "0.3rem 0" }}>
+          <MathText text={line} />
+        </p>
+      ))}
+    </div>
+  );
+}
+
+// ─── Question Parser ─────────────────────────────────────────────────────────
+
 function parseQuestions(content) {
   if (!content) return [];
   let processed = content;
-  processed = processed.replace(/\\\([\s\S]*?\\\)/g, (m) => m.replace(/\n/g, ' '));
-  processed = processed.replace(/\\\[[\s\S]*?\\\]/g, (m) => m.replace(/\n/g, ' '));
-  processed = processed.replace(/\$\$[\s\S]*?\$\$/g, (m) => m.replace(/\n/g, ' '));
-  processed = processed.replace(/\$(?!\$)[\s\S]*?(?<!\$)\$/g, (m) => m.replace(/\n/g, ' '));
+  processed = processed.replace(/\\\([\s\S]*?\\\)/g, (m) => m.replace(/\n/g, " "));
+  processed = processed.replace(/\\\[[\s\S]*?\\\]/g, (m) => m.replace(/\n/g, " "));
+  processed = processed.replace(/\$\$[\s\S]*?\$\$/g, (m) => m.replace(/\n/g, " "));
+  processed = processed.replace(/\$(?!\$)[\s\S]*?(?<!\$)\$/g, (m) => m.replace(/\n/g, " "));
 
   const lines = processed.split("\n");
   const questions = [];
@@ -58,7 +128,7 @@ function parseQuestions(content) {
       }
 
       let questionText = questionMatch[2].trim();
-      let marks = pendingMarks; 
+      let marks = pendingMarks;
 
       const marksInQuestion = questionText.match(/\[(\d+)\s*marks?\]\s*\*?\s*$/i);
       if (marksInQuestion) {
@@ -76,7 +146,7 @@ function parseQuestions(content) {
         text: questionText,
         options: [],
         lines: [],
-        marks: marks,
+        marks,
       };
       continue;
     }
@@ -91,10 +161,7 @@ function parseQuestions(content) {
 
     if (inMarkScheme) {
       const nextQ = trimmed.match(/^(\d+)\.\s+(.+)/);
-      if (nextQ) {
-        inMarkScheme = false;
-        i--; 
-      }
+      if (nextQ) { inMarkScheme = false; i--; }
       continue;
     }
 
@@ -139,6 +206,8 @@ function parseQuestions(content) {
   return questions;
 }
 
+// ─── Main Component ──────────────────────────────────────────────────────────
+
 export default function StudentQuiz() {
   const { quizCode } = useParams();
   const [quiz, setQuiz] = useState(null);
@@ -163,7 +232,9 @@ export default function StudentQuiz() {
       try {
         const res = await axios.get(`https://api.chikoro-ai.com/api/system/quiz/${quizCode}`);
         if (res.data.success) setQuiz(res.data.quiz);
-      } catch (err) { console.error("Error loading quiz:", err); }
+      } catch (err) {
+        console.error("Error loading quiz:", err);
+      }
     };
     fetchQuiz();
   }, [quizCode]);
@@ -195,7 +266,6 @@ export default function StudentQuiz() {
       if (elem.requestFullscreen) await elem.requestFullscreen();
       else if (elem.webkitRequestFullscreen) await elem.webkitRequestFullscreen();
       else if (elem.msRequestFullscreen) await elem.msRequestFullscreen();
-      
       setFullscreenActive(true);
       setQuizStarted(true);
       initializeTimer();
@@ -208,17 +278,24 @@ export default function StudentQuiz() {
   useEffect(() => {
     if (!quizStarted) return;
     const handleFullscreenChange = () => {
-      const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
-      if (!isFullscreen && quizStarted && !submitted) {
-        const newViolations = tabViolationsRef.current + 1;
-        tabViolationsRef.current = newViolations;
-        setTabViolations(newViolations);
-        alert("🚨 FULLSCREEN EXIT DETECTED!\n\nThis counts as a security violation. Your quiz will be automatically submitted.");
-        autoSubmitQuiz(newViolations, false);
-      }
-      setFullscreenActive(isFullscreen);
-    };
+  const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  if (!isFullscreen && quizStarted && !submitted) {
+    const newViolations = tabViolationsRef.current + 1;
+    tabViolationsRef.current = newViolations;
+    setTabViolations(newViolations);
 
+    if (newViolations === 1 && !hasWarned) {
+      setHasWarned(true);
+      alert(`⚠️ WARNING: Fullscreen exit detected!\nViolations used: ${newViolations}/${maxTabSwitches}`);
+    }
+
+    if (newViolations > maxTabSwitches) {
+      alert("🚨 Violation limit exceeded. Quiz will be submitted.");
+      autoSubmitQuiz(newViolations, false);
+    }
+  }
+  setFullscreenActive(isFullscreen);
+};
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
     return () => {
@@ -246,13 +323,11 @@ export default function StudentQuiz() {
   useEffect(() => {
     if (!quizStarted || submitted) return;
     const maxTabSwitches = quiz?.tabLimit || 1;
-
     const handleVisibility = () => {
       if (document.hidden) {
         const newV = tabViolationsRef.current + 1;
         tabViolationsRef.current = newV;
         setTabViolations(newV);
-
         if (newV === 1 && !hasWarned) {
           setHasWarned(true);
           alert(`⚠️ WARNING: Focus Loss Detected!\nYou have ${maxTabSwitches} allowed violation(s). You have used ${newV}.`);
@@ -263,7 +338,6 @@ export default function StudentQuiz() {
         }
       }
     };
-
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [quizStarted, submitted, hasWarned, quiz]);
@@ -272,7 +346,11 @@ export default function StudentQuiz() {
     if (!quizStarted) return;
     const prevent = (e) => { e.preventDefault(); return false; };
     const preventDevTools = (e) => {
-      if (e.keyCode === 123 || (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || (e.ctrlKey && e.keyCode === 85)) {
+      if (
+        e.keyCode === 123 ||
+        (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) ||
+        (e.ctrlKey && e.keyCode === 85)
+      ) {
         e.preventDefault(); return false;
       }
     };
@@ -300,7 +378,8 @@ export default function StudentQuiz() {
   const autoSubmitQuiz = async (violations, isTimeExpired = false) => {
     if (submitted || loading || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
-    setSubmitted(true); setLoading(true);
+    setSubmitted(true);
+    setLoading(true);
     if (timerRef.current) clearInterval(timerRef.current);
 
     try {
@@ -308,13 +387,12 @@ export default function StudentQuiz() {
       const formattedAnswers = Object.entries(answers).map(([index, answer]) => ({
         questionIndex: parseInt(index), answer: answer || "",
       }));
-
       const res = await axios.post("https://api.chikoro-ai.com/api/system/student/submit-quiz", {
         quizCode, answers: formattedAnswers, studentId: student.id,
-        tabViolations: violations, tabLimitExceeded: !isTimeExpired && violations > (quiz?.tabLimit || 1),
+        tabViolations: violations,
+        tabLimitExceeded: !isTimeExpired && violations > (quiz?.tabLimit || 1),
         autoSubmitted: true, timeExpired: isTimeExpired,
       });
-
       if (res.data.success) {
         setFeedback({ ...res.data, timeExpired: isTimeExpired });
         localStorage.removeItem(`quiz_${quizCode}_start`);
@@ -323,7 +401,10 @@ export default function StudentQuiz() {
     } catch (err) {
       if (err.response?.data?.alreadySubmitted) alert("❌ You have already submitted this quiz.");
       else alert("❌ Auto-submission failed.");
-    } finally { setLoading(false); isSubmittingRef.current = false; }
+    } finally {
+      setLoading(false);
+      isSubmittingRef.current = false;
+    }
   };
 
   const handleChange = (qIndex, value) => setAnswers({ ...answers, [qIndex]: value });
@@ -332,7 +413,8 @@ export default function StudentQuiz() {
     setShowSubmitConfirm(false);
     if (loading || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
-    setSubmitted(true); setLoading(true);
+    setSubmitted(true);
+    setLoading(true);
     if (timerRef.current) clearInterval(timerRef.current);
 
     try {
@@ -340,13 +422,12 @@ export default function StudentQuiz() {
       const formattedAnswers = Object.entries(answers).map(([index, answer]) => ({
         questionIndex: parseInt(index), answer,
       }));
-
       const res = await axios.post("https://api.chikoro-ai.com/api/system/student/submit-quiz", {
         quizCode, answers: formattedAnswers, studentId: student.id,
-        tabViolations: tabViolationsRef.current, tabLimitExceeded: tabViolationsRef.current > (quiz?.tabLimit || 1),
+        tabViolations: tabViolationsRef.current,
+        tabLimitExceeded: tabViolationsRef.current > (quiz?.tabLimit || 1),
         autoSubmitted: false, timeExpired: false,
       });
-
       if (res.data.success) {
         setFeedback(res.data);
         localStorage.removeItem(`quiz_${quizCode}_start`);
@@ -355,7 +436,10 @@ export default function StudentQuiz() {
     } catch (err) {
       if (err.response?.data?.alreadySubmitted) alert("❌ You have already submitted this quiz.");
       else { setSubmitted(false); alert("❌ Submission failed. Please try again."); }
-    } finally { setLoading(false); isSubmittingRef.current = false; }
+    } finally {
+      setLoading(false);
+      isSubmittingRef.current = false;
+    }
   };
 
   const formatTime = (seconds) => {
@@ -367,10 +451,7 @@ export default function StudentQuiz() {
   };
 
   if (!quiz) return <div className="loading-screen"><div className="spinner"></div><p>Loading your quiz...</p></div>;
-
-  if (submitted && feedback) {
-    return <QuizFeedback feedback={feedback} quiz={quiz} quizCode={quizCode} />;
-  }
+  if (submitted && feedback) return <QuizFeedback feedback={feedback} quiz={quiz} quizCode={quizCode} />;
 
   if (!quiz.content) {
     return (
@@ -378,12 +459,12 @@ export default function StudentQuiz() {
         <FiAlertTriangle className="error-icon" />
         <h2>Quiz Not Ready</h2>
         <p>Quiz content is missing or not yet generated for this code.</p>
-        <Link to="/" className="btn-secondary"><FiArrowLeft/> Go Back</Link>
+        <Link to="/" className="btn-secondary"><FiArrowLeft /> Go Back</Link>
       </div>
     );
   }
 
-  // --- START SCREEN ---
+  // ── Start Screen ──
   if (!quizStarted) {
     return (
       <div className="quiz-start-container fade-in">
@@ -399,7 +480,7 @@ export default function StudentQuiz() {
             </div>
             <div className="info-box">
               <span className="info-label">Time Limit</span>
-              <span className="info-value">{quiz.timeLimit && quiz.timeLimit > 0 ? `${quiz.timeLimit} mins` : 'None'}</span>
+              <span className="info-value">{quiz.timeLimit && quiz.timeLimit > 0 ? `${quiz.timeLimit} mins` : "None"}</span>
             </div>
             <div className="info-box">
               <span className="info-label">Focus Limit</span>
@@ -408,7 +489,7 @@ export default function StudentQuiz() {
           </div>
 
           <div className="security-notice">
-            <h3><FiAlertTriangle style={{marginBottom: '-2px'}}/> Rules & Requirements</h3>
+            <h3><FiAlertTriangle style={{ marginBottom: "-2px" }} /> Rules & Requirements</h3>
             <ul>
               <li>Opens in strict <strong>fullscreen mode</strong>.</li>
               <li>Do not switch tabs, windows, or applications.</li>
@@ -428,7 +509,7 @@ export default function StudentQuiz() {
     );
   }
 
-  // --- QUIZ TAKING INTERFACE ---
+  // ── Quiz Taking Interface ──
   const questions = parseQuestions(quiz.content);
   const maxTabSwitches = quiz.tabLimit || 1;
 
@@ -442,7 +523,7 @@ export default function StudentQuiz() {
           </div>
 
           {timeRemaining !== null && quiz.timeLimit > 0 && (
-            <div className={`timer-pill ${timeRemaining < 60 ? 'critical' : timeRemaining < 300 ? 'warning' : ''}`}>
+            <div className={`timer-pill ${timeRemaining < 60 ? "critical" : timeRemaining < 300 ? "warning" : ""}`}>
               <FiClock className="timer-icon" />
               <span>{formatTime(timeRemaining)}</span>
             </div>
@@ -461,8 +542,8 @@ export default function StudentQuiz() {
         {questions.map((q, idx) => (
           <div key={idx} className="student-question-card">
             <div className="question-meta-row">
-              <span className={`q-type-badge ${q.options.length > 0 ? 'mcq' : 'structured'}`}>
-                {q.options.length > 0 ? 'Multiple Choice' : 'Structured'}
+              <span className={`q-type-badge ${q.options.length > 0 ? "mcq" : "structured"}`}>
+                {q.options.length > 0 ? "Multiple Choice" : "Structured"}
               </span>
               {q.marks && <span className="marks-badge">{q.marks} Marks</span>}
             </div>
@@ -473,14 +554,16 @@ export default function StudentQuiz() {
 
             {q.lines.length > 0 && (
               <div className="q-context">
-                {q.lines.map((line, i) => <p key={i}><MathText text={line} /></p>)}
+                {q.lines.map((line, i) => (
+                  <p key={i}><MathText text={line} /></p>
+                ))}
               </div>
             )}
 
             {q.options.length > 0 ? (
               <div className="options-grid">
                 {q.options.map((opt, i) => (
-                  <label key={i} className={`option-label ${answers[idx] === opt ? 'selected' : ''}`}>
+                  <label key={i} className={`option-label ${answers[idx] === opt ? "selected" : ""}`}>
                     <input
                       type="radio"
                       name={`q${idx}`}
@@ -507,7 +590,11 @@ export default function StudentQuiz() {
       </div>
 
       <div className="quiz-footer-actions">
-        <button className="btn-primary submit-final-btn" onClick={() => setShowSubmitConfirm(true)} disabled={loading || Object.keys(answers).length === 0}>
+        <button
+          className="btn-primary submit-final-btn"
+          onClick={() => setShowSubmitConfirm(true)}
+          disabled={loading || Object.keys(answers).length === 0}
+        >
           {loading ? "Submitting..." : <><FiSend /> Finish & Submit Assessment</>}
         </button>
       </div>
@@ -518,11 +605,10 @@ export default function StudentQuiz() {
             <div className="modal-icon"><FiInfo /></div>
             <h2>Ready to Submit?</h2>
             <p>Once submitted, you cannot change your answers.</p>
-            
             <div className="modal-progress">
-              You answered <strong>{Object.keys(answers).length}</strong> out of <strong>{questions.length}</strong> questions.
+              You answered <strong>{Object.keys(answers).length}</strong> out of{" "}
+              <strong>{questions.length}</strong> questions.
             </div>
-
             <div className="modal-actions">
               <button className="btn-secondary" onClick={() => setShowSubmitConfirm(false)} disabled={loading}>
                 Continue Checking
@@ -538,7 +624,8 @@ export default function StudentQuiz() {
   );
 }
 
-// --- FEEDBACK COMPONENT ---
+// ─── Feedback Component ──────────────────────────────────────────────────────
+
 function QuizFeedback({ feedback, quiz, quizCode }) {
   const isPass = feedback.score >= 60;
 
@@ -546,21 +633,23 @@ function QuizFeedback({ feedback, quiz, quizCode }) {
     <div className="feedback-container fade-in">
       <header className="feedback-header">
         <div className="feedback-status-icon">
-          {isPass ? <FiCheckCircle className="pass-icon" /> : <FiXCircle className="fail-icon" />}
+          {isPass
+            ? <FiCheckCircle className="pass-icon" />
+            : <FiXCircle className="fail-icon" />}
         </div>
         <h1>Assessment Complete</h1>
 
         {(feedback.timeExpired || feedback.autoSubmitted) && (
           <div className="auto-submit-banner">
             <FiAlertTriangle />
-            {feedback.timeExpired 
-              ? "Time limit reached. Quiz auto-submitted." 
+            {feedback.timeExpired
+              ? "Time limit reached. Quiz auto-submitted."
               : `Security violations exceeded (${feedback.tabViolations} / ${quiz.tabLimit}). Quiz auto-submitted.`}
           </div>
         )}
 
         <div className="score-widget">
-          <div className={`circular-score ${isPass ? 'pass' : 'fail'}`}>
+          <div className={`circular-score ${isPass ? "pass" : "fail"}`}>
             <span>{feedback.score}%</span>
           </div>
           <p>{feedback.earnedPoints} of {feedback.totalPoints} Points Earned</p>
@@ -569,7 +658,14 @@ function QuizFeedback({ feedback, quiz, quizCode }) {
 
       <div className="feedback-list">
         {feedback.feedback.map((item, idx) => (
-          <div key={idx} className={`result-card ${item.isCorrect !== undefined ? (item.isCorrect ? 'correct' : 'incorrect') : 'structured'}`}>
+          <div
+            key={idx}
+            className={`result-card ${
+              item.isCorrect !== undefined
+                ? item.isCorrect ? "correct" : "incorrect"
+                : "structured"
+            }`}
+          >
             <div className="result-card-header">
               <span className="q-num">Question {item.questionNumber}</span>
               <span className="pts-badge">{item.pointsEarned}/{item.pointsPossible} pts</span>
@@ -583,7 +679,7 @@ function QuizFeedback({ feedback, quiz, quizCode }) {
             </div>
 
             {item.type === "multiple-choice" && (
-              <div className={`validation-box ${item.isCorrect ? 'match' : 'mismatch'}`}>
+              <div className={`validation-box ${item.isCorrect ? "match" : "mismatch"}`}>
                 {item.isCorrect ? (
                   <><FiCheckCircle /> Correct Answer</>
                 ) : (
@@ -592,20 +688,17 @@ function QuizFeedback({ feedback, quiz, quizCode }) {
               </div>
             )}
 
+            {/* Explanation — uses MathBlock for multi-line content */}
             <div className="ai-insight-box">
               <h4>Teacher Insight</h4>
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-                {item.explanation}
-              </ReactMarkdown>
+              <MathBlock>{item.explanation}</MathBlock>
             </div>
 
             {item.markScheme && (
               <details className="modern-details">
                 <summary>View Grading Criteria</summary>
                 <div className="details-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {item.markScheme}
-                  </ReactMarkdown>
+                  <MathBlock>{item.markScheme}</MathBlock>
                 </div>
               </details>
             )}

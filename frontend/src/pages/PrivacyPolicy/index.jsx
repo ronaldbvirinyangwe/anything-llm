@@ -271,6 +271,8 @@ export default function PrivacyPolicy() {
             <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-4">Legal</p>
             <ul className="space-y-2">
               <li><button onClick={()=>navigate("/privacy-policy")} className="text-xs text-white/40 hover:text-white transition-colors">Privacy Policy</button></li>
+              <li><button onClick={()=>navigate("/terms-of-service")} className="text-xs text-white/40 hover:text-white transition-colors">Terms of Service</button></li>
+              <li><button onClick={()=>navigate("/delete-account")} className="text-xs text-white/40 hover:text-white transition-colors">Delete Account</button></li>
               <li><a href={`mailto:${CONTACT_EMAIL}`} className="text-xs text-white/40 hover:text-white transition-colors">Contact us</a></li>
             </ul>
           </div>

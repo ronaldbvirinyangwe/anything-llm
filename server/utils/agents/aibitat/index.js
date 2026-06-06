@@ -489,6 +489,43 @@ Only return the role.
   }
 
   /**
+ * Automatically fires follow-up-questions after any substantive response.
+ * Returns the follow-up payload appended to the original content,
+ * or just the original content if the plugin isn't available or fires an error.
+ */
+async #appendFollowUpQuestions(content = "", byAgent = null) {
+  if (
+    !content ||
+    content.startsWith("FOLLOW_UP") ||
+    content.startsWith("TERMINATE") ||
+    content.startsWith("INTERRUPT") ||
+    content.length < 50
+  ) {
+    return content;
+  }
+
+  const followUpFn = this.functions.get("follow-up-questions");
+  if (!followUpFn) return content;
+
+  try {
+    followUpFn.caller = byAgent || "agent";
+    const followUpResult = await followUpFn.handler({
+      topic_summary: content.slice(0, 300),
+      subject: null,
+    });
+
+    if (followUpResult?.startsWith("FOLLOW_UP_QUESTIONS::")) {
+      // Return as two messages separated by a sentinel
+      return `${content}\n__SPLIT__\n${followUpResult}`;
+    }
+  } catch (e) {
+    this.handlerProps?.log?.(`[follow-up-questions] Failed silently: ${e.message}`);
+  }
+
+  return content;
+}
+
+  /**
    *
    * @param {string} pluginName this name of the plugin being called
    * @returns string of the plugin to be called compensating for children denoted by # in the string.
@@ -548,53 +585,41 @@ ${this.getHistory({ to: route.to })
    * @param route.to The node that sent the chat.
    * @param route.from The node that will reply to the chat.
    */
-  async reply(route) {
-    const fromConfig = this.getAgentConfig(route.from);
-    const chatHistory = this.getOrFormatNodeChatHistory(route);
-    const messages = [
-      {
-        content: fromConfig.role,
-        role: "system",
-      },
-      ...chatHistory,
-    ];
+ async reply(route) {
+  const fromConfig = this.getAgentConfig(route.from);
+  const chatHistory = this.getOrFormatNodeChatHistory(route);
+  const messages = [
+    { content: fromConfig.role, role: "system" },
+    ...chatHistory,
+  ];
 
-    // get the functions that the node can call
-    const functions = fromConfig.functions
-      ?.map((name) => this.functions.get(this.#parseFunctionName(name)))
-      .filter((a) => !!a);
+  const functions = fromConfig.functions
+    ?.map((name) => this.functions.get(this.#parseFunctionName(name)))
+    .filter((a) => !!a);
 
-    const provider = this.getProviderForConfig({
-      ...this.defaultProvider,
-      ...fromConfig,
-    });
+  const provider = this.getProviderForConfig({
+    ...this.defaultProvider,
+    ...fromConfig,
+  });
 
-    let content;
-    if (provider.supportsAgentStreaming) {
-      this.handlerProps.log?.(
-        "[DEBUG] Provider supports agent streaming - will use async execution!"
-      );
-      content = await this.handleAsyncExecution(
-        provider,
-        messages,
-        functions,
-        route.from
-      );
-    } else {
-      this.handlerProps.log?.(
-        "[DEBUG] Provider does not support agent streaming - will use synchronous execution!"
-      );
-      content = await this.handleExecution(
-        provider,
-        messages,
-        functions,
-        route.from
-      );
-    }
-
-    this.newMessage({ ...route, content });
-    return content;
+  let content;
+  if (provider.supportsAgentStreaming) {
+    content = await this.handleAsyncExecution(provider, messages, functions, route.from);
+  } else {
+    content = await this.handleExecution(provider, messages, functions, route.from);
   }
+
+  // ── Split follow-up questions into a separate message ──────────
+  if (typeof content === "string" && content.includes("\n__SPLIT__\n")) {
+    const [mainContent, followUpContent] = content.split("\n__SPLIT__\n");
+    this.newMessage({ ...route, content: mainContent });
+    this.newMessage({ ...route, content: followUpContent });
+    return mainContent; // return main for TERMINATE check
+  }
+
+  this.newMessage({ ...route, content });
+  return content;
+}
 
   /**
    * Handle the async (streaming) execution of the provider
@@ -669,10 +694,6 @@ ${this.getHistory({ to: route.to })
       // without any further processing and no further tool calls will be run.
       if (this.skipHandleExecution) {
         this.skipHandleExecution = false;
-        this?.introspect?.(
-          `The tool call has direct output enabled! The result will be returned directly to the chat without any further processing and no further tool calls will be run.`
-        );
-        this?.introspect?.(`Tool use completed.`);
         this.handlerProps?.log?.(
           `${fn.caller} tool call resulted in direct output! Returning raw result as string. NO MORE TOOL CALLS WILL BE EXECUTED.`
         );
@@ -701,7 +722,8 @@ ${this.getHistory({ to: route.to })
       );
     }
 
-    return completionStream?.textResponse;
+    const textResponse = completionStream?.textResponse;
+return await this.#appendFollowUpQuestions(textResponse, byAgent);
   }
 
   /**
@@ -801,7 +823,8 @@ ${this.getHistory({ to: route.to })
       );
     }
 
-    return completion?.textResponse;
+   const textResponse = completion?.textResponse;
+return await this.#appendFollowUpQuestions(textResponse, byAgent);
   }
 
   /**

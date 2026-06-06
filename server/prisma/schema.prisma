@@ -625,6 +625,22 @@ model SavedFlashcardSet {
   @@map("saved_flashcard_sets")
 }
 
+model study_plans {
+  id           Int       @id @default(autoincrement())
+  user_id      Int
+  workspace_id Int
+  subject      String?
+  exam_date    DateTime?
+  topics       String[]
+  study_hours  Float
+  days_off     String[]
+  plan_content String    @db.Text
+  created_at   DateTime  @default(now())
+
+  @@index([user_id])
+  @@map("study_plans")
+}
+
 model PushToken {
   id        Int      @id @default(autoincrement())
   userId    Int
