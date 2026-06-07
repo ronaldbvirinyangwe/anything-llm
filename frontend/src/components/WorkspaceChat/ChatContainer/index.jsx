@@ -68,7 +68,8 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
   const removeStudyPlanForm = useCallback(() => {
   setChatHistory((prev) =>
     prev.filter(
-      (msg) => !(typeof msg.content === "string" && msg.content.startsWith("STUDY_PLAN_FORM::"))
+      (msg) => !(typeof msg.content === "string" && msg.content.startsWith("STUDY_PLAN_FORM::")) ||
+      msg.content.startsWith("STUDY_ONBOARDING::") 
     )
   );
 }, [])
@@ -481,6 +482,27 @@ useEffect(() => {
     return;
   }
 
+  if (typeof parsed?.content === "string" && (
+    parsed.content.startsWith("STUDY_ONBOARDING::") ||
+    parsed.content.startsWith("STUDY_PLAN_FORM::") ||
+    parsed.content.startsWith("FOLLOW_UP_QUESTIONS::")
+  )) {
+    agentSafeChatHistory((prev) => [
+      ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
+      {
+        uuid: v4(),
+        role: "assistant",
+        content: parsed.content,
+        pending: false,
+        animate: false,
+        closed: true,
+        sources: [],
+        error: null,
+      },
+    ]);
+    return;
+  }
+
   // ── LOG 1: Raw message arriving from agent ──────────────────
   console.log("🟡 [WS RAW] type:", parsed?.type, "| keys:", Object.keys(parsed));
   if (parsed?.content) {
@@ -589,45 +611,46 @@ if (inner?.type === "fullTextResponse" || inner?.type === "textResponseChunk") {
     wouldTrigger: parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0,
   });
 
-  if (
-  typeof parsed?.content === "string" &&
-  parsed.content.startsWith("STUDY_PLAN_FORM::")
-) {
-  agentSafeChatHistory((prev) => [
-    ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
-    {
-      uuid: v4(),
-      role: "assistant",
-      content: parsed.content,
-      pending: false,
-      animate: false,
-      closed: true,
-      sources: [],
-      error: null,
-    },
-  ]);
-  return;
-}
+//   if (
+//   typeof parsed?.content === "string" &&
+//   parsed.content.startsWith("STUDY_PLAN_FORM::")
+// ) {
+//   agentSafeChatHistory((prev) => [
+//     ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
+//     {
+//       uuid: v4(),
+//       role: "assistant",
+//       content: parsed.content,
+//       pending: false,
+//       animate: false,
+//       closed: true,
+//       sources: [],
+//       error: null,
+//     },
+//   ]);
+//   return;
+// }
 
-if (
-  typeof parsed?.content === "string" &&
-  parsed.content.startsWith("FOLLOW_UP_QUESTIONS::")
-) {
-  agentSafeChatHistory((prev) => [
-    ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
-    {
-      uuid: v4(),
-      role: "assistant",
-      content: parsed.content,  // ← clean prefix, renders correctly
-      pending: false,
-      animate: false,
-      closed: true,
-      sources: [],
-      error: null,
-    },
-  ]);
-  return;
-}
+
+// if (
+//   typeof parsed?.content === "string" &&
+//   parsed.content.startsWith("FOLLOW_UP_QUESTIONS::")
+// ) {
+//   agentSafeChatHistory((prev) => [
+//     ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
+//     {
+//       uuid: v4(),
+//       role: "assistant",
+//       content: parsed.content,  // ← clean prefix, renders correctly
+//       pending: false,
+//       animate: false,
+//       closed: true,
+//       sources: [],
+//       error: null,
+//     },
+//   ]);
+//   return;
+// }
 
   try {
     const rawContent = parsed?.content ?? parsed?.text ?? parsed?.message ?? "";

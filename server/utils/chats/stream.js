@@ -26,6 +26,7 @@ const TOOL_DISPLAY_MESSAGES = {
   "web-browsing":          "🔍 Searching the web...",
   "web-scraping":          "🌐 Reading that page...",
   "create-chart":          "📊 Drawing your chart...",
+  "study-onboarding": "😊 Let's get you set up...",
 };
 
 /**
@@ -138,6 +139,17 @@ async function detectToolIntent(message) {
     if (tool === "create-chart") {
       return { via: "agent", tool_call: "create-chart", parameters: { message: cleanMessage } };
     }
+    if (tool === "study-onboarding") {
+  return {
+    via: "agent",
+    tool_call: "study-onboarding",
+    parameters: {
+      message: cleanMessage,
+      subject,
+      grade,
+    },
+  };
+}
     return null;
   }
 
@@ -178,6 +190,15 @@ async function detectToolIntent(message) {
 
     if (/(?:create|make|generate|show|draw|plot)\s+(?:a\s+)?(?:chart|graph|pie|bar\s+chart|line\s+graph|visuali[sz])/.test(t))
       return "create-chart";
+    // Vague study intent — route to onboarding screen
+if (
+  /\bhelp\s+me\s+(study|revise|prepare|learn|practice|understand|remember)\b/.test(t) ||
+  /\bi\s+(want|need)\s+to\s+(study|revise|learn|practice)\b/.test(t) ||
+  /\bwhere\s+(do\s+i|should\s+i)\s+start\b/.test(t) ||
+  /\bwhat\s+(should|can)\s+i\s+(do|study|learn)\b/.test(t) ||
+  /^\s*(study|revise|practice|learn)\s*$/.test(t) ||
+  /^(yes|yeah|ok|okay|sure|let'?s\s+go|ready|start|hi|hello|hii|helo)\s*$/.test(t)
+) return "study-onboarding";
 
     return null;
   }
@@ -264,6 +285,7 @@ JSON response:`,
     console.log(`✅ [Classifier LLM] "${cleanMessage}" → "${tool}"`);
 
     return buildIntent(tool?.trim());
+    
 
   } catch (err) {
     console.warn("⚠️ [Classifier LLM] Failed:", err.message);
@@ -535,7 +557,7 @@ const toolIntent = await detectToolIntent(updatedMessage);
         writeResponseChunk(response, {
           id: uuid,
           type: "statusResponse",
-          textResponse: `Opening ${toolIntent.tool_call}...`,
+          textResponse: "",
           sources: [],
           close: true,
           error: null,

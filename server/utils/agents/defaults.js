@@ -20,6 +20,7 @@ const DEFAULT_SKILLS = [
   AgentPlugins.StudyContext.name,
   AgentPlugins.StudyTracker.name,
   AgentPlugins.FollowUpQuestions.name,
+  AgentPlugins.StudyOnboarding.name,
 ];
 
 const USER_AGENT = {

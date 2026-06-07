@@ -635,6 +635,7 @@ model study_plans {
   study_hours  Float
   days_off     String[]
   plan_content String    @db.Text
+  status       String    @default("active") 
   created_at   DateTime  @default(now())
 
   @@index([user_id])

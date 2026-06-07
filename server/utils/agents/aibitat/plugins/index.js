@@ -15,6 +15,7 @@ const { StudyPlannerElicit } = require("./studyPlannerElicit.js");
 const {StudyContext} = require("./study-context.js");
 const {StudyTracker} = require("./study-tracker.js");
 const {FollowUpQuestions} = require("./follow-up-questions.js");
+const {StudyOnboarding} = require("./study-onboarding.js")
 
 module.exports = {
   webScraping,
@@ -34,6 +35,7 @@ module.exports = {
   StudyContext,
   StudyTracker,
   FollowUpQuestions,
+  StudyOnboarding,
 
   // Plugin name aliases so they can be pulled by slug as well.
   [webScraping.name]: webScraping,
@@ -53,4 +55,5 @@ module.exports = {
 [StudyContext.name]: StudyContext,
 [StudyTracker.name]: StudyTracker,
 [FollowUpQuestions.name]: FollowUpQuestions,
+[StudyOnboarding.name]: StudyOnboarding,
 };
