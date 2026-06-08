@@ -206,75 +206,36 @@ function validateExtractedQuestions(content, options = {}) {
   const {
     minQuestions = 1,
     minCharsPerQuestion = 20,
-    requireMarkSchemes = true,
     strictNumbering = true
   } = options;
 
-  const result = {
-    valid: true,
-    questionCount: 0,
-    issues: [],
-    warnings: [],
-    questions: [],
-    fixedContent: content
+  // FIX: match both old format "1. text" and new tagged format "1. [STRUCTURED] text"
+  const questionPattern = /^\d+\.\s+(?:\[(?:STRUCTURED|FILL|DATA|MCQ|ESSAY|MATCH|TRUE_FALSE)\]\s+)?[\w\[]/gm;
+  const matches = [...content.matchAll(questionPattern)];
+  const questionCount = matches.length;
+
+  const issues = [];
+  const warnings = [];
+
+  if (questionCount < minQuestions) {
+    issues.push({
+      severity: 'CRITICAL',
+      message: `Only ${questionCount} questions found, expected at least ${minQuestions}`,
+      fixable: false
+    });
+  }
+
+  if (content.length / Math.max(questionCount, 1) < minCharsPerQuestion) {
+    warnings.push({ message: 'Average question length is very short' });
+  }
+
+  return {
+    valid: issues.filter(i => i.severity === 'CRITICAL').length === 0,
+    questionCount,
+    issues,
+    warnings,
+    fixedContent: content  // no auto-fix needed for format issues
   };
-
-  const questionBlocks = content.split(/\n\n+(?=\d+\.)/);
-  
-  if (questionBlocks.length === 0) {
-    result.valid = false;
-    result.issues.push({
-      type: 'STRUCTURE',
-      severity: 'CRITICAL',
-      message: 'No questions found in extracted content'
-    });
-    return result;
-  }
-
-  result.questionCount = questionBlocks.length;
-
-  if (result.questionCount < minQuestions) {
-    result.valid = false;
-    result.issues.push({
-      type: 'COUNT',
-      severity: 'CRITICAL',
-      message: `Only ${result.questionCount} question(s) found. Expected at least ${minQuestions}.`
-    });
-  }
-
-  questionBlocks.forEach((block, idx) => {
-    const questionNum = idx + 1;
-    const questionData = validateSingleQuestion(block, questionNum, {
-      minCharsPerQuestion,
-      requireMarkSchemes,
-      strictNumbering
-    });
-
-    result.questions.push(questionData);
-
-    if (questionData.issues.length > 0) {
-      result.valid = false;
-      result.issues.push(...questionData.issues);
-    }
-
-    if (questionData.warnings.length > 0) {
-      result.warnings.push(...questionData.warnings);
-    }
-  });
-
-  if (strictNumbering) {
-    const numberingIssues = validateQuestionNumbering(result.questions);
-    if (numberingIssues.length > 0) {
-      result.valid = false;
-      result.issues.push(...numberingIssues);
-    }
-  }
-
-  if (result.issues.some(i => i.fixable)) {
-    result.fixedContent = generateFixedContent(result.questions);
-  }
-
-  return result;
 }
 
 function validateSingleQuestion(block, expectedNumber, options) {
@@ -538,6 +499,60 @@ async function extractTextFromPDF(filePath) {
 
 // ==========================================
 // AI EXTRACTION WITH PROPER ERROR HANDLING
+// ==========================================
+
+async function generateExamExtraction(prompt) {
+  try {
+    const response = await textClient.chat.completions.create({
+      model: process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b",
+      messages: [
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.1,
+      max_tokens: 8000
+    });
+    
+    return response.choices[0].message.content;
+  } catch (error) {
+    console.error('AI generation error:', error);
+    throw new Error('Failed to generate exam extraction: ' + error.message);
+  }
+}
+
+function chunkTextByQuestions(text, maxCharsPerChunk = 12000) {
+  // Match main question numbers: "1 ", "2 ", etc. (with space after number)
+  const mainQuestionPattern = /(?=^\d+\s+[A-Z(])/gm;
+  const potentialQuestions = text.split(mainQuestionPattern).filter(q => q.trim());
+  
+  const chunks = [];
+  let currentChunk = '';
+  
+  for (const question of potentialQuestions) {
+    // If adding this question exceeds limit AND we have content, push chunk
+    if ((currentChunk + question).length > maxCharsPerChunk && currentChunk) {
+      chunks.push(currentChunk.trim());
+      currentChunk = question;
+    } else {
+      currentChunk += question;
+    }
+  }
+  
+  if (currentChunk) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  // Fallback if no questions detected
+  if (chunks.length === 0) {
+    for (let i = 0; i < text.length; i += maxCharsPerChunk) {
+      chunks.push(text.substring(i, i + maxCharsPerChunk));
+    }
+  }
+  
+  return chunks;
+}
+
+// ==========================================
+// MODIFIED AI EXTRACTION WITH CHUNKING
 // ==========================================
 
 async function generateExamExtractionChunked(examText, markSchemeText, metadata) {
@@ -999,7 +1014,6 @@ NOW EXTRACT ALL QUESTIONS (start with "1." immediately):`;
     }
   }
 );
-
 
 
 
@@ -2552,6 +2566,7 @@ async function generateLessonPlanAI(prompt) {
       stream: false
     });
 
+
     // OpenAI-style completion
     if (response.data?.choices?.length) {
       return response.data.choices
@@ -2694,39 +2709,213 @@ BEGIN YOUR RESPONSE WITH "## Lesson Title:" - NO OTHER TEXT BEFORE THIS.
 //   return cleaned;
 // }
 
-app.post("/system/teacher-tools/generate-scheme-of-work", [validatedRequest], async (request, response) => {
-  try {
-    const sessionUser = await userFromSession(request, response);
-    if (!sessionUser?.id)
-      return response.status(401).json({ success: false, error: "Unauthorized" });
+// ✅ At module scope — OUTSIDE any app.post() / route handler
+function extractRelevantSyllabusContent(text, maxChars = 6000) {
+  const topicKeywords = [
+    /topic[s]?\s*:/i,
+    /content\s*:/i,
+    /scheme of work/i,
+    /syllabus content/i,
+    /term \d/i,
+    /unit \d/i,
+    /chapter \d/i
+  ];
 
-    const { subject, grade, term, weeks, curriculum, notes } = request.body;
-    if (!subject || !grade || !term)
-      return response.status(400).json({ success: false, error: "Missing required fields" });
-
-    const prompt = `
-You are a professional ${subject} teacher creating a Scheme of Work for ${grade} (${curriculum || "ZIMSEC/Cambridge"}) — ${term}.
-Generate a week-by-week structured scheme covering ${weeks || 8} weeks.
-
-Each week should include:
-- **Week Number**
-- **Topic**
-- **Learning Objectives**
-- **Teaching Activities**
-- **Resources**
-- **Assessment/Assignment**
-${notes ? `\nNotes from teacher: ${notes}` : ""}
-
-Return the scheme in Markdown format with clear sections.
-`;
-
-    const schemeResponse = await generateLessonPlanAI(prompt);
-    response.json({ success: true, scheme: schemeResponse });
-  } catch (err) {
-    console.error("Error generating scheme of work:", err);
-    response.status(500).json({ success: false, error: "Internal error generating scheme of work." });
+  let startIndex = 0;
+  for (const pattern of topicKeywords) {
+    const match = text.search(pattern);
+    if (match > 0 && match < text.length * 0.4) {
+      startIndex = Math.max(0, match - 200);
+      break;
+    }
   }
-});
+
+  return text.substring(startIndex, startIndex + maxChars);
+}
+
+
+app.post(
+  "/system/teacher-tools/generate-scheme-of-work",
+  validatedRequest,
+  (req, res, next) => {
+    upload.fields([
+      { name: "syllabus", maxCount: 1 }
+    ])(req, res, (err) => {
+      if (err) {
+        console.error("Multer error:", err);
+        return res.status(400).json({ success: false, error: err.message || "File upload failed." });
+      }
+      next();
+    });
+  },
+  async (request, response) => {
+    let syllabusFilePath = null;
+
+    try {
+      const sessionUser = await userFromSession(request, response);
+      if (!sessionUser?.id)
+        return response.status(401).json({ success: false, error: "Unauthorized" });
+
+      // Parse body — comes as multipart now
+      const { subject, grade, term, weeks, curriculum, notes, holidayWeeks } = 
+        request.body.metadata 
+          ? JSON.parse(request.body.metadata) 
+          : request.body;
+
+      if (!subject || !grade || !term)
+        return response.status(400).json({ success: false, error: "Missing required fields" });
+
+      // ── Extract syllabus PDF if uploaded ──
+      let syllabusContext = "";
+    if (request.files?.syllabus?.[0]) {
+  const syllabusFile = request.files.syllabus[0];
+  syllabusFilePath = syllabusFile.path;
+  console.log("📄 Extracting syllabus from:", syllabusFile.originalname);
+
+  if (syllabusFile.mimetype === "application/pdf") {
+    const rawSyllabusText = await extractTextFromPDF(syllabusFilePath);
+    console.log(`📝 Extracted ${rawSyllabusText.length} characters from syllabus`);
+    
+    // ✅ Call is inside the handler where syllabusContext is in scope
+    syllabusContext = extractRelevantSyllabusContent(rawSyllabusText);
+    console.log(`✂️ Trimmed syllabus to ${syllabusContext.length} characters`);
+  } else {
+    return response.status(400).json({
+      success: false,
+      error: "Syllabus must be a PDF file."
+    });
+  }
+}
+
+      // ── Build holiday-aware week list ──
+      let parsedHolidayWeeks = [];
+if (holidayWeeks) {
+  try {
+    const parsed = JSON.parse(holidayWeeks);
+    parsedHolidayWeeks = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    // Fallback: handle comma-separated string e.g. "1,3,5"
+    parsedHolidayWeeks = String(holidayWeeks)
+      .split(",")
+      .map(n => parseInt(n.trim()))
+      .filter(n => !isNaN(n));
+  }
+}
+
+      const totalWeeks = parseInt(weeks) || 8;
+      const activeWeeks = [];
+      for (let i = 1; i <= totalWeeks; i++) {
+        activeWeeks.push({
+          week: i,
+          isHoliday: parsedHolidayWeeks.includes(i)
+        });
+      }
+
+      // ── Build prompt ──
+      const prompt = `IMPORTANT: You must respond with ONLY a valid JSON object. Do not write any explanation, preamble, or markdown. Start your response with "{" and end with "}".
+You are a professional ${subject} teacher creating a Scheme of Work.
+
+DETAILS:
+- Grade/Form: ${grade}
+- Curriculum: ${curriculum || "ZIMSEC"}
+- Term: ${term}
+- Total Weeks: ${totalWeeks}
+- Active Teaching Weeks: ${activeWeeks.filter(w => !w.isHoliday).length}
+- Holiday/Non-Teaching Weeks: ${parsedHolidayWeeks.length > 0 ? parsedHolidayWeeks.join(", ") : "None"}
+${notes ? `- Teacher Notes: ${notes}` : ""}
+
+${syllabusContext 
+  ? `OFFICIAL SYLLABUS CONTENT (use this as the source of truth for topics and objectives):
+${syllabusContext.substring(0, 8000)}` 
+  : "Generate appropriate topics for this subject, grade and curriculum."}
+
+INSTRUCTIONS:
+- Generate one entry per week for all ${totalWeeks} weeks
+- For holiday weeks, set topic to "Holiday / No Teaching" and leave other fields empty
+- Distribute topics logically across active weeks
+- Each week must have clear, measurable learning objectives
+- Activities must be realistic for a ${curriculum || "ZIMSEC"} classroom
+${syllabusContext ? "- Topics and objectives MUST align with the syllabus content provided above" : ""}
+
+RETURN FORMAT:
+Return ONLY a valid JSON object, no markdown, no preamble. Schema:
+{
+  "subject": "${subject}",
+  "grade": "${grade}",
+  "term": "${term}",
+  "curriculum": "${curriculum || "ZIMSEC"}",
+  "generatedDate": "today's date",
+  "weeks": [
+    {
+      "week": 1,
+      "isHoliday": false,
+      "topic": "Topic name here",
+      "objectives": ["Objective 1", "Objective 2"],
+      "activities": ["Activity 1", "Activity 2"],
+      "resources": ["Textbook page X", "Chalkboard"],
+      "assessment": "Short quiz on topic"
+    }
+  ]
+}`;
+
+      console.log("🧠 Generating scheme of work...");
+      const rawResponse = await generateLessonPlanAI(prompt);
+
+      // ── Parse JSON response ──
+    let schemeData;
+try {
+  // Strip markdown fences
+  let cleaned = rawResponse
+    .replace(/```json\n?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+
+  // If there's text before the JSON object, find where it starts
+  const jsonStart = cleaned.indexOf("{");
+  const jsonEnd = cleaned.lastIndexOf("}");
+
+  if (jsonStart === -1 || jsonEnd === -1) {
+    throw new Error("No JSON object found in response");
+  }
+
+  cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+  schemeData = JSON.parse(cleaned);
+
+} catch (parseErr) {
+  console.error("JSON parse failed:", parseErr);
+  console.error("Raw AI response (first 500 chars):", rawResponse?.substring(0, 500));
+  return response.status(500).json({
+    success: false,
+    error: "AI returned malformed data. Please try again."
+  });
+}
+
+      // ── Cleanup temp file ──
+      if (syllabusFilePath) {
+        try {
+          await fsPromises.unlink(syllabusFilePath);
+        } catch (e) {
+          console.error("Could not delete syllabus temp file:", e);
+        }
+      }
+
+      console.log(`✅ Scheme generated — ${schemeData.weeks?.length} weeks`);
+      return response.status(200).json({ success: true, scheme: schemeData });
+
+    } catch (err) {
+      console.error("Error generating scheme of work:", err);
+
+      if (syllabusFilePath) {
+        try { await fsPromises.unlink(syllabusFilePath); } catch (_) {}
+      }
+
+      return response.status(500).json({
+        success: false,
+        error: "Internal error generating scheme of work."
+      });
+    }
+  }
+);
 
 async function searchDuckDuckGo(query) {
   const encodedQuery = encodeURIComponent(query);
