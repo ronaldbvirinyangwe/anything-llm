@@ -24,6 +24,7 @@ class AIbitat {
    * @type {boolean}
    */
   skipHandleExecution = false;
+  terminateAfterReply = false; 
 
   provider = null;
   defaultProvider = null;
@@ -321,86 +322,44 @@ class AIbitat {
    * @param route
    * @param keepAlive Whether to keep the chat alive.
    */
-  async chat(route, keepAlive = true) {
-    // check if the message is for a group
-    // if it is, select the next node to chat with from the group
-    // and then ask them to reply.
-    if (this.channels.get(route.from)) {
-      // select a node from the group
-      let nextNode;
-      try {
-        nextNode = await this.selectNext(route.from);
-      } catch (error) {
-        if (error instanceof APIError) {
-          return this.newError({ from: route.from, to: route.to }, error);
-        }
-        throw error;
-      }
-
-      if (!nextNode) {
-        this.terminate(route.from);
-        return;
-      }
-
-      const nextChat = {
-        from: nextNode,
-        to: route.from,
-      };
-
-      if (this.shouldAgentInterrupt(nextNode)) {
-        this.interrupt(nextChat);
-        return;
-      }
-
-      // get chats only from the group's nodes
-      const history = this.getHistory({ to: route.from });
-      const group = this.getGroupMembers(route.from);
-      const rounds = history.filter((chat) => group.includes(chat.from)).length;
-
-      const { maxRounds } = this.getChannelConfig(route.from);
-      if (rounds >= maxRounds) {
-        this.terminate(route.to);
-        return;
-      }
-
-      await this.chat(nextChat);
-      return;
+async chat(route, keepAlive = true) {
+  let reply = "";
+  try {
+    reply = await this.reply(route);
+  } catch (error) {
+    if (error instanceof APIError) {
+      return this.newError({ from: route.from, to: route.to }, error);
     }
-
-    // If it's a direct message, reply to the message
-    let reply = "";
-    try {
-      reply = await this.reply(route);
-    } catch (error) {
-      if (error instanceof APIError) {
-        return this.newError({ from: route.from, to: route.to }, error);
-      }
-      throw error;
-    }
-
-    if (
-      reply === "TERMINATE" ||
-      this.hasReachedMaximumRounds(route.from, route.to)
-    ) {
-      this.terminate(route.to);
-      return;
-    }
-
-    const newChat = { to: route.from, from: route.to };
-
-    if (
-      reply === "INTERRUPT" ||
-      (this.agents.get(route.to) && this.shouldAgentInterrupt(route.to))
-    ) {
-      this.interrupt(newChat);
-      return;
-    }
-
-    if (keepAlive) {
-      // keep the chat alive by replying to the other node
-      await this.chat(newChat, true);
-    }
+    throw error;
   }
+
+  console.log(`[chat] reply received, terminateAfterReply=${this.terminateAfterReply}, reply preview: ${String(reply).slice(0, 60)}`);
+
+  const shouldStop = this.terminateAfterReply;
+  this.terminateAfterReply = false;
+
+  // ── Stop FIRST — before any further LLM rounds ──────────────────
+  if (shouldStop) {
+    this.terminate(route.to); // ← this closes the websocket
+    return;
+  }
+
+  if (reply === "TERMINATE" || this.hasReachedMaximumRounds(route.from, route.to)) {
+    this.terminate(route.to);
+    return;
+  }
+
+  const newChat = { to: route.from, from: route.to };
+
+  if (reply === "INTERRUPT" || (this.agents.get(route.to) && this.shouldAgentInterrupt(route.to))) {
+    this.interrupt(newChat);
+    return;
+  }
+
+  if (keepAlive) {
+    await this.chat(newChat, true);
+  }
+}
 
   /**
    * Check if the agent should interrupt the chat based on its configuration.
@@ -499,6 +458,9 @@ async #appendFollowUpQuestions(content = "", byAgent = null) {
     content.startsWith("FOLLOW_UP") ||
     content.startsWith("TERMINATE") ||
     content.startsWith("INTERRUPT") ||
+      content.startsWith("STUDY_ONBOARDING::") ||   // ← add
+    content.startsWith("STUDY_PLAN_FORM::") ||     // ← add
+    content.startsWith("ONBOARDING_COMPLETE::") || 
     content.length < 50
   ) {
     return content;
@@ -585,7 +547,7 @@ ${this.getHistory({ to: route.to })
    * @param route.to The node that sent the chat.
    * @param route.from The node that will reply to the chat.
    */
- async reply(route) {
+async reply(route) {
   const fromConfig = this.getAgentConfig(route.from);
   const chatHistory = this.getOrFormatNodeChatHistory(route);
   const messages = [
@@ -609,12 +571,17 @@ ${this.getHistory({ to: route.to })
     content = await this.handleExecution(provider, messages, functions, route.from);
   }
 
-  // ── Split follow-up questions into a separate message ──────────
   if (typeof content === "string" && content.includes("\n__SPLIT__\n")) {
     const [mainContent, followUpContent] = content.split("\n__SPLIT__\n");
     this.newMessage({ ...route, content: mainContent });
     this.newMessage({ ...route, content: followUpContent });
-    return mainContent; // return main for TERMINATE check
+    return mainContent;
+  }
+
+  // Plugin set terminateAfterReply — emit to WebSocket but don't pollute _chats
+  if (this.terminateAfterReply) {
+    this.emitter.emit("message", { ...route, content, state: "success" });
+    return content;
   }
 
   this.newMessage({ ...route, content });
