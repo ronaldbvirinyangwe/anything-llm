@@ -1,0 +1,3 @@
+ALTER TABLE "PushToken" 
+  ALTER COLUMN "createdAt" TYPE TIMESTAMP(3) 
+  USING "createdAt"::TIMESTAMP(3);

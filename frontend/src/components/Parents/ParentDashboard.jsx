@@ -1,91 +1,71 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import useUser from "@/hooks/useUser"; // Import the useUser hook
+import useUser from "@/hooks/useUser";
 import LinkChildForm from "./LinkParent";
-import "./parent-dashboard.css";
+
+// ─── Theme tokens (matches QuizGenerator) ────────────────────────────────────
+const T = {
+  bgPrimary:        "#0f1117",
+  bgSecondary:      "#1a1d27",
+  bgContainer:      "#1e2130",
+  bgSidebar:        "#161923",
+  sidebarBorder:    "#2a2d3e",
+  textPrimary:      "#e8eaf0",
+  textSecondary:    "#8b90a7",
+  buttonPrimary:    "#46c8ff",
+  buttonPrimaryA:   "rgba(70,200,255,0.12)",
+  buttonPrimaryA25: "rgba(70,200,255,0.25)",
+  error:            "#dc2626",
+  success:          "#16a34a",
+};
 
 export default function ParentDashboard() {
   const navigate = useNavigate();
-  const { user } = useUser(); // Use the hook
-  const [children, setChildren] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [parentProfile, setParentProfile] = useState(null);
-  const [showLinkForm, setShowLinkForm] = useState(false);
+  const { user } = useUser();
+
+  const [children,       setChildren]       = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [error,          setError]          = useState("");
+  const [parentProfile,  setParentProfile]  = useState(null);
+  const [showLinkForm,   setShowLinkForm]   = useState(false);
 
   const accessToken = localStorage.getItem("chikoroai_authToken");
-  const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
+  const API_BASE    = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 
-  // 🧾 Fetch parent profile by user ID
   useEffect(() => {
-    if (!accessToken || !user?.id) {
-      navigate("/login");
-      return;
-    }
+    if (!accessToken || !user?.id) { navigate("/login"); return; }
 
     const fetchParentProfile = async () => {
       try {
-        const res = await fetch(
-          `${API_BASE}/system/profile/${user.id}`,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-
-        if (!res.ok) {
-          console.error("Profile fetch failed:", res.status);
-          setError("Failed to load parent profile");
-          setLoading(false);
-          return;
-        }
-
+        const res  = await fetch(`${API_BASE}/system/profile/${user.id}`, {
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        });
         const data = await res.json();
         if (data.success && data.profile) {
-          console.log("✅ Parent profile fetched:", data.profile);
           setParentProfile(data.profile);
-          // Now fetch children using the parent profile ID
           fetchChildren(data.profile.id);
         } else {
-          console.warn("Unexpected profile response:", data);
           setError("Could not load parent profile");
           setLoading(false);
         }
-      } catch (err) {
-        console.error("Error fetching parent profile:", err);
+      } catch {
         setError("Failed to load parent profile");
         setLoading(false);
       }
     };
 
     fetchParentProfile();
-  }, [accessToken, user, navigate, API_BASE]);
+  }, [accessToken, user]);
 
-  // Fetch children for this parent
   const fetchChildren = async (parentUserId) => {
     try {
-      const res = await fetch(
-        `${API_BASE}/system/parent/my-children/${parentUserId}`,
-        {
-          headers: { 
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-      
+      const res  = await fetch(`${API_BASE}/system/parent/my-children/${parentUserId}`, {
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      });
       const data = await res.json();
-      
-      if (data.success) {
-        console.log("✅ Children fetched:", data.children);
-        setChildren(data.children);
-      } else {
-        setError(data.error || "Could not fetch children.");
-      }
-    } catch (err) {
-      console.error("Error fetching children:", err);
+      if (data.success) setChildren(data.children);
+      else setError(data.error || "Could not fetch children.");
+    } catch {
       setError("Failed to fetch children records.");
     } finally {
       setLoading(false);
@@ -93,9 +73,7 @@ export default function ParentDashboard() {
   };
 
   const handleLinkSuccess = (newLink) => {
-    console.log("✅ Child linked successfully:", newLink);
-    // Add the newly linked child to the list
-    setChildren([...children, {
+    setChildren(prev => [...prev, {
       id: newLink.student.id,
       name: newLink.student.name,
       grade: newLink.student.grade,
@@ -104,91 +82,317 @@ export default function ParentDashboard() {
     setShowLinkForm(false);
   };
 
-  if (loading)
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-        <div className="flex flex-col items-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-          <p className="text-xl font-medium text-gray-700">Loading dashboard...</p>
-        </div>
-      </div>
-    );
+  // ─── Loading ───────────────────────────────────────────────────────────────
+  if (loading) return (
+    <div style={s.centerPage}>
+      <div style={s.spinner} />
+      <p style={s.loadingText}>Loading dashboard…</p>
+    </div>
+  );
 
-  if (error)
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-red-50">
-        <div className="bg-white p-8 rounded shadow max-w-md text-center">
-          <div className="text-red-600 text-3xl mb-2">⚠️</div>
-          <p className="text-lg text-red-600 mb-4">{error}</p>
-          <button
-            onClick={() => navigate("/login")}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-          >
-            Back to Login
-          </button>
-        </div>
-      </div>
-    );
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 py-8 px-4">
-      <div className="max-w-5xl mx-auto">
-        <header className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">
-            👨‍👩‍👧‍👦 Parent Dashboard
-          </h1>
-          <p className="text-lg text-gray-600">
-            Welcome{parentProfile?.name ? `, ${parentProfile.name}` : ""}! Track your children's learning progress and achievements.
-          </p>
-        </header>
-
-        {/* Button to show link form */}
-        <button
-          onClick={() => setShowLinkForm(!showLinkForm)}
-          className="mb-6 px-6 py-3 bg-green-500 text-white rounded-lg shadow hover:bg-green-600 transition"
-        >
-          {showLinkForm ? "Cancel" : "+ Link New Child"}
+  // ─── Error ─────────────────────────────────────────────────────────────────
+  if (error) return (
+    <div style={s.centerPage}>
+      <div style={s.errorCard}>
+        <span style={{ fontSize: 36 }}>⚠️</span>
+        <p style={s.errorText}>{error}</p>
+        <button style={s.retryBtn} onClick={() => navigate("/login")}>
+          Back to Login
         </button>
-
-        {/* Link form - Only show when parentProfile is loaded */}
-        {showLinkForm && parentProfile && (
-          <div className="mb-6">
-            <LinkChildForm 
-             parentId={parentProfile.user_id}
-              onSuccess={handleLinkSuccess}
-            />
-          </div>
-        )}
-
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {children.length === 0 ? (
-            <div className="col-span-2 bg-white shadow rounded-xl p-8 text-center text-lg text-gray-700">
-              No linked children yet. Click "Link New Child" above to get started.
-            </div>
-          ) : (
-            children.map(child => (
-              <div key={child.id} className="bg-white rounded-xl shadow-lg p-6 flex flex-col justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800 mb-1">
-                    {child.name}
-                  </h2>
-                  <p className="text-md text-gray-600 mb-4">
-                    Grade/Level: {child.grade}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3 mt-6">
-                  <Link
-                    to={`/parent/reports/${child.id}`}
-                    className="px-4 py-2 bg-blue-500 text-white rounded-lg shadow hover:bg-blue-600 transition"
-                  >
-                    View Report
-                  </Link>
-                </div>
-              </div>
-            ))
-          )}
-        </section>
       </div>
     </div>
   );
+
+  const initials = parentProfile?.name?.charAt(0)?.toUpperCase() || "P";
+
+  // ─── Main ──────────────────────────────────────────────────────────────────
+  return (
+    <div style={s.root}>
+
+      {/* Nav */}
+      <nav style={s.nav}>
+        <button style={s.backBtn} onClick={() => navigate(-1)}>
+          ← Back
+        </button>
+        <div style={s.avatar}>{initials}</div>
+      </nav>
+
+      <main style={s.main}>
+
+        {/* Hero banner */}
+        <div style={s.heroBanner}>
+          <h1 style={s.heroTitle}>👨‍👩‍👧 Parent Dashboard</h1>
+          <p style={s.heroSub}>
+            Welcome back, {parentProfile?.name || "Parent"}! Track your children's progress.
+          </p>
+        </div>
+
+        {/* Link child button */}
+        <button
+          style={{ ...s.linkBtn, ...(showLinkForm ? s.linkBtnCancel : {}) }}
+          onClick={() => setShowLinkForm(!showLinkForm)}
+        >
+          {showLinkForm ? "✕ Cancel" : "+ Link New Child"}
+        </button>
+
+        {/* Link form */}
+        {showLinkForm && parentProfile && (
+          <div style={s.formCard}>
+            <LinkChildForm parentId={parentProfile.user_id} onSuccess={handleLinkSuccess} />
+          </div>
+        )}
+
+        {/* Section label */}
+        <p style={s.sectionLabel}>My Children</p>
+
+        {/* Empty state */}
+        {children.length === 0 ? (
+          <div style={s.emptyState}>
+            <div style={s.emptyIcon}>👥</div>
+            <p style={s.emptyTitle}>No linked children yet</p>
+            <p style={s.emptySubtitle}>
+              Tap "Link New Child" above to connect your first child's account.
+            </p>
+          </div>
+        ) : (
+          <div style={s.grid}>
+            {children.map((child) => (
+              <div key={child.id} style={s.childCard}>
+                {/* Card header */}
+                <div style={s.childHeader}>
+                  <div style={s.childIconWrap}>
+                    <span style={s.childIconText}>
+                      {child.name.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <p style={s.childName}>{child.name}</p>
+                    <span style={s.gradeBadge}>{child.grade}</span>
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div style={s.divider} />
+
+                {/* Action footer */}
+                <div style={s.cardFooter}>
+                  <Link to={`/parent/reports/${child.id}`} style={s.reportBtn}>
+                    View Report →
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = {
+  root: {
+    minHeight: "100vh",
+    backgroundColor: T.bgPrimary,
+    fontFamily: "'Inter', system-ui, sans-serif",
+    color: T.textPrimary,
+  },
+
+  // Center states
+  centerPage: {
+    minHeight: "100vh",
+    backgroundColor: T.bgPrimary,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+  },
+  spinner: {
+    width: 40,
+    height: 40,
+    borderRadius: "50%",
+    border: `3px solid ${T.sidebarBorder}`,
+    borderTopColor: T.buttonPrimary,
+    animation: "spin 0.8s linear infinite",
+  },
+  loadingText:  { color: T.textSecondary, fontSize: 14 },
+  errorCard:    { backgroundColor: T.bgSecondary, border: `1px solid ${T.sidebarBorder}`, borderRadius: 16, padding: 40, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 },
+  errorText:    { color: T.error, fontSize: 15 },
+  retryBtn:     { backgroundColor: T.buttonPrimary, color: "#fff", border: "none", borderRadius: 10, padding: "10px 24px", fontWeight: 700, fontSize: 14, cursor: "pointer" },
+
+  // Nav
+  nav: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "12px 24px",
+    backgroundColor: T.bgSecondary,
+    borderBottom: `1px solid ${T.sidebarBorder}`,
+  },
+  backBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 14px",
+    backgroundColor: T.bgContainer,
+    border: `1px solid ${T.sidebarBorder}`,
+    borderRadius: 10,
+    color: T.textPrimary,
+    fontWeight: 600,
+    fontSize: 13,
+    cursor: "pointer",
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: "50%",
+    backgroundColor: T.buttonPrimaryA,
+    border: `1px solid ${T.buttonPrimary}`,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 700,
+    fontSize: 15,
+    color: T.buttonPrimary,
+  },
+
+  // Main content
+  main: { maxWidth: 720, margin: "0 auto", padding: "24px 16px 60px" },
+
+  // Hero
+  heroBanner: {
+    backgroundColor: T.bgSecondary,
+    border: `1px solid ${T.sidebarBorder}`,
+    borderRadius: 16,
+    padding: "28px 32px",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  heroTitle: { fontSize: 22, fontWeight: 800, color: "#fff", margin: "0 0 8px" },
+  heroSub:   { fontSize: 13, color: "#e0e7ff", margin: 0, lineHeight: 1.6 },
+
+  // Link button
+  linkBtn: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    width: "100%",
+    padding: "13px 0",
+    backgroundColor: T.buttonPrimary,
+    border: "none",
+    borderRadius: 12,
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: 15,
+    cursor: "pointer",
+    marginBottom: 16,
+  },
+  linkBtnCancel: {
+    backgroundColor: T.bgContainer,
+    border: `1px solid ${T.sidebarBorder}`,
+    color: T.textSecondary,
+  },
+
+  // Form card
+  formCard: {
+    backgroundColor: T.bgSecondary,
+    border: `1px solid ${T.sidebarBorder}`,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+  },
+
+  // Section label
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: T.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: "0.8px",
+    margin: "0 0 12px",
+  },
+
+  // Empty state
+  emptyState: {
+    backgroundColor: T.bgSecondary,
+    border: `1px solid ${T.sidebarBorder}`,
+    borderRadius: 16,
+    padding: 40,
+    textAlign: "center",
+  },
+  emptyIcon:     { fontSize: 36, marginBottom: 12 },
+  emptyTitle:    { fontSize: 16, fontWeight: 700, color: T.textPrimary, margin: "0 0 6px" },
+  emptySubtitle: { fontSize: 13, color: T.textSecondary, margin: 0, lineHeight: 1.6 },
+
+  // Grid
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+    gap: 12,
+  },
+
+  // Child card
+  childCard: {
+    backgroundColor: T.bgSecondary,
+    border: `1px solid ${T.sidebarBorder}`,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  childHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    padding: 16,
+  },
+  childIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: "50%",
+    backgroundColor: T.buttonPrimaryA,
+    border: `1px solid ${T.buttonPrimaryA25}`,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  childIconText: { fontSize: 20, fontWeight: 800, color: T.buttonPrimary },
+  childName:     { fontSize: 16, fontWeight: 700, color: T.textPrimary, margin: "0 0 6px" },
+  gradeBadge: {
+    display: "inline-block",
+    padding: "2px 10px",
+    borderRadius: 20,
+    backgroundColor: T.bgContainer,
+    border: `1px solid ${T.sidebarBorder}`,
+    fontSize: 11,
+    fontWeight: 700,
+    color: T.textSecondary,
+  },
+
+  divider:    { height: 1, backgroundColor: T.sidebarBorder },
+  cardFooter: { padding: "12px 16px", backgroundColor: T.bgSidebar },
+  reportBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "9px 18px",
+    backgroundColor: T.buttonPrimary,
+    borderRadius: 10,
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: 13,
+    textDecoration: "none",
+    width: "100%",
+    justifyContent: "center",
+    boxSizing: "border-box",
+  },
+};
+
+// Inject spinner keyframes once
+if (typeof document !== "undefined" && !document.getElementById("parent-dash-spin")) {
+  const style = document.createElement("style");
+  style.id = "parent-dash-spin";
+  style.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
+  document.head.appendChild(style);
 }

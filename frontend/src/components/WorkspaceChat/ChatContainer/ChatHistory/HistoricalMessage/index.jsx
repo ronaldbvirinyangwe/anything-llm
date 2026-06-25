@@ -22,9 +22,12 @@ import { Link } from "react-router-dom";
 import { chatQueryRefusalResponse } from "@/utils/chat";
 import StudyPlannerForm from "@/components/StudyPlannerForm/StudyPlannerForm";
 import FollowUpQuestions from "@/components/FollowUpQuestions/FollowUpQuestions";
+import StudyOnboarding from "@/components/StudyOnboarding/StudyOnboarding";
+
 
 const FORM_PREFIX = "STUDY_PLAN_FORM::";
 const FOLLOW_UP_PREFIX = "FOLLOW_UP_QUESTIONS::";
+const ONBOARDING_PREFIX = "STUDY_ONBOARDING::"; 
 
 const HistoricalMessage = ({
   uuid = v4(),
@@ -123,7 +126,7 @@ const HistoricalMessage = ({
               <RenderChatContent
                 role={role}
                 message={message}
-                expanded={false}
+                expanded={isLastMessage}
               />
               {tool_call === "quiz_create" && quizData && (
                 <button
@@ -300,6 +303,14 @@ const RenderChatContent = memo(
       }
     />
   );
+}
+
+if (typeof message === "string" && message.startsWith(ONBOARDING_PREFIX)) {
+  let payload = { plannerPrefill: {}, quickActions: [] };
+  try {
+    payload = JSON.parse(message.slice(ONBOARDING_PREFIX.length));
+  } catch (_) {}
+  return <StudyOnboarding payload={payload} />;
 }
 
     let thoughtChain = null;

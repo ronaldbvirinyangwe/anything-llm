@@ -1,99 +1,215 @@
 import React, { useState } from "react";
 
-export default function LinkChildForm({ parentId, onSuccess }) {
-  const [linkCode, setLinkCode] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
- const handleSubmit = async (e) => {
-  e.preventDefault();
-  
-  console.log("🚀 Submitting with:", { parentId, linkCode }); // Debug log
-  
-  if (!parentId) {
-    setError("Parent ID is missing");
-    return;
-  }
-  
-  if (!linkCode || linkCode.trim() === "") {
-    setError("Please enter a link code");
-    return;
-  }
-  
-  setLoading(true);
-  setError("");
-
-  try {
-    const token = localStorage.getItem("chikoroai_authToken");
-    const payload = { 
-      parentId: Number(parentId),  // Ensure it's a number
-      linkCode: linkCode.trim().toUpperCase() 
-    };
-    
-    console.log("📤 Sending payload:", payload); // Debug log
-    
-    const res = await fetch("https://api.chikoro-ai.com/api/system/parent/link-child", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-    console.log("📥 Response:", data); // Debug log
-    
-    if (data.success) {
-      setLinkCode("");
-      onSuccess?.(data.link);
-    } else {
-      setError(data.error || "Failed to link child");
-    }
-  } catch (err) {
-    console.error("❌ Error:", err); // Debug log
-    setError("Network error. Please try again.");
-  } finally {
-    setLoading(false);
-  }
+// ─── Theme tokens ─────────────────────────────────────────────────────────────
+const T = {
+  bgPrimary:        "#0f1117",
+  bgSecondary:      "#1a1d27",
+  bgContainer:      "#1e2130",
+  bgSidebar:        "#161923",
+  sidebarBorder:    "#2a2d3e",
+  textPrimary:      "#e8eaf0",
+  textSecondary:    "#8b90a7",
+  buttonPrimary:    "#46c8ff",
+  buttonPrimaryA:   "rgba(70,200,255,0.12)",
+  buttonPrimaryA25: "rgba(70,200,255,0.25)",
 };
 
+export default function LinkChildForm({ parentId, onSuccess }) {
+  const [linkCode, setLinkCode] = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!parentId)                     { setError("Parent ID is missing"); return; }
+    if (!linkCode || !linkCode.trim()) { setError("Please enter a link code"); return; }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const token   = localStorage.getItem("chikoroai_authToken");
+      const payload = { parentId: Number(parentId), linkCode: linkCode.trim().toUpperCase() };
+
+      const res  = await fetch("https://api.chikoro-ai.com/api/system/parent/link-child", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setLinkCode("");
+        onSuccess?.(data.link);
+      } else {
+        setError(data.error || "Failed to link child");
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="bg-white rounded-xl shadow-lg p-6">
-      <h3 className="text-xl font-bold text-gray-800 mb-4">
-        🔗 Link a New Child
-      </h3>
-      <form onSubmit={handleSubmit}>
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Enter Link Code
-          </label>
-          <input
-            type="text"
-            value={linkCode}
-            onChange={(e) => setLinkCode(e.target.value.toUpperCase())}
-            placeholder="e.g., ABC12345"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            maxLength={8}
-            required
-          />
-          <p className="text-sm text-gray-500 mt-1">
-            Ask your child's teacher or the student for their link code
-          </p>
-        </div>
+    <div style={s.card}>
+      <p style={s.title}>🔗 Link a New Child</p>
+
+      <form onSubmit={handleSubmit} style={s.form}>
+        {/* Label */}
+        <label style={s.label}>Enter Link Code</label>
+
+        {/* Input */}
+        <input
+          type="text"
+          value={linkCode}
+          onChange={(e) => setLinkCode(e.target.value.toUpperCase())}
+          onFocus={(e)  => (e.currentTarget.style.borderColor = T.buttonPrimary)}
+          onBlur={(e)   => (e.currentTarget.style.borderColor = T.sidebarBorder)}
+          placeholder="e.g. ABC12345"
+          maxLength={8}
+          required
+          style={s.input}
+        />
+
+        <p style={s.hint}>
+          Ask your child's teacher or the student for their link code.
+        </p>
+
+        {/* Error */}
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            {error}
+          <div style={s.errorBox}>
+            <span style={s.errorIcon}>⚠</span>
+            <span style={s.errorText}>{error}</span>
           </div>
         )}
+
+        {/* Submit */}
         <button
           type="submit"
           disabled={loading}
-          className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 transition"
+          style={{ ...s.submitBtn, ...(loading ? s.submitBtnDisabled : {}) }}
         >
-          {loading ? "Linking..." : "Link Child"}
+          {loading ? (
+            <span style={s.spinnerRow}>
+              <span style={s.spinnerDot} /> Linking…
+            </span>
+          ) : (
+            "Link Child"
+          )}
         </button>
       </form>
     </div>
   );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = {
+  card: {
+    backgroundColor: T.bgSecondary,
+    border:          `1px solid ${T.sidebarBorder}`,
+    borderRadius:    16,
+    padding:         24,
+  },
+
+  title: {
+    fontSize:    16,
+    fontWeight:  700,
+    color:       T.textPrimary,
+    margin:      "0 0 20px",
+  },
+
+  form: {
+    display:       "flex",
+    flexDirection: "column",
+    gap:           0,
+  },
+
+  label: {
+    fontSize:      11,
+    fontWeight:    700,
+    color:         T.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: "0.8px",
+    marginBottom:  8,
+    display:       "block",
+  },
+
+  input: {
+    width:           "100%",
+    padding:         "10px 14px",
+    backgroundColor: T.bgContainer,
+    border:          `1px solid ${T.sidebarBorder}`,
+    borderRadius:    10,
+    color:           T.textPrimary,
+    fontSize:        15,
+    fontWeight:      600,
+    letterSpacing:   "0.1em",
+    outline:         "none",
+    boxSizing:       "border-box",
+    transition:      "border-color 0.15s",
+    marginBottom:    8,
+  },
+
+  hint: {
+    fontSize:     12,
+    color:        T.textSecondary,
+    margin:       "0 0 16px",
+    lineHeight:   1.5,
+  },
+
+  errorBox: {
+    display:         "flex",
+    alignItems:      "center",
+    gap:             8,
+    backgroundColor: "rgba(220,38,38,0.08)",
+    border:          "1px solid rgba(220,38,38,0.25)",
+    borderRadius:    10,
+    padding:         "10px 14px",
+    marginBottom:    16,
+  },
+  errorIcon: { color: "#dc2626", fontSize: 14 },
+  errorText: { color: "#dc2626", fontSize: 13 },
+
+  submitBtn: {
+    width:           "100%",
+    padding:         "12px 0",
+    backgroundColor: T.buttonPrimary,
+    border:          "none",
+    borderRadius:    10,
+    color:           "#fff",
+    fontWeight:      700,
+    fontSize:        14,
+    cursor:          "pointer",
+    transition:      "opacity 0.15s",
+  },
+  submitBtnDisabled: {
+    opacity: 0.5,
+    cursor:  "not-allowed",
+  },
+
+  spinnerRow: {
+    display:        "flex",
+    alignItems:     "center",
+    justifyContent: "center",
+    gap:            8,
+  },
+  spinnerDot: {
+    width:          10,
+    height:         10,
+    borderRadius:   "50%",
+    border:         "2px solid rgba(255,255,255,0.3)",
+    borderTopColor: "#fff",
+    display:        "inline-block",
+    animation:      "spin 0.7s linear infinite",
+  },
+};
+
+// Inject spinner keyframes once
+if (typeof document !== "undefined" && !document.getElementById("link-form-spin")) {
+  const style = document.createElement("style");
+  style.id = "link-form-spin";
+  style.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
+  document.head.appendChild(style);
 }

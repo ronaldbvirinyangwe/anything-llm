@@ -60,7 +60,7 @@ export default function TeacherResultDetail() {
       try {
         const token = localStorage.getItem("chikoroai_authToken");
         const res = await axios.get(
-          `http://localhost:3009/api/system/teacher/result-detail/${resultId}`,
+          `https://api.chikoro-ai.com/api/system/teacher/result-detail/${resultId}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (res.data.success) setResult(res.data.result);

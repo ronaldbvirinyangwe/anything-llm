@@ -79,7 +79,7 @@ const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 const fetch = require('node-fetch');
 const OpenAI = require("openai");
 const { sendPushNotification } = require('../utils/pushNotifications');
-const { serviceKeyRequest } = require('../utils/middleware/ServiceKeyMiddleware');
+const { serviceKeyRequest } = require('../utils/middleware/ServiceKeyMiddleware'); // make sure this is imported at the top of your file if not already
 
 
 const {
@@ -2340,6 +2340,8 @@ FEEDBACK: [Your detailed feedback]
   }
 });
 
+const { sendLowScoreAlert } = require("../utils/Parentnotifications");
+
 app.post("/quiz/submit", [validatedRequest], async (req, res) => {
   try {
     // 1. Auth
@@ -2365,8 +2367,6 @@ app.post("/quiz/submit", [validatedRequest], async (req, res) => {
       const question = quiz.questions[i];
       const studentAnswer = answers[i] || "";
 
-      // ── Use points from the parsed question object (set by parseQuizContent)
-      // Falls back to 1 for MCQ, 4 for structured if somehow missing
       const questionPoints =
         question.points ||
         (question.type === "mcq" || question.type === "multiple-choice" ? 1 : 4);
@@ -2378,10 +2378,7 @@ app.post("/quiz/submit", [validatedRequest], async (req, res) => {
         type: question.type,
       };
 
-      // ── MCQ ────────────────────────────────────────────────
       if (question.type === "mcq" || question.type === "multiple-choice") {
-        // Student answer is the full option string e.g. "B) Human-readable instructions..."
-        // Extract just the letter for comparison
         const studentLetter = studentAnswer.trim().charAt(0).toUpperCase();
         const isCorrect = studentLetter === question.correct_answer;
 
@@ -2420,7 +2417,6 @@ BEGIN YOUR FEEDBACK NOW:`;
         feedbackObj.pointsPossible = questionPoints;
 
       } else {
-        // ── Structured / Short Answer ───────────────────────
         const structuredGradingPrompt = `You are a teacher grading a student's answer. You must respond in EXACTLY this format and nothing else.
 
 Do NOT include any internal reasoning, planning, thinking, or meta-commentary before or after your response.
@@ -2454,7 +2450,6 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
         const aiGrading = await generateLessonPlanAI(structuredGradingPrompt);
         const cleanedGrading = cleanAIResponse(aiGrading);
 
-        // Parse SCORE: X/Y from AI response
         const scoreMatch = cleanedGrading.match(/SCORE:\s*(\d+\.?\d*)\s*\/\s*(\d+)/i);
         const feedbackMatch = cleanedGrading.match(/SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*\n+([\s\S]*)/i);
 
@@ -2465,7 +2460,6 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
           pointsEarnedStructured = parseFloat(scoreMatch[1]);
           pointsPossibleStructured = parseInt(scoreMatch[2]);
         } else {
-          // ── FALLBACK: AI didn't follow format — award 0, log warning
           console.warn(`⚠️ Question ${i + 1}: AI did not return a parseable SCORE. Defaulting to 0/${questionPoints}.`);
           pointsEarnedStructured = 0;
           pointsPossibleStructured = questionPoints;
@@ -2474,8 +2468,6 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
         earnedPoints += pointsEarnedStructured;
         totalPoints += pointsPossibleStructured;
 
-        // ── FIX: set isCorrect for structured questions
-        // A student is considered "correct" if they earned more than half the available marks
         const isCorrect = pointsEarnedStructured >= pointsPossibleStructured * 0.5;
         if (isCorrect) correctCount++;
 
@@ -2495,11 +2487,11 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
       ? Math.round((earnedPoints / totalPoints) * 100)
       : 0;
 
-      const difficultyStr = (quiz.difficulty || "medium").toLowerCase();
+    const difficultyStr = (quiz.difficulty || "medium").toLowerCase();
     const difficultyMultiplier = difficultyStr === "hard" ? 2.0 : (difficultyStr === "easy" ? 1.0 : 1.5);
-    
-    const baseXp = 10; // Reward for completion
-    const scoreXp = Math.round(finalScore / 2); // Up to 50 extra XP for a perfect score
+
+    const baseXp = 10;
+    const scoreXp = Math.round(finalScore / 2);
     const totalXpEarned = Math.round((baseXp + scoreXp) * difficultyMultiplier);
 
     // 5. DB insert
@@ -2522,28 +2514,42 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
       sessionUser.id
     );
 
-      const newStreak = await User.updateStreak(sessionUser.id);
-      
+    const newStreak = await User.updateStreak(sessionUser.id);
+
     if (totalXpEarned > 0) {
       await EventLogs.logEvent(
         "xp_gain",
-        { 
-          points: totalXpEarned, 
-          source: "quiz_completed", 
+        {
+          points: totalXpEarned,
+          source: "quiz_completed",
           subject: quiz.subject,
-          difficulty: quiz.difficulty 
+          difficulty: quiz.difficulty
         },
         sessionUser.id
       );
     }
+
+    // 🔔 Parent notification for low scores (non-blocking)
+   prisma.students.findFirst({ where: { user_id: studentId }, select: { id: true, name: true } })
+  .then((student) => {
+    return sendLowScoreAlert({
+      childId: student?.id ?? studentId, // use the students.id, not the users.id, if downstream code expects it
+      childName: student?.name || "Your child",
+      subject: quiz.subject,
+      score: finalScore,
+      quizId: result.id,
+    });
+  })
+  .catch(console.error);
+
     // 7. Response
-   return res.status(201).json({
+    return res.status(201).json({
       success: true,
       resultId: result.id,
       score: finalScore,
       earnedPoints,
       totalPoints,
-      xpEarned: totalXpEarned, 
+      xpEarned: totalXpEarned,
       feedback: detailedFeedback,
       summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`,
     });
@@ -3049,13 +3055,11 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
     let student;
 
     if (sessionUser.role === "student") {
-      // For students, always look up their own profile via session — never trust the URL param
       student = await prisma.students.findFirst({
         where: { user_id: sessionUser.id }
       });
       console.log(`[Report] Student lookup by session user_id=${sessionUser.id} →`, student ? `students.id=${student.id}` : "NOT FOUND");
     } else {
-      // Teachers/parents use the URL param
       const studentId = parseInt(request.params.id);
       if (!studentId || isNaN(studentId)) {
         return response.status(400).json({ success: false, error: "Invalid student ID" });
@@ -3072,141 +3076,225 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
       return response.status(400).json({ success: false, error: "Student record has no user_id" });
     }
 
-    console.log(`[Report] Fetching quizzes for users.id=${student.user_id} (students.id=${student.id}, name=${student.name})`);
+    console.log(`[Report] Fetching data for users.id=${student.user_id} (students.id=${student.id}, name=${student.name})`);
 
-    // ✅ Fetch quizzes (FIXED: Now includes shared_quizzes to get the difficulty)
-    const quizzes = await prisma.quiz_results.findMany({
-      where: { user_id: student.user_id },
-      select: { 
-        id: true, 
-        subject: true, 
-        score: true, 
-        total_questions: true,
-        correct_answers: true,
-        submitted_at: true,
-        detailed_feedback: true,
-        shared_quiz: {
-          select: {
-            difficulty: true
+    // ── Fetch all data in parallel ────────────────────────────────────────
+    const [quizzes, xpLogs, flashcardSets, weakAreaCards] = await Promise.all([
+      prisma.quiz_results.findMany({
+        where: { user_id: student.user_id },
+        select: {
+          id: true,
+          subject: true,
+          score: true,
+          total_questions: true,
+          correct_answers: true,
+          submitted_at: true,
+          detailed_feedback: true,
+          shared_quiz: {
+            select: { difficulty: true }
           }
-        }
-      },
-      orderBy: { submitted_at: 'desc' },
-    });
+        },
+        orderBy: { submitted_at: "desc" },
+      }),
 
-    // ✅ Fetch XP logs
-    const xpLogs = await prisma.event_logs.findMany({
-      where: { 
-        userId: student.user_id, 
-        event: "xp_gain" 
-      },
-      select: { 
-        metadata: true, 
-        occurredAt: true
-      },
-    });
+      prisma.event_logs.findMany({
+        where: {
+          userId: student.user_id,
+          event: "xp_gain"
+        },
+        select: {
+          metadata: true,
+          occurredAt: true
+        },
+      }),
 
-    // 🧮 Calculate stats (Weighted Average now works properly!)
+      prisma.savedFlashcardSet.findMany({
+        where: { userId: student.user_id },
+        select: { cards: true },
+      }),
+
+      // ── NEW: pull from WeakAreaCard table ──
+      prisma.weakAreaCard.findMany({
+        where: { userId: student.user_id },
+        orderBy: [
+          { resolved: "asc" },       // unresolved first
+          { timesWrong: "desc" },    // most persistent first
+          { lastWrongAt: "desc" },   // most recent first
+        ],
+      }),
+    ]);
+
+    // ── Weighted average score ────────────────────────────────────────────
     const difficultyWeights = { Easy: 1, Medium: 1.5, Hard: 2 };
-
     let totalWeightedScore = 0;
     let totalWeight = 0;
 
     for (const q of quizzes) {
-      const percentage = q.score; 
       const difficulty = q.shared_quiz?.difficulty || "Medium";
-      const difficultyWeight = difficultyWeights[difficulty] || 1;
-      const weight = q.total_questions * difficultyWeight;
-
-      totalWeightedScore += percentage * weight;
+      const weight = q.total_questions * (difficultyWeights[difficulty] || 1);
+      totalWeightedScore += q.score * weight;
       totalWeight += weight;
     }
 
-    const averageScore =
-      totalWeight > 0 ? (totalWeightedScore / totalWeight).toFixed(1) : "0.0";
+    const averageScore = totalWeight > 0
+      ? (totalWeightedScore / totalWeight).toFixed(1)
+      : "0.0";
 
-    const flashcardSets = await prisma.savedFlashcardSet.findMany({
-      where: { userId: student.user_id },
-      select: { cards: true },
-    });
-    const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
+    // ── Flashcard stats ───────────────────────────────────────────────────
+    const totalFlashcards = flashcardSets.reduce(
+      (sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0),
+      0
+    );
     const mastered = 0;
 
-  // 🧮 Parse XP Logs Safely
-const formattedXpLogs = [];
+    // ── XP logs ───────────────────────────────────────────────────────────
+    const formattedXpLogs = [];
+    const totalXP = xpLogs.reduce((sum, log) => {
+      let points = 0;
+      let source = "Unknown";
+      let masteredCount = 0;
 
-const totalXP = xpLogs.reduce((sum, log) => {
-  let points = 0;
-  let source = "Unknown";
-  let masteredCount = 0;
+      if (typeof log.metadata === "string") {
+        try {
+          const parsed = JSON.parse(log.metadata);
+          points       = parsed.points       || 0;
+          source       = parsed.source       || "Unknown";
+          masteredCount = parsed.masteredCount || 0;
+        } catch { points = 0; }
+      } else if (typeof log.metadata === "object" && log.metadata !== null) {
+        points        = log.metadata.points        || 0;
+        source        = log.metadata.source        || "Unknown";
+        masteredCount = log.metadata.masteredCount || 0;
+      }
 
-  // Safely parse the metadata whether Prisma returns it as an Object or String
-  if (typeof log.metadata === 'string') {
-    try {
-      const parsed = JSON.parse(log.metadata);
-      points = parsed.points || 0;
-      source = parsed.source || "Unknown";
-      masteredCount = parsed.masteredCount || 0; // ✅ scoped correctly
-    } catch (e) {
-      points = 0;
-    }
-  } else if (typeof log.metadata === 'object' && log.metadata !== null) {
-    points = log.metadata.points || 0;
-    source = log.metadata.source || "Unknown";
-    masteredCount = log.metadata.masteredCount || 0; // ✅ scoped correctly
-  }
+      if (points > 0) {
+        formattedXpLogs.push({
+          points:       Number(points),
+          source,
+          masteredCount,
+          date: log.occurredAt,
+        });
+      }
 
-  if (points > 0) {
-    formattedXpLogs.push({
-      points: Number(points),
-      source: source,
-      masteredCount: masteredCount, // ✅ now always defined
-      date: log.occurredAt
-    });
-  }
+      return sum + Number(points);
+    }, 0);
 
-  return sum + Number(points);
-}, 0);
+    // ── Struggled areas from WeakAreaCard (replaces JSON parsing) ─────────
+    const struggledBySubject = weakAreaCards.reduce((acc, card) => {
+      if (!acc[card.subject]) acc[card.subject] = [];
+      acc[card.subject].push({
+        id:            card.id,
+        question:      card.question,
+        userAnswer:    card.wrongAnswer,
+        correctAnswer: card.correctAnswer,
+        explanation:   card.explanation || "Review this concept carefully.",
+        timesWrong:    card.timesWrong,
+        resolved:      card.resolved,
+        firstFlaggedAt: card.firstFlaggedAt,
+        lastWrongAt:   card.lastWrongAt,
+      });
+      return acc;
+    }, {});
 
-    // 🧮 Parse struggled questions from detailed_feedback
-   const struggledBySubject = {};
+    // ── Also save any NEW struggled questions from recent quizzes ─────────
+    // This keeps WeakAreaCard in sync whenever the report is generated
     for (const q of quizzes) {
       let feedback = [];
       try {
         feedback = JSON.parse(q.detailed_feedback || "[]");
       } catch { feedback = []; }
 
-      const struggled = feedback.filter(f => 
+      const struggled = feedback.filter(f =>
         f.type === "multiple-choice" ? !f.isCorrect : f.pointsEarned < f.pointsPossible
       );
 
-      if (struggled.length > 0) {
-        const subjectName = q.subject || 'General';
-        if (!struggledBySubject[subjectName]) struggledBySubject[subjectName] = [];
-        
-        // FIXED MAPPING: Pulling exact keys from your AI JSON
-        struggledBySubject[subjectName].push(...struggled.map(f => {
-          // Safely extract the full text of the correct answer if it exists
-          const correctText = f.details?.correct_choice?.text || f.correctAnswer;
-          const userText = f.details?.student_choice?.text || f.userAnswer;
+      for (const f of struggled) {
+        const correctAnswer = f.details?.correct_choice?.text || f.correctAnswer || "";
+        const wrongAnswer   = f.details?.student_choice?.text || f.userAnswer    || "";
+        const question      = f.question || "";
+        const subject       = q.subject  || "General";
 
-          return {
-            quizId: q.id,
-            question: f.question,
-            userAnswer: userText,
-            correctAnswer: correctText,
-            explanation: f.feedback || "Review this concept carefully."
-          };
-        }));
+        if (!question || !correctAnswer) continue;
+
+        const existing = await prisma.weakAreaCard.findFirst({
+          where: {
+            userId:   student.user_id,
+            question,
+            subject,
+          },
+        });
+
+        if (existing) {
+          // Only increment if this quiz is newer than lastWrongAt
+          // to avoid double-counting on repeated report loads
+          const quizDate = new Date(q.submitted_at);
+          const lastWrong = new Date(existing.lastWrongAt);
+
+          if (quizDate > lastWrong) {
+            await prisma.weakAreaCard.update({
+              where: { id: existing.id },
+              data: {
+                timesWrong:  { increment: 1 },
+                wrongAnswer,
+                lastWrongAt: quizDate,
+                resolved:    false,
+              },
+            });
+          }
+        } else {
+          await prisma.weakAreaCard.create({
+            data: {
+              userId:        student.user_id,
+              subject,
+              question,
+              wrongAnswer:   wrongAnswer   || null,
+              correctAnswer,
+              explanation:   f.feedback    || "Review this concept carefully.",
+              firstFlaggedAt: new Date(q.submitted_at),
+              lastWrongAt:   new Date(q.submitted_at),
+            },
+          });
+        }
       }
     }
 
-    const struggledSummary = Object.entries(struggledBySubject)
-      .map(([subject, questions]) => 
-        `${subject}:\n${questions.slice(0, 3).map(q => `  - ${q}`).join("\n")}`
-      ).join("\n");
+    // Re-fetch after sync so the response always reflects latest state
+    const syncedWeakAreaCards = await prisma.weakAreaCard.findMany({
+      where: { userId: student.user_id },
+      orderBy: [
+        { resolved:    "asc"  },
+        { timesWrong:  "desc" },
+        { lastWrongAt: "desc" },
+      ],
+    });
 
-    // 🧠 Generate AI summary
+    const syncedStruggledBySubject = syncedWeakAreaCards.reduce((acc, card) => {
+      if (!acc[card.subject]) acc[card.subject] = [];
+      acc[card.subject].push({
+        id:             card.id,
+        question:       card.question,
+        userAnswer:     card.wrongAnswer,
+        correctAnswer:  card.correctAnswer,
+        explanation:    card.explanation || "Review this concept carefully.",
+        timesWrong:     card.timesWrong,
+        resolved:       card.resolved,
+        firstFlaggedAt: card.firstFlaggedAt,
+        lastWrongAt:    card.lastWrongAt,
+      });
+      return acc;
+    }, {});
+
+    // ── AI summary ────────────────────────────────────────────────────────
+    // Build a richer struggled summary now that we have timesWrong
+    const struggledSummary = syncedWeakAreaCards
+      .filter(c => !c.resolved)
+      .slice(0, 10)
+      .map(c =>
+        `  - [${c.subject}] "${c.question}" ` +
+        `(wrong ${c.timesWrong}x, last: ${new Date(c.lastWrongAt).toLocaleDateString()})`
+      )
+      .join("\n");
+
     const summaryPrompt = `
 You are Chikoro AI, an educational data analyst for teachers.
 Analyze the following student's progress and write a professional, encouraging summary.
@@ -3218,15 +3306,18 @@ Total Quizzes Taken: ${quizzes.length}
 XP Points: ${totalXP}
 
 Recent Quizzes:
-${quizzes.length > 0 
+${quizzes.length > 0
   ? quizzes
       .slice(0, 5)
-      .map((q) => `- ${q.subject || 'General'}: ${q.score}% (${q.correct_answers}/${q.total_questions} correct)`)
+      .map(q => `- ${q.subject || "General"}: ${q.score}% (${q.correct_answers}/${q.total_questions} correct)`)
       .join("\n")
   : "No quizzes taken yet."
 }
 
-${struggledSummary ? `Specific Questions Struggled With:\n${struggledSummary}` : ""}
+${struggledSummary
+  ? `Unresolved Weak Areas (ordered by persistence):\n${struggledSummary}`
+  : "No unresolved weak areas."
+}
 
 CRITICAL INSTRUCTIONS:
 - Do NOT include any planning notes, meta-commentary, or thinking process
@@ -3237,7 +3328,7 @@ CRITICAL INSTRUCTIONS:
 Provide:
 1. A short paragraph summary of overall performance.
 2. Key strengths observed.
-3. Areas for improvement — reference specific questions and topics.
+3. Areas for improvement — reference specific questions and topics, and note if any have been struggled with multiple times.
 4. Suggested next learning steps.
 
 Format neatly in Markdown with proper headers (##).
@@ -3246,48 +3337,56 @@ Format neatly in Markdown with proper headers (##).
 `;
 
     const rawSummary = await generateLessonPlanAI(summaryPrompt);
-    
-    // ✅ CLEAN THINKING MODEL OUTPUT
-    const aiSummary = cleanThinkingModelOutput(rawSummary, 'report');
+    const aiSummary  = cleanThinkingModelOutput(rawSummary, "report");
 
-    // ✅ Transform quizzes
+    // ── Format quizzes for response ───────────────────────────────────────
     const formattedQuizzes = quizzes.map(q => {
       let feedback = [];
       try { feedback = JSON.parse(q.detailed_feedback || "[]"); } catch { feedback = []; }
-      
+
       return {
-        id: q.id,
-        subject: q.subject,
-        score: q.score,
+        id:             q.id,
+        subject:        q.subject,
+        score:          q.score,
         correct_answers: q.correct_answers,
-        total: q.total_questions,
-        createdAt: q.submitted_at,
-        difficulty: q.shared_quiz?.difficulty || "Medium",
+        total:          q.total_questions,
+        createdAt:      q.submitted_at,
+        difficulty:     q.shared_quiz?.difficulty || "Medium",
         feedback,
       };
     });
 
-    // ✅ Respond
-    response.status(200).json({
-      success: true,
+    // ── Response ──────────────────────────────────────────────────────────
+    return response.status(200).json({
+      success:      true,
       student: {
-        id: student.id,
-        name: student.name,
+        id:    student.id,
+        name:  student.name,
         grade: student.grade,
       },
-      quizzes: formattedQuizzes,
-      aiSummary: aiSummary,
-      averageScore: parseFloat(averageScore),
+      quizzes:       formattedQuizzes,
+      aiSummary,
+      averageScore:  parseFloat(averageScore),
       totalXP,
-      xpLogs: formattedXpLogs,
+      xpLogs:        formattedXpLogs,
       mastered,
       totalFlashcards,
-      struggledAreas: struggledBySubject
+      struggledAreas: syncedStruggledBySubject,
+      weakAreaStats: {
+        total:      syncedWeakAreaCards.length,
+        unresolved: syncedWeakAreaCards.filter(c => !c.resolved).length,
+        resolved:   syncedWeakAreaCards.filter(c => c.resolved).length,
+        mostPersistent: syncedWeakAreaCards
+          .filter(c => !c.resolved)
+          .slice(0, 3)
+          .map(c => ({ subject: c.subject, question: c.question, timesWrong: c.timesWrong })),
+      },
     });
+
   } catch (err) {
     console.error("📉 Error generating report:", err);
     console.error("Error stack:", err.stack);
-    response.status(500).json({
+    return response.status(500).json({
       success: false,
       error: "Internal server error while generating report.",
     });
@@ -3411,68 +3510,132 @@ app.post("/system/flashcards/save-weak-area", [validatedRequest], async (request
       return response.status(401).json({ success: false, error: "Unauthorized" });
     }
 
-    const { subject, question, correctAnswer, explanation } = request.body;
+    const { subject, question, correctAnswer, explanation, wrongAnswer } = request.body;
 
     if (!question || !correctAnswer) {
-      return response.status(400).json({ success: false, error: "Missing flashcard content." });
+      return response.status(400).json({ success: false, error: "Missing required fields." });
     }
 
-    // 1. Format the new card
-    const newCard = {
-      front: question,
-      back: `**Answer:** ${correctAnswer}\n\n**Why:** ${explanation}`,
-      category: "Targeted Review"
-    };
-
-    // 2. Identify the deck using schema-valid fields
-    // We use `userMessage` to act as our "deck name/identifier" since `title` doesn't exist
-    const deckIdentifier = "Weak Areas Review";
-    const targetSubject = subject || "General";
-
-    let existingDeck = await prisma.savedFlashcardSet.findFirst({
-      where: { 
+    // Check if this exact question is already flagged for this user
+    const existing = await prisma.weakAreaCard.findFirst({
+      where: {
         userId: sessionUser.id,
-        subject: targetSubject,
-        userMessage: deckIdentifier
-      }
+        question,
+        subject: subject || "General",
+      },
     });
 
-    if (existingDeck) {
-      // 3a. Append the new card to the existing deck
-      const currentCards = Array.isArray(existingDeck.cards) ? existingDeck.cards : [];
-      
-      // Prevent duplicates
-      const isDuplicate = currentCards.some(c => c.front === question);
-      if (!isDuplicate) {
-        await prisma.savedFlashcardSet.update({
-          where: { id: existingDeck.id },
+    if (existing) {
+      if (existing.resolved) {
+        // They got it wrong again after resolving — re-open it
+        await prisma.weakAreaCard.update({
+          where: { id: existing.id },
           data: {
-            cards: [...currentCards, newCard]
-          }
+            timesWrong: { increment: 1 },
+            wrongAnswer,
+            lastWrongAt: new Date(),
+            resolved: false,
+          },
+        });
+      } else {
+        // Still unresolved — just increment
+        await prisma.weakAreaCard.update({
+          where: { id: existing.id },
+          data: {
+            timesWrong: { increment: 1 },
+            wrongAnswer,
+            lastWrongAt: new Date(),
+          },
         });
       }
     } else {
-      // 3b. Create a brand new deck using ONLY valid Prisma schema fields
-      await prisma.savedFlashcardSet.create({
+      // First time getting this wrong
+      await prisma.weakAreaCard.create({
         data: {
           userId: sessionUser.id,
-          subject: targetSubject,
-          grade: "N/A", // Or pass the grade from the frontend if you prefer
-          difficulty: "Targeted",
-          userMessage: deckIdentifier, 
-          cards: [newCard]
-        }
+          subject: subject || "General",
+          question,
+          wrongAnswer: wrongAnswer || null,
+          correctAnswer,
+          explanation: explanation || null,
+        },
       });
     }
 
+    return response.status(200).json({ success: true, message: "Weak area recorded." });
+
+  } catch (err) {
+    console.error("Error saving weak area card:", err);
+    return response.status(500).json({ success: false, error: "Internal server error." });
+  }
+});
+
+app.get("/system/flashcards/weak-areas/:userId", [validatedRequest], async (request, response) => {
+  try {
+    const sessionUser = await userFromSession(request, response);
+    if (!sessionUser?.id) {
+      return response.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    const userId = parseInt(request.params.userId);
+
+    const cards = await prisma.weakAreaCard.findMany({
+      where: { userId },
+      orderBy: [
+        { resolved: "asc" },      // unresolved first
+        { timesWrong: "desc" },   // most persistent first
+        { lastWrongAt: "desc" },  // most recent first
+      ],
+    });
+
+    // Group by subject for the reports
+    const grouped = cards.reduce((acc, card) => {
+      if (!acc[card.subject]) acc[card.subject] = [];
+      acc[card.subject].push(card);
+      return acc;
+    }, {});
+
     return response.status(200).json({
       success: true,
-      message: "Flashcard saved successfully."
+      weakAreas: grouped,
+      totalUnresolved: cards.filter(c => !c.resolved).length,
+      totalCards: cards.length,
     });
 
   } catch (err) {
-    console.error("📉 Error saving weak area flashcard:", err);
-    response.status(500).json({ success: false, error: "Internal server error." });
+    console.error("Error fetching weak areas:", err);
+    return response.status(500).json({ success: false, error: "Internal server error." });
+  }
+});
+
+app.patch("/system/flashcards/weak-areas/:cardId/resolve", [validatedRequest], async (request, response) => {
+  try {
+    const sessionUser = await userFromSession(request, response);
+    if (!sessionUser?.id) {
+      return response.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    const cardId = parseInt(request.params.cardId);
+
+    // Make sure the card belongs to this user
+    const card = await prisma.weakAreaCard.findFirst({
+      where: { id: cardId, userId: sessionUser.id },
+    });
+
+    if (!card) {
+      return response.status(404).json({ success: false, error: "Card not found." });
+    }
+
+    await prisma.weakAreaCard.update({
+      where: { id: cardId },
+      data: { resolved: true },
+    });
+
+    return response.status(200).json({ success: true, message: "Card resolved." });
+
+  } catch (err) {
+    console.error("Error resolving weak area card:", err);
+    return response.status(500).json({ success: false, error: "Internal server error." });
   }
 });
 
@@ -4117,6 +4280,8 @@ app.get("/system/quiz/:code", async (req, res) => {
   }
 });
 
+
+
 app.post("/system/student/submit-quiz", async (req, res) => {
   try {
     const {
@@ -4147,8 +4312,7 @@ app.post("/system/student/submit-quiz", async (req, res) => {
     if (existingSubmission) {
       return res.status(400).json({
         success: false,
-        error:
-          "You have already submitted this quiz. Multiple submissions are not allowed.",
+        error: "You have already submitted this quiz. Multiple submissions are not allowed.",
         alreadySubmitted: true,
       });
     }
@@ -4162,14 +4326,13 @@ app.post("/system/student/submit-quiz", async (req, res) => {
 
     const questionBlocks = cleanedQuiz.split(/\n(?=\d+\.)/);
 
-    // 📘 Parse questions with correct answers and mark schemes
+    // 📘 Parse questions
     const parsedQuestions = questionBlocks.map((block, i) => {
       const lines = block.split("\n").filter((l) => l.trim());
       const questionText = lines[0]?.replace(/^\d+\.\s*/, "");
       const hasOptions = lines.some((l) => /^[A-D]\)/.test(l));
       const answerMatch = block.match(/\*?\*?Answer:\s*([A-D])/i);
 
-      // Extract mark scheme for structured questions
       const markSchemeIndex = lines.findIndex((line) =>
         /^(Mark Scheme|Answer|Expected Answer|Marking Points?):/i.test(line)
       );
@@ -4182,14 +4345,12 @@ app.post("/system/student/submit-quiz", async (req, res) => {
         fullBlock: block,
         type: hasOptions ? "multiple-choice" : "structured",
         correctAnswer: answerMatch ? answerMatch[1].toUpperCase() : null,
-        options: hasOptions
-          ? lines.filter((l) => /^[A-D]\)/.test(l))
-          : [],
+        options: hasOptions ? lines.filter((l) => /^[A-D]\)/.test(l)) : [],
         markScheme: markScheme,
       };
     });
 
-    // 🧮 Grade and generate feedback for each answer
+    // 🧮 Grade and generate feedback
     const detailedFeedback = [];
     let correctCount = 0;
     let totalPoints = 0;
@@ -4207,11 +4368,7 @@ app.post("/system/student/submit-quiz", async (req, res) => {
       };
 
       if (question.type === "multiple-choice") {
-        // Auto-grade multiple choice
-        const studentLetter = studentAnswer.answer
-          .trim()
-          .charAt(0)
-          .toUpperCase();
+        const studentLetter = studentAnswer.answer.trim().charAt(0).toUpperCase();
         const isCorrect = studentLetter === question.correctAnswer;
 
         if (isCorrect) {
@@ -4220,7 +4377,6 @@ app.post("/system/student/submit-quiz", async (req, res) => {
         }
         totalPoints += 1;
 
-        // Generate AI feedback for multiple choice
         const mcFeedbackPrompt = `You are a teacher writing feedback directly to a student. Write ONLY the feedback — nothing else.
 
 Do NOT include any internal reasoning, planning, thinking, or meta-commentary.
@@ -4253,8 +4409,8 @@ BEGIN YOUR FEEDBACK NOW:`;
         feedback.explanation = cleanAIResponse(aiFeedback);
         feedback.pointsEarned = isCorrect ? 1 : 0;
         feedback.pointsPossible = 1;
+
       } else {
-        // AI-powered grading for structured questions
         const structuredGradingPrompt = `You are a teacher grading a student's answer. You must respond in EXACTLY this format and nothing else.
 
 Do NOT include any internal reasoning, planning, thinking, or meta-commentary before or after your response.
@@ -4294,32 +4450,20 @@ You may use LaTeX notation like \\(x^2\\) for math expressions. Use markdown for
 Remember: Start your response with "SCORE:" immediately. No preamble.`;
 
         const aiGrading = await generateLessonPlanAI(structuredGradingPrompt);
-
-        // Clean and parse AI response
         const cleanedGrading = cleanAIResponse(aiGrading);
 
-        const scoreMatch = cleanedGrading.match(
-          /SCORE:\s*(\d+\.?\d*)\s*\/\s*(\d+)/i
-        );
-        const feedbackMatch = cleanedGrading.match(
-          /SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*\n+([\s\S]*)/i
-        );
+        const scoreMatch = cleanedGrading.match(/SCORE:\s*(\d+\.?\d*)\s*\/\s*(\d+)/i);
+        const feedbackMatch = cleanedGrading.match(/SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*\n+([\s\S]*)/i);
 
-        const pointsEarnedStructured = scoreMatch
-          ? parseFloat(scoreMatch[1])
-          : 0;
-        const pointsPossibleStructured = scoreMatch
-          ? parseInt(scoreMatch[2])
-          : 4;
+        const pointsEarnedStructured = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
+        const pointsPossibleStructured = scoreMatch ? parseInt(scoreMatch[2]) : 4;
 
         earnedPoints += pointsEarnedStructured;
         totalPoints += pointsPossibleStructured;
 
         feedback.pointsEarned = pointsEarnedStructured;
         feedback.pointsPossible = pointsPossibleStructured;
-        feedback.explanation = feedbackMatch
-          ? feedbackMatch[1].trim()
-          : cleanedGrading;
+        feedback.explanation = feedbackMatch ? feedbackMatch[1].trim() : cleanedGrading;
         feedback.markScheme = question.markScheme;
       }
 
@@ -4327,8 +4471,9 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
     }
 
     // Calculate final score
-    const finalScore =
-      totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+    const finalScore = totalPoints > 0
+      ? Math.round((earnedPoints / totalPoints) * 100)
+      : 0;
 
     // 🗂️ Save quiz results
     try {
@@ -4346,6 +4491,19 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
         },
       });
 
+      // 🔔 Parent notification for low scores (non-blocking)
+     prisma.students.findFirst({ where: { user_id: studentId }, select: { id: true, name: true } })
+  .then((student) => {
+    return sendLowScoreAlert({
+      childId: student?.id ?? studentId, // use the students.id, not the users.id, if downstream code expects it
+      childName: student?.name || "Your child",
+      subject: quiz.subject,
+      score: finalScore,
+      quizId: result.id,
+    });
+  })
+  .catch(console.error);
+
       // ✅ Return comprehensive feedback
       res.json({
         success: true,
@@ -4359,17 +4517,18 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
         tabLimitExceeded: tabLimitExceeded || false,
         autoSubmitted: autoSubmitted || false,
       });
+
     } catch (dbError) {
       if (dbError.code === "P2002") {
         return res.status(400).json({
           success: false,
-          error:
-            "You have already submitted this quiz. Multiple submissions are not allowed.",
+          error: "You have already submitted this quiz. Multiple submissions are not allowed.",
           alreadySubmitted: true,
         });
       }
       throw dbError;
     }
+
   } catch (err) {
     console.error("Error submitting quiz:", err);
     res.status(500).json({ success: false, error: "Submission failed" });
@@ -5104,6 +5263,34 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
     const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
     const mastered = 0;
 
+    // ── NEW: Fetch struggled areas from WeakAreaCard ──────────────────────
+    const weakAreaCards = await prisma.weakAreaCard.findMany({
+      where: { userId: student.user_id },
+      orderBy: [
+        { resolved: "asc" },       // unresolved first
+        { timesWrong: "desc" },    // most persistent first
+        { lastWrongAt: "desc" },   // most recent first
+      ],
+    });
+
+    const struggledAreas = weakAreaCards.reduce((acc, card) => {
+      if (!acc[card.subject]) acc[card.subject] = [];
+      acc[card.subject].push({
+        id: card.id,
+        question: card.question,
+        userAnswer: card.wrongAnswer,
+        correctAnswer: card.correctAnswer,
+        explanation: card.explanation || "Review this concept carefully.",
+        timesWrong: card.timesWrong,
+        resolved: card.resolved,
+        firstFlaggedAt: card.firstFlaggedAt,
+        lastWrongAt: card.lastWrongAt,
+      });
+      return acc;
+    }, {});
+
+    console.log("✅ Found", weakAreaCards.length, "weak area cards across", Object.keys(struggledAreas).length, "subjects");
+
     // Generate AI summary
     const generateSummary = () => {
       if (totalQuizzes === 0) {
@@ -5176,9 +5363,15 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
 
     const summary = generateSummary();
 
+    const parentRecord = await prisma.parents.findFirst({
+      where: { user_id: Number(userId) },
+      select: { email: true },
+    });
+
     // Return data in the format the frontend expects
     res.json({ 
       success: true, 
+      parentEmail: parent?.email ?? null,
       child: {
         id: student.id,
         name: student.name,
@@ -5189,11 +5382,15 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
         {
           date: new Date().toISOString(),
           quizzes: quizzes,
-          aiSummary: summary,
+          summary: summary,
+          homeAdvice: null, // TODO: generate dedicated home-advice content
           averageScore: averageScore,
           totalXP: totalXP,
           mastered: mastered,
           totalFlashcards: totalFlashcards,
+          classAverages: {},   // TODO: wire up real class averages
+          classScoreTrend: [], // TODO: wire up real class trend
+          struggledAreas: struggledAreas, // ← NEW
         }
       ]
     });
@@ -5245,33 +5442,93 @@ app.get("/system/parent/my-children/:parentId", [validatedRequest], async (req, 
   }
 });
 
-// Generate a unique link code for students
+
+
+// Generates a readable, collision-resistant code (excludes ambiguous chars: 0/O, 1/I)
+function generateLinkCode(length = 8) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.randomBytes(length);
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+}
+
+// ----------------------------------------------------------------------
+// Generate a link code (student-initiated)
+// ----------------------------------------------------------------------
 app.post("/system/student/generate-link-code", [validatedRequest], async (req, res) => {
   try {
     const { studentId } = req.body;
-    
+
     // Validate studentId
     if (!studentId || isNaN(Number(studentId))) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Invalid student ID" 
+      return res.status(400).json({
+        success: false,
+        error: "Invalid student ID",
       });
     }
-    
+
+    // Authenticate via JWT (same pattern used in /system/parent/child-report)
+    const token = req.headers.authorization?.replace("Bearer ", "");
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: "Authentication required",
+      });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtErr) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid or expired token",
+      });
+    }
+    const userId = decoded.id;
+
     // Verify student exists
     const student = await prisma.students.findUnique({
       where: { id: Number(studentId) },
     });
-    
+
     if (!student) {
-      return res.status(404).json({ 
-        success: false, 
-        error: "Student not found" 
+      return res.status(404).json({
+        success: false,
+        error: "Student not found",
       });
     }
-    
-    // Generate a unique 8-character code
-    const linkCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+
+    // Authorization: confirm the authenticated user IS this student
+    if (Number(student.user_id) !== Number(userId)) {
+      return res.status(403).json({
+        success: false,
+        error: "You are not authorized to generate a link code for this student",
+      });
+    }
+
+    // Invalidate any previous unused codes for this student so only one is active at a time
+    await prisma.student_link_codes.updateMany({
+      where: {
+        studentId: Number(studentId),
+        used: false,
+      },
+      data: {
+        used: true,
+      },
+    });
+
+    // Generate a unique code, retrying on the rare collision
+    let linkCode;
+    let isDuplicate = true;
+
+    while (isDuplicate) {
+      linkCode = generateLinkCode();
+      const existing = await prisma.student_link_codes.findUnique({
+        where: { code: linkCode },
+      });
+      isDuplicate = Boolean(existing);
+    }
+
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     const newCode = await prisma.student_link_codes.create({
@@ -5283,49 +5540,68 @@ app.post("/system/student/generate-link-code", [validatedRequest], async (req, r
       },
     });
 
-    res.json({ 
-      success: true, 
-      linkCode: newCode.code, 
-      expiresAt: newCode.expiresAt 
+    res.json({
+      success: true,
+      linkCode: newCode.code,
+      expiresAt: newCode.expiresAt,
     });
   } catch (err) {
     console.error("Error generating link code:", err);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       error: "Failed to generate code",
-      details: err.message 
+      details: err.message,
     });
   }
 });
 
-// Backend: Parent uses code to link
+// ----------------------------------------------------------------------
+// Link a child to a parent account (parent-initiated, using the code)
+// ----------------------------------------------------------------------
 app.post("/system/parent/link-child", [validatedRequest], async (req, res) => {
   try {
-    const { parentId, linkCode } = req.body;
+    const { linkCode } = req.body;
 
-    console.log("🔍 Received:", { parentId, linkCode }); // Debug log
-
-    // Validate inputs
-    if (!parentId || !linkCode) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Parent ID and link code are required" 
+    // Authenticate via JWT
+    const token = req.headers.authorization?.replace("Bearer ", "");
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: "Authentication required",
       });
     }
 
-    // First, find the parent record using the user ID
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtErr) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid or expired token",
+      });
+    }
+    const userId = decoded.id;
+
+    // Validate input
+    if (!linkCode) {
+      return res.status(400).json({
+        success: false,
+        error: "Link code is required",
+      });
+    }
+
+    // Find the parent record using the authenticated user's ID
     const parent = await prisma.parents.findFirst({
-      where: { user_id: Number(parentId) },
+      where: { user_id: Number(userId) },
+      select: { id: true, email: true },
     });
 
     if (!parent) {
-      return res.status(404).json({ 
-        success: false, 
-        error: "Parent profile not found" 
+      return res.status(404).json({
+        success: false,
+        error: "Parent profile not found",
       });
     }
-
-    console.log("✅ Parent found:", parent.id); // Debug log
 
     // Find and validate the link code
     const codeRecord = await prisma.student_link_codes.findFirst({
@@ -5337,33 +5613,31 @@ app.post("/system/parent/link-child", [validatedRequest], async (req, res) => {
     });
 
     if (!codeRecord) {
-      return res.status(404).json({ 
-        success: false, 
-        error: "Invalid or expired link code" 
+      return res.status(404).json({
+        success: false,
+        error: "Invalid or expired link code",
       });
     }
 
-    console.log("✅ Code validated:", codeRecord.code); // Debug log
-
-    // Check if already linked (use parent.id, not parentId from request)
+    // Check if already linked
     const existingLink = await prisma.parent_students.findFirst({
       where: {
-        parentId: parent.id, // Use the actual parent record ID
+        parentId: parent.id,
         studentId: codeRecord.studentId,
       },
     });
 
     if (existingLink) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "This child is already linked to your account" 
+      return res.status(400).json({
+        success: false,
+        error: "This child is already linked to your account",
       });
     }
 
-    // Create the link (use parent.id)
+    // Create the link
     const link = await prisma.parent_students.create({
       data: {
-        parentId: parent.id, // Use the actual parent record ID
+        parentId: parent.id,
         studentId: codeRecord.studentId,
         linkedAt: new Date(),
       },
@@ -5372,35 +5646,34 @@ app.post("/system/parent/link-child", [validatedRequest], async (req, res) => {
       },
     });
 
-    console.log("✅ Link created:", link.id); // Debug log
-
     // Mark code as used
     await prisma.student_link_codes.update({
       where: { id: codeRecord.id },
       data: {
         used: true,
-        usedAt: new Date()
+        usedAt: new Date(),
       },
     });
 
     // Notify the student that a parent has linked to their account
     await sendPushNotification(link.student.user_id, {
-      title: '👨‍👩‍👧 Parent Linked',
+      title: "👨‍👩‍👧 Parent Linked",
       body: `A parent or guardian has linked to your account and can now view your progress.`,
-      data: { type: 'parent_linked' },
+      data: { type: "parent_linked" },
     });
 
     res.json({
       success: true,
       link,
-      message: `Successfully linked ${link.student.name}`
+      parentEmail: parent.email ?? null,
+      message: `Successfully linked ${link.student.name}`,
     });
   } catch (err) {
     console.error("Error linking child:", err);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       error: "Failed to link child",
-      details: err.message 
+      details: err.message,
     });
   }
 });
@@ -6934,226 +7207,226 @@ app.post("/request-token", async (request, response) => {
 //   }
 // });
 
-app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, res) => {
-  try {
-    const { childId } = req.params;
+// app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, res) => {
+//   try {
+//     const { childId } = req.params;
     
-    // Get userId from the token in the Authorization header
-    const token = req.headers.authorization?.replace("Bearer ", "");
-    if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        error: "Authentication required" 
-      });
-    }
+//     // Get userId from the token in the Authorization header
+//     const token = req.headers.authorization?.replace("Bearer ", "");
+//     if (!token) {
+//       return res.status(401).json({ 
+//         success: false, 
+//         error: "Authentication required" 
+//       });
+//     }
 
-    // Decode the token to get user ID
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId = decoded.id;
+//     // Decode the token to get user ID
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+//     const userId = decoded.id;
 
-    console.log("🔍 Fetching report for childId:", childId, "by userId:", userId);
+//     console.log("🔍 Fetching report for childId:", childId, "by userId:", userId);
     
-    // Find parent record
-    const parent = await prisma.parents.findFirst({
-      where: { user_id: Number(userId) },
-    });
+//     // Find parent record
+//     const parent = await prisma.parents.findFirst({
+//       where: { user_id: Number(userId) },
+//     });
 
-    if (!parent) {
-      console.log("❌ Parent not found for userId:", userId);
-      return res.status(403).json({ 
-        success: false, 
-        error: "Parent profile not found" 
-      });
-    }
+//     if (!parent) {
+//       console.log("❌ Parent not found for userId:", userId);
+//       return res.status(403).json({ 
+//         success: false, 
+//         error: "Parent profile not found" 
+//       });
+//     }
 
-    console.log("✅ Parent found:", parent.id);
+//     console.log("✅ Parent found:", parent.id);
 
-    // Verify this parent is linked to this child
-    const link = await prisma.parent_students.findFirst({
-      where: {
-        parentId: parent.id,
-        studentId: Number(childId),
-      },
-    });
+//     // Verify this parent is linked to this child
+//     const link = await prisma.parent_students.findFirst({
+//       where: {
+//         parentId: parent.id,
+//         studentId: Number(childId),
+//       },
+//     });
 
-    if (!link) {
-      console.log("❌ No link found between parent and child");
-      return res.status(403).json({ 
-        success: false, 
-        error: "You don't have access to this child's reports" 
-      });
-    }
+//     if (!link) {
+//       console.log("❌ No link found between parent and child");
+//       return res.status(403).json({ 
+//         success: false, 
+//         error: "You don't have access to this child's reports" 
+//       });
+//     }
 
-    console.log("✅ Link verified:", link.id);
+//     console.log("✅ Link verified:", link.id);
     
-    // Get student info
-    const student = await prisma.students.findUnique({
-      where: { id: Number(childId) },
-    });
+//     // Get student info
+//     const student = await prisma.students.findUnique({
+//       where: { id: Number(childId) },
+//     });
 
-    if (!student) {
-      return res.status(404).json({ 
-        success: false, 
-        error: "Student not found" 
-      });
-    }
+//     if (!student) {
+//       return res.status(404).json({ 
+//         success: false, 
+//         error: "Student not found" 
+//       });
+//     }
 
-    console.log("✅ Student found:", student.name);
+//     console.log("✅ Student found:", student.name);
 
-    if (!student.user_id) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Student record has no user_id. Cannot fetch reports." 
-      });
-    }
+//     if (!student.user_id) {
+//       return res.status(400).json({ 
+//         success: false, 
+//         error: "Student record has no user_id. Cannot fetch reports." 
+//       });
+//     }
 
-    // Get quiz results for this student (with all details)
-    const quizzes = await prisma.quiz_results.findMany({
-      where: { user_id: student.user_id },
-      select: { 
-        id: true, 
-        subject: true, 
-        score: true, 
-        total_questions: true,
-        correct_answers: true,
-        submitted_at: true,
-        difficulty: true,
-         detailed_feedback: true, 
-      },
-      orderBy: { submitted_at: 'desc' },
-    });
+//     // Get quiz results for this student (with all details)
+//     const quizzes = await prisma.quiz_results.findMany({
+//       where: { user_id: student.user_id },
+//       select: { 
+//         id: true, 
+//         subject: true, 
+//         score: true, 
+//         total_questions: true,
+//         correct_answers: true,
+//         submitted_at: true,
+//         difficulty: true,
+//          detailed_feedback: true, 
+//       },
+//       orderBy: { submitted_at: 'desc' },
+//     });
 
-   const struggledBySubject = {};
-    for (const q of quizzes) {
-      let feedback = [];
-      try {
-        feedback = JSON.parse(q.detailed_feedback || "[]");
-      } catch { feedback = []; }
+//    const struggledBySubject = {};
+//     for (const q of quizzes) {
+//       let feedback = [];
+//       try {
+//         feedback = JSON.parse(q.detailed_feedback || "[]");
+//       } catch { feedback = []; }
 
-      const struggled = feedback.filter(f => 
-        f.type === "multiple-choice" ? !f.isCorrect : f.pointsEarned < f.pointsPossible
-      );
+//       const struggled = feedback.filter(f => 
+//         f.type === "multiple-choice" ? !f.isCorrect : f.pointsEarned < f.pointsPossible
+//       );
 
-      if (struggled.length > 0) {
-        const subjectName = q.subject || 'General';
-        if (!struggledBySubject[subjectName]) struggledBySubject[subjectName] = [];
+//       if (struggled.length > 0) {
+//         const subjectName = q.subject || 'General';
+//         if (!struggledBySubject[subjectName]) struggledBySubject[subjectName] = [];
         
-        // CHANGED: Instead of just pushing the string, push a rich object
-        struggledBySubject[subjectName].push(...struggled.map(f => ({
-          quizId: q.id,
-          question: f.question,
-          userAnswer: f.userAnswer || f.studentAnswer, // Map to your schema's key
-          correctAnswer: f.correctAnswer,
-          explanation: f.explanation || f.ai_feedback || "Review this concept carefully."
-        })));
-      }
-    }
-const struggledSummary = Object.entries(struggledBySubject)
-  .map(([subject, questions]) => 
-    `${subject}:\n${questions.slice(0, 3).map(q => `  - ${q}`).join("\n")}`
-  ).join("\n");
+//         // CHANGED: Instead of just pushing the string, push a rich object
+//         struggledBySubject[subjectName].push(...struggled.map(f => ({
+//           quizId: q.id,
+//           question: f.question,
+//           userAnswer: f.userAnswer || f.studentAnswer, // Map to your schema's key
+//           correctAnswer: f.correctAnswer,
+//           explanation: f.explanation || f.ai_feedback || "Review this concept carefully."
+//         })));
+//       }
+//     }
+// const struggledSummary = Object.entries(struggledBySubject)
+//   .map(([subject, questions]) => 
+//     `${subject}:\n${questions.slice(0, 3).map(q => `  - ${q}`).join("\n")}`
+//   ).join("\n");
 
-    console.log("✅ Found", quizzes.length, "quiz results");
+//     console.log("✅ Found", quizzes.length, "quiz results");
 
-    // Get XP logs
-    const xpLogs = await prisma.event_logs.findMany({
-      where: { 
-        userId: student.user_id,
-        event: "xp_gain" 
-      },
-      select: { 
-        metadata: true, 
-        occurredAt: true
-      },
-    });
+//     // Get XP logs
+//     const xpLogs = await prisma.event_logs.findMany({
+//       where: { 
+//         userId: student.user_id,
+//         event: "xp_gain" 
+//       },
+//       select: { 
+//         metadata: true, 
+//         occurredAt: true
+//       },
+//     });
 
-    console.log(`✅ Found ${xpLogs.length} XP logs`);
+//     console.log(`✅ Found ${xpLogs.length} XP logs`);
 
-    // Calculate stats
-    const averageScore =
-      quizzes.length > 0
-        ? (quizzes.reduce((acc, q) => acc + (q.score / q.total_questions) * 100, 0) / quizzes.length).toFixed(1)
-        : "0.0";
+//     // Calculate stats
+//     const averageScore =
+//       quizzes.length > 0
+//         ? (quizzes.reduce((acc, q) => acc + (q.score / q.total_questions) * 100, 0) / quizzes.length).toFixed(1)
+//         : "0.0";
 
-    const flashcardSets = await prisma.savedFlashcardSet.findMany({
-      where: { userId: student.user_id },
-      select: { cards: true },
-    });
-    const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
-    const mastered = 0;
+//     const flashcardSets = await prisma.savedFlashcardSet.findMany({
+//       where: { userId: student.user_id },
+//       select: { cards: true },
+//     });
+//     const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
+//     const mastered = 0;
 
-    const totalXP = xpLogs.reduce((sum, log) => {
-      const points = typeof log.metadata === 'object'
-        ? log.metadata?.points || 0
-        : 0;
-      return sum + points;
-    }, 0);
+//     const totalXP = xpLogs.reduce((sum, log) => {
+//       const points = typeof log.metadata === 'object'
+//         ? log.metadata?.points || 0
+//         : 0;
+//       return sum + points;
+//     }, 0);
 
-    // Generate AI summary
-    const summaryPrompt = `
-You are Chikoro AI, an educational data analyst for parents.
-Analyze the following student's progress and write a warm, encouraging summary for their parent.
+//     // Generate AI summary
+//     const summaryPrompt = `
+// You are Chikoro AI, an educational data analyst for parents.
+// Analyze the following student's progress and write a warm, encouraging summary for their parent.
 
-Name: ${student.name}
-Grade: ${student.grade}
-Average Quiz Score: ${averageScore}%
-Total Quizzes Taken: ${quizzes.length}
-XP Points: ${totalXP}
+// Name: ${student.name}
+// Grade: ${student.grade}
+// Average Quiz Score: ${averageScore}%
+// Total Quizzes Taken: ${quizzes.length}
+// XP Points: ${totalXP}
 
-Recent Quizzes:
-${quizzes.length > 0 
-  ? quizzes
-      .slice(0, 5)
-      .map((q) => `- ${q.subject || 'General'}: ${((q.score / q.total_questions) * 100).toFixed(1)}% (${q.correct_answers}/${q.total_questions} correct)`)
-      .join("\n")
-  : "No quizzes taken yet."
-}
+// Recent Quizzes:
+// ${quizzes.length > 0 
+//   ? quizzes
+//       .slice(0, 5)
+//       .map((q) => `- ${q.subject || 'General'}: ${((q.score / q.total_questions) * 100).toFixed(1)}% (${q.correct_answers}/${q.total_questions} correct)`)
+//       .join("\n")
+//   : "No quizzes taken yet."
+// }
 
-Provide:
-1. A short paragraph summary of overall performance (parent-friendly tone).
-2. Key strengths to celebrate.
-3. Areas where gentle support might help.
-4. Suggested ways parents can encourage continued learning.
+// Provide:
+// 1. A short paragraph summary of overall performance (parent-friendly tone).
+// 2. Key strengths to celebrate.
+// 3. Areas where gentle support might help.
+// 4. Suggested ways parents can encourage continued learning.
 
-Format neatly in Markdown with proper headers.
-    `;
+// Format neatly in Markdown with proper headers.
+//     `;
 
-    const aiSummary = await generateLessonPlanAI(summaryPrompt);
+//     const aiSummary = await generateLessonPlanAI(summaryPrompt);
 
-    // Format quizzes for frontend
-    const formattedQuizzes = quizzes.map(q => ({
-      id: q.id,
-      subject: q.subject,
-      score: ((q.score / q.total_questions) * 100).toFixed(1),
-      correct_answers: q.correct_answers,
-      total: q.total_questions,
-      createdAt: q.submitted_at,
-      difficulty: q.difficulty || "Medium",
-    }));
+//     // Format quizzes for frontend
+//     const formattedQuizzes = quizzes.map(q => ({
+//       id: q.id,
+//       subject: q.subject,
+//       score: ((q.score / q.total_questions) * 100).toFixed(1),
+//       correct_answers: q.correct_answers,
+//       total: q.total_questions,
+//       createdAt: q.submitted_at,
+//       difficulty: q.difficulty || "Medium",
+//     }));
 
-    res.json({ 
-      success: true, 
-      student: {
-        id: student.id,
-        name: student.name,
-        grade: student.grade,
-      },
-      quizzes: formattedQuizzes,
-      aiSummary: aiSummary,
-      averageScore: parseFloat(averageScore),
-      totalXP,
-      mastered,
-      totalFlashcards,
-    });
-  } catch (err) {
-    console.error("Error fetching child report:", err);
-    res.status(500).json({ 
-      success: false, 
-      error: "Failed to fetch report",
-      details: err.message 
-    });
-  }
-});
+//     res.json({ 
+//       success: true, 
+//       student: {
+//         id: student.id,
+//         name: student.name,
+//         grade: student.grade,
+//       },
+//       quizzes: formattedQuizzes,
+//       aiSummary: aiSummary,
+//       averageScore: parseFloat(averageScore),
+//       totalXP,
+//       mastered,
+//       totalFlashcards,
+//     });
+//   } catch (err) {
+//     console.error("Error fetching child report:", err);
+//     res.status(500).json({ 
+//       success: false, 
+//       error: "Failed to fetch report",
+//       details: err.message 
+//     });
+//   }
+// });
 
 app.post("/payments/cash/:studentId", [validatedRequest], async (req, res) => {
   try {

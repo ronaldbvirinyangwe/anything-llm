@@ -30,7 +30,7 @@ import "./chatLayout.css";
 import Flashcards from "../../../pages/Flashcards/Flashcards";
 import { useSubscriptionGuard } from "@/hooks/useSubscriptionGuard";
 import { NotificationMessage } from "./ChatHistory";
-import { MASCOT_EXPRESSIONS, ChikoroMascot,MascotWithBubble,TOOL_MASCOT_STATE } from "@/components/ChikoroMascot";
+import { MASCOT_EXPRESSIONS, ChikoroMascot, MascotWithBubble, TOOL_MASCOT_STATE } from "@/components/ChikoroMascot";
 import ExamPanel from "@/pages/QuizPage/ExamPanel";
 
 // Chart types recognised by Chartable / recharts — keep in sync with agent.js
@@ -64,15 +64,23 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
   // 🤖 MASCOT STATE
   // ═══════════════════════════════════════════════════════════
   const [mascotExpression, setMascotExpression] = useState(MASCOT_EXPRESSIONS.waving);
+  const [mascotMessage, setMascotMessage] = useState(null);
 
+  // FIX: removeStudyPlanForm filter was logically inverted — the || caused
+  // STUDY_ONBOARDING messages to always survive the filter regardless of the
+  // first condition. Now it simply removes anything that starts with
+  // STUDY_PLAN_FORM:: and keeps everything else.
   const removeStudyPlanForm = useCallback(() => {
-  setChatHistory((prev) =>
-    prev.filter(
-      (msg) => !(typeof msg.content === "string" && msg.content.startsWith("STUDY_PLAN_FORM::")) ||
-      msg.content.startsWith("STUDY_ONBOARDING::") 
-    )
-  );
-}, [])
+    setChatHistory((prev) =>
+      prev.filter(
+        (msg) =>
+          !(
+            typeof msg.content === "string" &&
+            msg.content.startsWith("STUDY_PLAN_FORM::")
+          )
+      )
+    );
+  }, []);
 
   useEffect(() => {
     if (loadingResponse) {
@@ -107,7 +115,7 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
 
   // ═══════════════════════════════════════════════════════════
 
-  const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3009/api";
+  const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 
   const chatAreaRef = useRef(null);
   const chatHistoryRef = useRef(chatHistory);
@@ -171,7 +179,6 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
   }, [user, API_BASE]);
 
   // Listen for quiz creation events
-
   useEffect(() => {
     const handleQuizCreated = (event) => {
       if (event.detail?.quiz?.questions?.length > 0) {
@@ -316,7 +323,7 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
         })
       )
       .catch((e) => console.error(e));
-  }, [workspace.slug]);
+  }, [workspace.slug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendCommand = useCallback(async ({
     text = "",
@@ -368,21 +375,23 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
     setLoadingResponse(true);
   }, [buildContextPrefix]);
 
-    // 🎓 Study planner form submit
-useEffect(() => {
-  const handler = (e) => {
-    const prompt = e.detail?.prompt;
-    if (!prompt) return;
-    removeStudyPlanForm();
-    sendCommand({ text: prompt, autoSubmit: true });
-  };
-  window.addEventListener("SEND_CHAT_MESSAGE", handler);
-  return () => window.removeEventListener("SEND_CHAT_MESSAGE", handler);
-}, [sendCommand]);
-  // ─────────────────────────────────────────────────────────────────────────────
-  // agentSafeChatHistory — used ONLY inside the agent WebSocket message handler.
-  // Filters out internal agent debug statusResponse messages from the chat UI.
-  // ─────────────────────────────────────────────────────────────────────────────
+  // 🎓 Study planner form submit
+  // FIX: was registered twice — second identical useEffect at the bottom of
+  // the component has been removed. One registration is enough.
+  useEffect(() => {
+    const handler = (e) => {
+      const prompt = e.detail?.prompt;
+      if (!prompt) return;
+      removeStudyPlanForm();
+      sendCommand({ text: prompt, autoSubmit: true });
+    };
+    window.addEventListener("SEND_CHAT_MESSAGE", handler);
+    return () => window.removeEventListener("SEND_CHAT_MESSAGE", handler);
+  }, [sendCommand, removeStudyPlanForm]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // agentSafeChatHistory — filters internal agent debug messages from the UI
+  // ─────────────────────────────────────────────────────────────────────────
   const agentSafeChatHistory = useCallback((updater) => {
     setChatHistory((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
@@ -394,14 +403,14 @@ useEffect(() => {
           "Done thinking",
           "Parsed Tool Call:",
           '{"name":',
-           "Agent @agent invoked",
-  "Swapping over to agent chat",
-  "Type /exit to exit",
-  "The tool call has direct output enabled",
-  "The result will be returned directly",
-  "no further tool calls will be run",
-  "Tool use completed",
-  "tool call resulted in direct output",
+          "Agent @agent invoked",
+          "Swapping over to agent chat",
+          "Type /exit to exit",
+          "The tool call has direct output enabled",
+          "The result will be returned directly",
+          "no further tool calls will be run",
+          "Tool use completed",
+          "tool call resulted in direct output",
         ];
         return !BLOCKED.some((s) => text.includes(s));
       });
@@ -439,7 +448,6 @@ useEffect(() => {
         workspaceSlug: workspace.slug,
         threadSlug,
         prompt: promptToSend,
-        // ✅ CORRECT: original signature — agentSafeChatHistory does NOT belong here
         chatHandler: (chatResult) =>
           handleChat(
             chatResult,
@@ -456,335 +464,303 @@ useEffect(() => {
     fetchReply();
   }, [loadingResponse]);
 
-  const [mascotMessage, setMascotMessage] = useState(null);
-
   // Agent WebSocket
   useEffect(() => {
     function handleWSS() {
       try {
         if (!socketId || !!agentWebsocket) return;
+
+        // FIX: isMounted is now properly set to false in the cleanup function
+        // so the guard actually works across all event handlers.
+        let isMounted = true;
+
         const socket = new WebSocket(
           `${websocketURI()}/api/agent-invocation/${socketId}`
         );
         socket.supportsAgentStreaming = false;
 
         window.addEventListener(ABORT_STREAM_EVENT, () => {
+          if (!isMounted) return;
           window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
           if (agentWebsocket) agentWebsocket.close();
         });
 
-       socket.addEventListener("message", (event) => {
-  let parsed;
-  try {
-    parsed = JSON.parse(event.data);
-  } catch (e) {
-    console.warn("Skipping non-JSON agent message:", event.data);
-    return;
-  }
+        socket.addEventListener("message", (event) => {
+          if (!isMounted) return;
+          let parsed;
+          try {
+            parsed = JSON.parse(event.data);
+          } catch (e) {
+            console.warn("Skipping non-JSON agent message:", event.data);
+            return;
+          }
 
-  if (typeof parsed?.content === "string" && (
-    parsed.content.startsWith("STUDY_ONBOARDING::") ||
-    parsed.content.startsWith("STUDY_PLAN_FORM::") ||
-    parsed.content.startsWith("FOLLOW_UP_QUESTIONS::")
-  )) {
-    agentSafeChatHistory((prev) => [
-      ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
-      {
-        uuid: v4(),
-        role: "assistant",
-        content: parsed.content,
-        pending: false,
-        animate: false,
-        closed: true,
-        sources: [],
-        error: null,
-      },
-    ]);
-    return;
-  }
+          if (typeof parsed?.content === "string" && (
+            parsed.content.startsWith("STUDY_ONBOARDING::") ||
+            parsed.content.startsWith("STUDY_PLAN_FORM::") ||
+            parsed.content.startsWith("FOLLOW_UP_QUESTIONS::")
+          )) {
+            agentSafeChatHistory((prev) => [
+              ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
+              {
+                uuid: v4(),
+                role: "assistant",
+                content: parsed.content,
+                pending: false,
+                animate: false,
+                closed: true,
+                sources: [],
+                error: null,
+              },
+            ]);
+            return;
+          }
 
-  // ── LOG 1: Raw message arriving from agent ──────────────────
-  console.log("🟡 [WS RAW] type:", parsed?.type, "| keys:", Object.keys(parsed));
-  if (parsed?.content) {
-    console.log("🟡 [WS RAW] content type:", typeof parsed.content,
-      "| content preview:", typeof parsed.content === "object"
-        ? JSON.stringify(parsed.content)?.substring(0, 200)
-        : parsed.content?.substring?.(0, 200)
-    );
-  }
+          // ── LOG 1: Raw message arriving from agent ──────────────────────
+          console.log("🟡 [WS RAW] type:", parsed?.type, "| keys:", Object.keys(parsed));
+          if (parsed?.content) {
+            console.log("🟡 [WS RAW] content type:", typeof parsed.content,
+              "| content preview:", typeof parsed.content === "object"
+                ? JSON.stringify(parsed.content)?.substring(0, 200)
+                : parsed.content?.substring?.(0, 200)
+            );
+          }
 
-// ── Mascot: detect toolCallInvocation ────────────────────────
-if (parsed?.type === "reportStreamEvent") {
-  const inner = parsed.content;
+          // ── Mascot: detect toolCallInvocation ──────────────────────────
+          if (parsed?.type === "reportStreamEvent") {
+            const inner = parsed.content;
 
-  // Agent is thinking (function-call streaming phase)
-  if (inner?.type === "statusResponse" && inner?.content?.includes("Agent is thinking")) {
-    setMascotExpression(MASCOT_EXPRESSIONS.thinking);
-  }
+            if (inner?.type === "statusResponse" && inner?.content?.includes("Agent is thinking")) {
+              setMascotExpression(MASCOT_EXPRESSIONS.thinking);
+            }
 
-  // Tool has been identified — switch to tool-specific expression
-  if (inner?.type === "toolCallInvocation") {
-    const toolName = inner?.content?.match(/^Parsed Tool Call:\s*([\w-]+)/)?.[1];
-    const state = TOOL_MASCOT_STATE[toolName];
-   if (state) {
-  setMascotExpression(state.expression);
-  setMascotMessage(state.message);
-} else {
-  setMascotExpression(MASCOT_EXPRESSIONS.thinking);
-  setMascotMessage("Working on it... 🧠");
+            if (inner?.type === "toolCallInvocation") {
+              const toolName = inner?.content?.match(/^Parsed Tool Call:\s*([\w-]+)/)?.[1];
+              const state = TOOL_MASCOT_STATE[toolName];
+              if (state) {
+                setMascotExpression(state.expression);
+                setMascotMessage(state.message);
+              } else {
+                setMascotExpression(MASCOT_EXPRESSIONS.thinking);
+                setMascotMessage("Working on it... 🧠");
+              }
+            }
+
+            if (inner?.type === "fullTextResponse" || inner?.type === "textResponseChunk") {
+              setMascotMessage(null);
+            }
+
+            if (inner?.type === "textResponseChunk" || inner?.type === "fullTextResponse") {
+              setMascotExpression(MASCOT_EXPRESSIONS.explaining);
+            }
+          }
+
+          // ── Unwrap standard string content ──────────────────────────────
+          if (parsed?.content && typeof parsed.content === "string") {
+            try {
+              const inner = JSON.parse(parsed.content);
+              if (inner?.tool_call) {
+                Object.assign(parsed, inner);
+                console.log("🔵 [WS UNWRAP string] merged tool_call:", inner?.tool_call);
+              }
+            } catch (_) {
+              console.log("🔵 [WS UNWRAP string] content was string but not valid JSON");
+            }
+          }
+
+          // ── Unwrap to/from/content/state envelope ───────────────────────
+          if (!parsed?.type && parsed?.from && parsed?.to && typeof parsed?.content === "string") {
+            console.log("🟠 [WS FLOW ENVELOPE] detected to/from shape — parsing content");
+            try {
+              const inner = JSON.parse(parsed.content);
+              console.log("🟠 [WS FLOW ENVELOPE] inner keys:", Object.keys(inner), "| tool:", inner?.tool, "| tool_call:", inner?.tool_call);
+
+              if (inner?.tool && !inner?.tool_call) {
+                inner.tool_call = inner.tool;
+              }
+
+              Object.assign(parsed, inner);
+              console.log("🟠 [WS FLOW ENVELOPE] after merge — tool_call:", parsed?.tool_call,
+                "| hasFlashcards:", !!parsed?.flashcards,
+                "| cardsLength:", parsed?.flashcards?.cards?.length,
+                "| hasQuiz:", !!parsed?.quiz
+              );
+            } catch (e) {
+              console.warn("🟠 [WS FLOW ENVELOPE] failed to parse content:", e.message);
+            }
+          }
+
+          // ── LOG 3: After all unwraps ─────────────────────────────────────
+          console.log("🟢 [WS POST-UNWRAP]", {
+            type: parsed?.type,
+            tool_call: parsed?.tool_call,
+            hasQuiz: !!parsed?.quiz,
+            questionsLength: parsed?.quiz?.questions?.length,
+            hasFlashcards: !!parsed?.flashcards,
+            cardsLength: parsed?.flashcards?.cards?.length,
+            contentType: parsed?.content?.type,
+            savedFlashcardSetId: parsed?.savedFlashcardSetId ?? parsed?.content?.savedFlashcardSetId,
+            savedQuizId: parsed?.savedQuizId ?? parsed?.content?.savedQuizId,
+          });
+
+          // ── LOG 4: Flashcard trigger check ───────────────────────────────
+          console.log("🟣 [WS FLASHCARD CHECK]", {
+            tool_call: parsed?.tool_call,
+            hasFlashcards: !!parsed?.flashcards,
+            cardsLength: parsed?.flashcards?.cards?.length,
+            wouldTrigger: parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0,
+          });
+
+          // ── LOG 5: Quiz trigger check ─────────────────────────────────────
+          console.log("🟣 [WS QUIZ CHECK]", {
+            tool_call: parsed?.tool_call,
+            hasQuiz: !!parsed?.quiz,
+            questionsLength: parsed?.quiz?.questions?.length,
+            wouldTrigger: parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0,
+          });
+
+          try {
+            const rawContent = parsed?.content ?? parsed?.text ?? parsed?.message ?? "";
+            const content = typeof rawContent === "string" ? rawContent : "";
+            const nestedContent =
+              typeof parsed?.content?.content === "string"
+                ? parsed.content.content
+                : "";
+            const rawData = String(event.data ?? "");
+
+            const FILTERED_PREFIXES = [
+              '{"name":',
+              "Parsed Tool Call:",
+              "Agent is thinking",
+              "Done thinking",
+              'create-chart","arguments":',
+              'quiz_create","arguments":',
+              'flashcard_create","arguments":',
+              'web_search","arguments":',
+              'study-planner-elicit","arguments":',
+              'study_planner_elicit","arguments":',
+              "Agent @agent invoked",
+              "Swapping over to agent chat",
+              "Type /exit to exit",
+              "The tool call has direct output enabled",
+              "Tool use completed",
+              "tool call resulted in direct output",
+            ];
+            const FILTERED_PATTERNS = [
+              /^@\w+ is executing `.+` tool/,
+              /^@\w+:\s/,
+              /^[\w_-]+","arguments"\s*:\s*\{/,
+            ];
+
+            const isInternalAgentLog =
+              FILTERED_PREFIXES.some(
+                (prefix) =>
+                  content.trimStart().startsWith(prefix) ||
+                  rawData.trimStart().startsWith(prefix) ||
+                  nestedContent.trimStart().startsWith(prefix)
+              ) ||
+              FILTERED_PATTERNS.some(
+                (pattern) =>
+                  pattern.test(content) ||
+                  pattern.test(rawData) ||
+                  pattern.test(nestedContent)
+              ) ||
+              parsed?.type === "agentThought" ||
+              parsed?.type === "toolCall";
+
+            if (isInternalAgentLog) {
+              console.log("🚫 [WS FILTERED] message blocked as internal agent log");
+              return;
+            }
+
+            // ── Flashcard handler ─────────────────────────────────────────
+            if (parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0) {
+              console.log("✅ [WS FLASHCARD TRIGGERED] cards:", parsed.flashcards.cards.length);
+              setFlashcardData(parsed.flashcards);
+              setShowFlashcards(true);
+              setMascotExpression(MASCOT_EXPRESSIONS.studying);
+              parsed.display_message = `🎴 Flashcards created — ${parsed.flashcards.cards.length} cards ready. Click to reopen.`;
+            }
+
+            // ── Quiz handler ──────────────────────────────────────────────
+            if (parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0) {
+              console.log("✅ [WS QUIZ TRIGGERED] questions:", parsed.quiz.questions.length);
+              openQuizPanel(parsed.quiz);
+              setMascotExpression(MASCOT_EXPRESSIONS.quizzing);
+              parsed.display_message = `✅ Quiz generated on **${parsed.parameters?.subject || "a subject"}** (${parsed.quiz.questions.length} questions). Click to reopen.`;
+            }
+
+            // ── Study planner elicit handler ──────────────────────────────
+            if (parsed?.tool_call === "study_planner_elicit") {
+              agentSafeChatHistory((prev) => [
+                ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
+                {
+                  uuid: v4(),
+                  role: "assistant",
+                  content: `STUDY_PLAN_FORM::${JSON.stringify({ prefill: parsed.prefill ?? {} })}`,
+                  pending: false,
+                  animate: false,
+                  closed: true,
+                  sources: [],
+                  error: null,
+                },
+              ]);
+              return;
+            }
+
+            if (parsed?.tool_call === "lesson_completed" && parsed?.lesson) {
+  console.log("✅ [WS LESSON COMPLETE]", parsed.lesson);
+  setMascotExpression(MASCOT_EXPRESSIONS.encouraging);
+  setTimeout(() => setMascotExpression(MASCOT_EXPRESSIONS.happy), 4000);
+  parsed.display_message = parsed.display_message || `🎉 "${parsed.lesson.title}" marked complete!`;
 }
-  }
-  // Clear message when done
-if (inner?.type === "fullTextResponse" || inner?.type === "textResponseChunk") {
-  setMascotMessage(null);                  
-}
 
-  // Tool result is streaming back — switch to explaining
-  if (inner?.type === "textResponseChunk" || inner?.type === "fullTextResponse") {
-    setMascotExpression(MASCOT_EXPRESSIONS.explaining);
-    
-  }
-}
+            // ── Chart handler ─────────────────────────────────────────────
+            const inlineChartCandidate =
+              parsed?.tool_call === "create_chart" ? parsed?.chart :
+              parsed?.tool_call === "create-chart" ? parsed?.chart :
+              (parsed?.dataset && CHART_TYPES.includes(parsed?.type)) ? parsed : null;
 
-  // ── Unwrap standard string content ──────────────────────────
-  if (parsed?.content && typeof parsed.content === "string") {
-    try {
-      const inner = JSON.parse(parsed.content);
-      if (inner?.tool_call) {
-        Object.assign(parsed, inner);
-        console.log("🔵 [WS UNWRAP string] merged tool_call:", inner?.tool_call);
-      }
-    } catch (_) {
-      console.log("🔵 [WS UNWRAP string] content was string but not valid JSON");
-    }
-  }
+            if (inlineChartCandidate) {
+              console.log("✅ [WS CHART TRIGGERED]", inlineChartCandidate);
+              const chartData = {
+                ...inlineChartCandidate,
+                dataset:
+                  typeof inlineChartCandidate.dataset === "string"
+                    ? JSON.parse(inlineChartCandidate.dataset)
+                    : inlineChartCandidate.dataset,
+              };
+              agentSafeChatHistory((prev) => [
+                ...prev.filter((msg) => !!msg.content),
+                {
+                  type: "rechartVisualize",
+                  uuid: v4(),
+                  content: chartData,
+                  role: "assistant",
+                  sources: [],
+                  closed: true,
+                  error: null,
+                  animate: false,
+                  pending: false,
+                },
+              ]);
+              return;
+            }
 
-  // ── Unwrap to/from/content/state envelope (agent flow result) ──
-  if (!parsed?.type && parsed?.from && parsed?.to && typeof parsed?.content === "string") {
-    console.log("🟠 [WS FLOW ENVELOPE] detected to/from shape — parsing content");
-    try {
-      const inner = JSON.parse(parsed.content);
-      console.log("🟠 [WS FLOW ENVELOPE] inner keys:", Object.keys(inner), "| tool:", inner?.tool, "| tool_call:", inner?.tool_call);
+            console.log("⚪ [WS FALLTHROUGH] passing to handleSocketResponse");
+            handleSocketResponse(socket, event, agentSafeChatHistory, parsed);
+          } catch (e) {
+            console.error("Error processing agent message:", e);
+          }
+        });
 
-      // Normalise: backend sends `tool`, frontend checks `tool_call`
-      if (inner?.tool && !inner?.tool_call) {
-        inner.tool_call = inner.tool;
-      }
-
-      Object.assign(parsed, inner);
-      console.log("🟠 [WS FLOW ENVELOPE] after merge — tool_call:", parsed?.tool_call,
-        "| hasFlashcards:", !!parsed?.flashcards,
-        "| cardsLength:", parsed?.flashcards?.cards?.length,
-        "| hasQuiz:", !!parsed?.quiz
-      );
-    } catch (e) {
-      console.warn("🟠 [WS FLOW ENVELOPE] failed to parse content:", e.message);
-    }
-  }
-
-  // ── LOG 3: After all unwraps ─────────────────────────────────
-  console.log("🟢 [WS POST-UNWRAP]", {
-    type: parsed?.type,
-    tool_call: parsed?.tool_call,
-    hasQuiz: !!parsed?.quiz,
-    questionsLength: parsed?.quiz?.questions?.length,
-    hasFlashcards: !!parsed?.flashcards,
-    cardsLength: parsed?.flashcards?.cards?.length,
-    contentType: parsed?.content?.type,
-    savedFlashcardSetId: parsed?.savedFlashcardSetId ?? parsed?.content?.savedFlashcardSetId,
-    savedQuizId: parsed?.savedQuizId ?? parsed?.content?.savedQuizId,
-  });
-
-  // ── LOG 4: Flashcard trigger check ───────────────────────────
-  console.log("🟣 [WS FLASHCARD CHECK]", {
-    tool_call: parsed?.tool_call,
-    hasFlashcards: !!parsed?.flashcards,
-    cardsLength: parsed?.flashcards?.cards?.length,
-    wouldTrigger: parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0,
-  });
-
-  // ── LOG 5: Quiz trigger check ─────────────────────────────────
-  console.log("🟣 [WS QUIZ CHECK]", {
-    tool_call: parsed?.tool_call,
-    hasQuiz: !!parsed?.quiz,
-    questionsLength: parsed?.quiz?.questions?.length,
-    wouldTrigger: parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0,
-  });
-
-//   if (
-//   typeof parsed?.content === "string" &&
-//   parsed.content.startsWith("STUDY_PLAN_FORM::")
-// ) {
-//   agentSafeChatHistory((prev) => [
-//     ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
-//     {
-//       uuid: v4(),
-//       role: "assistant",
-//       content: parsed.content,
-//       pending: false,
-//       animate: false,
-//       closed: true,
-//       sources: [],
-//       error: null,
-//     },
-//   ]);
-//   return;
-// }
-
-
-// if (
-//   typeof parsed?.content === "string" &&
-//   parsed.content.startsWith("FOLLOW_UP_QUESTIONS::")
-// ) {
-//   agentSafeChatHistory((prev) => [
-//     ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
-//     {
-//       uuid: v4(),
-//       role: "assistant",
-//       content: parsed.content,  // ← clean prefix, renders correctly
-//       pending: false,
-//       animate: false,
-//       closed: true,
-//       sources: [],
-//       error: null,
-//     },
-//   ]);
-//   return;
-// }
-
-  try {
-    const rawContent = parsed?.content ?? parsed?.text ?? parsed?.message ?? "";
-    const content = typeof rawContent === "string" ? rawContent : "";
-    const nestedContent =
-      typeof parsed?.content?.content === "string"
-        ? parsed.content.content
-        : "";
-    const rawData = String(event.data ?? "");
-
-    const FILTERED_PREFIXES = [
-      '{"name":',
-      "Parsed Tool Call:",
-      "Agent is thinking",
-      "Done thinking",
-      'create-chart","arguments":',
-      'quiz_create","arguments":',
-      'flashcard_create","arguments":',
-      'web_search","arguments":',
-      'study-planner-elicit","arguments":',
-      'study_planner_elicit","arguments":',
-       "Agent @agent invoked",
-  "Swapping over to agent chat",
-  "Type /exit to exit",
-  "The tool call has direct output enabled",
-  "Tool use completed",
-  "tool call resulted in direct output",
-    ];
-    const FILTERED_PATTERNS = [
-      /^@\w+ is executing `.+` tool/,
-      /^@\w+:\s/,
-      /^[\w_-]+","arguments"\s*:\s*\{/,
-    ];
-
-    const isInternalAgentLog =
-      FILTERED_PREFIXES.some(
-        (prefix) =>
-          content.trimStart().startsWith(prefix) ||
-          rawData.trimStart().startsWith(prefix) ||
-          nestedContent.trimStart().startsWith(prefix)
-      ) ||
-      FILTERED_PATTERNS.some(
-        (pattern) =>
-          pattern.test(content) ||
-          pattern.test(rawData) ||
-          pattern.test(nestedContent)
-      ) ||
-      parsed?.type === "agentThought" ||
-      parsed?.type === "toolCall";
-
-    if (isInternalAgentLog) {
-      console.log("🚫 [WS FILTERED] message blocked as internal agent log");
-      return;
-    }
-
-    // ── Flashcard handler ─────────────────────────────────────
-    if (parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0) {
-      console.log("✅ [WS FLASHCARD TRIGGERED] cards:", parsed.flashcards.cards.length);
-      setFlashcardData(parsed.flashcards);
-      setShowFlashcards(true);
-      setMascotExpression(MASCOT_EXPRESSIONS.studying);
-      parsed.display_message = `🎴 Flashcards created — ${parsed.flashcards.cards.length} cards ready. Click to reopen.`;
-    }
-
-    // ── Quiz handler ──────────────────────────────────────────
-    if (parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0) {
-      console.log("✅ [WS QUIZ TRIGGERED] questions:", parsed.quiz.questions.length);
-      openQuizPanel(parsed.quiz);
-      setMascotExpression(MASCOT_EXPRESSIONS.quizzing);
-      parsed.display_message = `✅ Quiz generated on **${parsed.parameters?.subject || "a subject"}** (${parsed.quiz.questions.length} questions). Click to reopen.`;
-    }
-
-    // ── Study planner elicit handler ──────────────────────────
-    if (parsed?.tool_call === "study_planner_elicit") {
-      agentSafeChatHistory((prev) => [
-        ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
-        {
-          uuid: v4(),
-          role: "assistant",
-          content: `STUDY_PLAN_FORM::${JSON.stringify({ prefill: parsed.prefill ?? {} })}`,
-          pending: false,
-          animate: false,
-          closed: true,
-          sources: [],
-          error: null,
-        },
-      ]);
-      return;
-    }
-
-    // ── Chart handler ─────────────────────────────────────────
-    const inlineChartCandidate =
-      parsed?.tool_call === "create_chart" ? parsed?.chart :
-      parsed?.tool_call === "create-chart" ? parsed?.chart :
-      (parsed?.dataset && CHART_TYPES.includes(parsed?.type)) ? parsed : null;
-
-    if (inlineChartCandidate) {
-      console.log("✅ [WS CHART TRIGGERED]", inlineChartCandidate);
-      const chartData = {
-        ...inlineChartCandidate,
-        dataset:
-          typeof inlineChartCandidate.dataset === "string"
-            ? JSON.parse(inlineChartCandidate.dataset)
-            : inlineChartCandidate.dataset,
-      };
-      agentSafeChatHistory((prev) => [
-        ...prev.filter((msg) => !!msg.content),
-        {
-          type: "rechartVisualize",
-          uuid: v4(),
-          content: chartData,
-          role: "assistant",
-          sources: [],
-          closed: true,
-          error: null,
-          animate: false,
-          pending: false,
-        },
-      ]);
-      return;
-    }
-
-    console.log("⚪ [WS FALLTHROUGH] passing to handleSocketResponse");
-    handleSocketResponse(socket, event, agentSafeChatHistory, parsed);
-  } catch (e) {
-    console.error("Error processing agent message:", e);
-  }
-});
-
+        // FIX: isMounted guard added to close handler so it never calls
+        // setState on an unmounted component.
         socket.addEventListener("close", (_event) => {
+          if (!isMounted) return;
           window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
           removeStudyPlanForm();
           setChatHistory((prev) => [
-            // ✅ Keep notifications, keep messages with content, keep charts
             ...prev.filter(
               (msg) =>
                 msg.role === "notification" ||
@@ -800,6 +776,13 @@ if (inner?.type === "fullTextResponse" || inner?.type === "textResponseChunk") {
         setAgentWebsocket(socket);
         window.dispatchEvent(new CustomEvent(AGENT_SESSION_START));
         window.dispatchEvent(new CustomEvent(CLEAR_ATTACHMENTS_EVENT));
+
+        // FIX: cleanup now sets isMounted = false and closes the socket,
+        // so all in-flight handlers bail out cleanly on unmount.
+        return () => {
+          isMounted = false;
+          socket.close();
+        };
       } catch (e) {
         setChatHistory((prev) => [
           ...prev.filter((msg) => msg.role === "notification" || !!msg.content),
@@ -828,9 +811,16 @@ if (inner?.type === "fullTextResponse" || inner?.type === "textResponseChunk") {
     if (!user?.id) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.host.includes("localhost")
-      ? "localhost:3001"
-      : window.location.host;
+
+    // FIX: was hardcoded to localhost:3001 (wrong port). Now derives the
+    // host from VITE_WS_BASE env var, falling back to the same host/port
+    // as the API so it works in all environments without manual changes.
+    const wsBase = import.meta.env.VITE_WS_BASE || null;
+    const host = wsBase
+      ? wsBase.replace(/^wss?:\/\//, "")
+      : window.location.host.includes("localhost")
+        ? "localhost:3009"
+        : window.location.host;
     const wsUrl = `${protocol}//${host}/ws/notifications`;
 
     let ws;
@@ -970,9 +960,9 @@ if (inner?.type === "fullTextResponse" || inner?.type === "textResponseChunk") {
     fetchUnreadNotifications();
   }, [user?.id, API_BASE]);
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // THE FIX: knownHistory sync — only reset when workspace or thread changes.
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // knownHistory sync — only reset when workspace or thread changes
+  // ─────────────────────────────────────────────────────────────────────────
   const prevWorkspaceSlug = useRef(workspace.slug);
   const prevThreadSlug = useRef(threadSlug);
   const isInitialMount = useRef(true);
@@ -1081,14 +1071,12 @@ if (inner?.type === "fullTextResponse" || inner?.type === "textResponseChunk") {
 
       {showQuiz && (
         <aside className="quiz-panel">
-         
           <ExamPanel externalTest={quizData} onClose={() => { setShowQuiz(false); }} />
         </aside>
       )}
 
       {showFlashcards && flashcardData && (
         <aside className="quiz-panel flashcard-panel">
-         
           <Flashcards flashcardData={flashcardData} />
         </aside>
       )}

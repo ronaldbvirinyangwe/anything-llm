@@ -32,6 +32,7 @@ const { mcpServersEndpoints } = require("./endpoints/mcpServers");
 const { mobileEndpoints } = require("./endpoints/mobile");
 const { workspaceParsedFilesEndpoints } = require("./endpoints/workspacesParsedFiles");
 const { httpLogger } = require("./middleware/httpLogger");
+require('./cron/Weeklydigestcron'); // registers the Sunday 7am CAT job
 
 const app = express();
 const apiRouter = express.Router();
@@ -109,6 +110,9 @@ app.ws("/ws/notifications", (ws, req) => {
     console.log("Client disconnected");
   });
 });
+
+app.use('/api/system/parent', require('./utils/parentNotificationSettings'));
+app.use('/api/system/courses', require('./endpoints/courses'));
 
 app.use("/api", apiRouter);
 
@@ -193,5 +197,5 @@ server.timeout = 900000;
 server.keepAliveTimeout = 900000;
 
 if (!process.env.ENABLE_HTTPS) {
-  bootHTTP(app, process.env.SERVER_PORT || 3001);
+  bootHTTP(app,  3001);
 }

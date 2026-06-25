@@ -84,7 +84,7 @@ export default function StudyOnboarding({ payload, sendCommand }) {
     quiz:         `Quiz me on ${topic} in ${subject}${depth ? ` at ${depth} depth` : ""}.`,
     flashcards:   `Make me flashcards on ${topic} in ${subject}.`,
     notes:        `Generate study notes on ${topic} in ${subject}.`,
-    explain:      `Explain ${topic} in ${subject}${depth === "deep" ? " in depth" : depth === "overview" ? " briefly" : ""}.`,
+    explain:      `Explain ${topic} ${depth === "deep" ? " in depth" : depth === "overview" ? " briefly" : ""}.`,
     check_answer: `Check my answer on ${topic} in ${subject}.`,
     study_plan:   null, // handled by planner form — never reaches here
   };

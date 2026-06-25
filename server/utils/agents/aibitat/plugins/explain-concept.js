@@ -32,21 +32,61 @@ const STYLE_PROMPTS = {
     "Still keep the language appropriate for the student's level.",
 };
 
+// ─── Grade-banded calibration guidance ────────────────────────────────────────
+// Mirrors the exam-level banding used in the default chat prompt, trimmed
+// down to what matters for a single concept explanation.
+function getCalibrationGuidance(grade, academicLevel) {
+  const gradeNum = parseInt(grade) || 0;
+  const level = (academicLevel || "").toLowerCase();
+
+  if (level.includes("primary") || gradeNum <= 7) {
+    return (
+      "Use very simple, concrete language. Short sentences. No abstract definitions — " +
+      "ground everything in something physical or visual the student can picture. " +
+      "Avoid technical terms unless you immediately explain them in plain words."
+    );
+  }
+
+  if (level.includes("a-level") || level.includes("alevel") || gradeNum >= 12) {
+    return (
+      "Use precise academic vocabulary confidently. The student can handle abstraction, " +
+      "nuance, and multi-step reasoning. Don't over-simplify — that would be patronising at this level."
+    );
+  }
+
+  return (
+    "Use clear secondary-level vocabulary. Define technical terms when first introduced, " +
+    "but don't avoid them. Balance concrete examples with some abstraction."
+  );
+}
+
 // ─── System prompt builder ────────────────────────────────────────────────────
 function buildSystemPrompt({ concept, subject, style, student, extraContext }) {
-  const styleGuide = STYLE_PROMPTS[style] ?? STYLE_PROMPTS.standard;
+  // Defaults so calibration is always concrete, even with no profile loaded.
+  const grade = student?.grade || "9";
+  const age = student?.age || "14";
+  const curriculum = student?.curriculum || "general";
+  const academicLevel = student?.academicLevel || "Secondary";
+  const name = student?.name || null;
 
-  const audienceLines = student
-    ? [
-        `The student's name is ${student.name}.`,
-        `Age: ${student.age}.`,
-        `Academic level: ${student.academicLevel}.`,
-        `Curriculum: ${student.curriculum}.`,
-        `Grade/Year: ${student.grade}.`,
-        `Pitch the explanation exactly to this student — their vocabulary, attention span, and prior knowledge.`,
-        `Where possible, use examples relevant to a ${student.grade} ${student.curriculum} student.`,
-      ]
-    : ["Assume a general secondary school audience."];
+  const calibration = getCalibrationGuidance(grade, academicLevel);
+  const styleGuide = STYLE_PROMPTS[style] ?? STYLE_PROMPTS.standard;
+  const calibratedStyleGuide =
+    `${styleGuide} This must land specifically for a ${age}-year-old in Grade ${grade} — ` +
+    `adjust vocabulary and complexity accordingly, not just tone.`;
+
+  const audienceLines = [
+    name ? `The student's name is ${name}.` : null,
+    `Age: ${age}. Grade/Year: ${grade}. Curriculum: ${curriculum}. Academic level: ${academicLevel}.`,
+    "",
+    `MANDATORY CALIBRATION: Every part of this explanation — vocabulary, sentence length, ` +
+      `depth, and examples — must fit a ${age}-year-old in Grade ${grade} (${academicLevel}, ${curriculum}). ` +
+      calibration,
+    `Use examples and analogies drawn from things a Grade ${grade} student actually encounters day to day ` +
+      `— school subjects at that level, age-appropriate hobbies, everyday local context (e.g. kombis, ` +
+      `tuckshops, EcoCash, ZESA, markets) rather than generic Western references.`,
+    `Do not default to a generic teen/adult register. If unsure, simplify rather than risk going over their head.`,
+  ].filter(Boolean);
 
   return [
     `You are a patient, encouraging tutor specialising in ${subject || "general academics"}.`,
@@ -55,7 +95,7 @@ function buildSystemPrompt({ concept, subject, style, student, extraContext }) {
     "STUDENT PROFILE:",
     ...audienceLines,
     "",
-    `EXPLANATION STYLE: ${styleGuide}`,
+    `EXPLANATION STYLE: ${calibratedStyleGuide}`,
     "",
     "FORMAT RULES (mandatory):",
     "- Write in a warm, conversational tone — like a tutor sitting next to the student.",
@@ -194,12 +234,12 @@ const explainConcept = {
 
               if (student) {
                 this.super.introspect(
-                  `${this.caller}: Loaded profile for ${student.name} — ` +
-                    `${student.grade}, ${student.curriculum}, ${student.academicLevel}.`
+                  `${this.caller}: Loaded profile for ${student.name} — Grade ${student.grade}, ` +
+                    `age ${student.age}, ${student.curriculum}, ${student.academicLevel}.`
                 );
               } else {
                 this.super.introspect(
-                  `${this.caller}: No student profile found — explaining at general level.`
+                  `${this.caller}: No student profile found — using default calibration (Grade 9, age 14).`
                 );
               }
 
@@ -260,7 +300,23 @@ const explainConcept = {
 
               this.tracker.trackRun(this.name, callKey);
 
-              return explanation;
+              const topicSummary =
+                `Explained "${concept}"` +
+                (subject ? ` in the context of ${subject}` : "") +
+                (student
+                  ? ` to a ${student.grade} ${student.curriculum} student aged ${student.age}.`
+                  : ".") +
+                ` Style: ${style}.` +
+                (extra_context ? ` Additional context: ${extra_context}` : "");
+
+              return JSON.stringify({
+                explanation,
+                _meta: {
+                  request_followup: true,
+                  topic_summary: topicSummary,
+                  subject: subject ?? null,
+                },
+              });
             } catch (error) {
               this.super.handlerProps.log(
                 `explain-concept raised an error. ${error.message}`

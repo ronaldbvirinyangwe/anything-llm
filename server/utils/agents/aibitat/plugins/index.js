@@ -16,6 +16,9 @@ const {StudyContext} = require("./study-context.js");
 const {StudyTracker} = require("./study-tracker.js");
 const {FollowUpQuestions} = require("./follow-up-questions.js");
 const {StudyOnboarding} = require("./study-onboarding.js")
+const {ExamDiagram} = require("./exam-diagram.js")
+const {GenerateCourse} = require("./course-generator.js")
+const { markLessonCompleteByTopic } = require("./course-progress-utils.js");
 
 module.exports = {
   webScraping,
@@ -36,7 +39,9 @@ module.exports = {
   StudyTracker,
   FollowUpQuestions,
   StudyOnboarding,
-
+  ExamDiagram,
+    markLessonCompleteByTopic,
+     GenerateCourse,
   // Plugin name aliases so they can be pulled by slug as well.
   [webScraping.name]: webScraping,
   [webBrowsing.name]: webBrowsing,
@@ -56,4 +61,7 @@ module.exports = {
 [StudyTracker.name]: StudyTracker,
 [FollowUpQuestions.name]: FollowUpQuestions,
 [StudyOnboarding.name]: StudyOnboarding,
+[ExamDiagram.name]: ExamDiagram,
+[GenerateCourse.name]: GenerateCourse,
+[markLessonCompleteByTopic.name]: markLessonCompleteByTopic,
 };

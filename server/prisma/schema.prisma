@@ -223,6 +223,7 @@ model workspaces {
   workspace_suggested_messages workspace_suggested_messages[]
   threads                      workspace_threads[]
   workspace_users              workspace_users[]
+  courses                       courses[]      
 }
 
 model workspace_threads {
@@ -483,6 +484,10 @@ model students {
   student_quiz_assignments      student_quiz_assignments[]
   user                          users                      @relation(fields: [user_id], references: [id], onDelete: Cascade)
   teacher_students              teacher_students[]
+  notificationSettings          ParentNotificationSettings[] 
+    student_courses                 student_courses[]                   // ← add this
+  student_lesson_progress         student_lesson_progress[]           // ← add this
+  student_assignment_submissions  student_assignment_submissions[]  
 
   @@index([user_id])
   @@map("students")
@@ -505,13 +510,13 @@ model teachers {
 model parents {
   id              Int               @id @default(autoincrement())
   name            String
-  user_id         Int
+  user_id         Int               @unique
+  email           String?
   createdAt       DateTime          @default(now())
   studentName     String?
   parent_students parent_students[]
   user            users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@index([user_id])
+  notificationSettings ParentNotificationSettings[]
 }
 
 model teacher_students {
@@ -624,6 +629,21 @@ model SavedFlashcardSet {
 
   @@map("saved_flashcard_sets")
 }
+model WeakAreaCard {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  subject      String
+  question     String
+  wrongAnswer  String?
+  correctAnswer String
+  explanation  String?
+  timesWrong   Int      @default(1)
+  resolved     Boolean  @default(false)
+  firstFlaggedAt DateTime @default(now())
+  lastWrongAt   DateTime @default(now())
+  
+  @@map("weak_area_cards")
+}
 
 model study_plans {
   id           Int       @id @default(autoincrement())
@@ -634,9 +654,11 @@ model study_plans {
   topics       String[]
   study_hours  Float
   days_off     String[]
-  plan_content String    @db.Text
-  status       String    @default("active") 
+  plan_content String
   created_at   DateTime  @default(now())
+  sessions     Json      @default("[]")
+  last_active  DateTime? @db.Timestamptz(6)
+  status       String    @default("active")
 
   @@index([user_id])
   @@map("study_plans")
@@ -657,4 +679,127 @@ enum SubscriptionStatus {
   pending
   paid
   none
+}
+model ParentNotificationSettings {
+  id             Int      @id @default(autoincrement())
+  parentId       Int
+  studentId      Int
+  weeklyDigest   Boolean  @default(true)
+  alertsEnabled  Boolean  @default(true)
+  alertThreshold Int      @default(40)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  parent  parents  @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  student students @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, studentId])
+  @@map("parent_notification_settings")
+}
+model courses {
+  id             Int      @id @default(autoincrement())
+  subject        String
+  curriculum     String
+  academicLevel  String
+  grade          String
+  status         String   @default("generating")
+  rating         Float?
+  workspaceId    Int?                              // ← new
+  createdAt      DateTime @default(now())
+  lastUpdatedAt  DateTime @updatedAt
+
+  workspace          workspaces?        @relation(fields: [workspaceId], references: [id])
+  modules            course_modules[]
+  student_enrolments student_courses[]
+
+  @@unique([subject, curriculum, academicLevel, grade])
+  @@index([curriculum, academicLevel, grade])
+}
+
+model course_modules {
+  id        Int     @id @default(autoincrement())
+  courseId  Int
+  position  Int
+  title     String
+  lockedUntilModuleId Int?
+   status String @default("not_started")
+
+  course      courses           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons     course_lessons[]
+  assignments course_assignments[]
+  
+
+  @@index([courseId])
+}
+
+model course_lessons {
+  id          Int     @id @default(autoincrement())
+  moduleId    Int
+  position    Int
+  title       String
+  contentMd   String?
+  durationMin Int?
+
+  module   course_modules                  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progress student_lesson_progress[]
+
+  @@index([moduleId])
+}
+
+model course_assignments {
+  id          Int     @id @default(autoincrement())
+  moduleId    Int
+  title       String
+  description String?
+  stepsJson   Json?
+  etaHours    String?
+
+  module      course_modules                       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  submissions student_assignment_submissions[]
+
+  @@index([moduleId])
+}
+
+model student_courses {
+  id          Int      @id @default(autoincrement())
+  studentId   Int
+  courseId    Int
+  enrolledAt  DateTime @default(now())
+
+  student students @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course  courses  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, courseId])
+  @@index([studentId])
+}
+
+model student_lesson_progress {
+  id        Int       @id @default(autoincrement())
+  studentId Int
+  lessonId  Int
+  done      Boolean   @default(false)
+  doneAt    DateTime?
+
+  student students        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lesson  course_lessons  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, lessonId])
+  @@index([studentId])
+}
+
+model student_assignment_submissions {
+  id              Int       @id @default(autoincrement())
+  studentId       Int
+  assignmentId    Int
+  submissionLink  String?
+  status          String    @default("not_started") // not_started | submitted | needs_revision | complete
+  feedback        String?
+  submittedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  student    students            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  assignment course_assignments  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@index([assignmentId])
 }

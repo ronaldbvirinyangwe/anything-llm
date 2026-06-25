@@ -21,14 +21,15 @@ const DEFAULT_SKILLS = [
   AgentPlugins.StudyTracker.name,
   AgentPlugins.FollowUpQuestions.name,
   AgentPlugins.StudyOnboarding.name,
-  AgentPlugins.ExamDiagram.name
+   AgentPlugins.ExamDiagram.name,
+  AgentPlugins.GenerateCourse.name,
 ];
 
 const USER_AGENT = {
   name: "USER",
   getDefinition: () => {
     return {
-      interrupt: "NEVER",
+      interrupt: "ALWAYS",
       role: "I am the human monitor and oversee this chat. Any questions on action or decision making should be directed to me.",
     };
   },

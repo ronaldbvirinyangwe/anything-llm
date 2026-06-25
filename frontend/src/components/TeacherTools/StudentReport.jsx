@@ -351,7 +351,7 @@ export default function TeacherStudentReport() {
             </div>
             <h1 style={{ fontSize: 28, fontWeight: 800, color: "var(--theme-text-primary)", margin: 0 }}>{student.name}</h1>
             <p style={{ color: "var(--theme-text-secondary)", margin: "5px 0 0", fontSize: 14 }}>
-              Grade {student.grade}
+              {student.grade}
               {daysSince !== null && ` · Last active ${daysSince === 0 ? "today" : `${daysSince}d ago`}`}
             </p>
           </div>

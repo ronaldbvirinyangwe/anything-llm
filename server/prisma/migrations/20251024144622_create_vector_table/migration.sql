@@ -1,6 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE SEQUENCE IF NOT EXISTS vector_table_id_seq;
 CREATE TABLE "vector_table" (
-    "id" SERIAL NOT NULL,
+    "id" TEXT NOT NULL DEFAULT nextval('vector_table_id_seq'::regclass),
     "name" TEXT NOT NULL,
     "embedding" vector(384) NOT NULL,
     "metadata" JSONB,
