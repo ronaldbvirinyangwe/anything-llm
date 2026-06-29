@@ -49,14 +49,8 @@ export const ThoughtChainComponent = forwardRef(
     const [hasReadableContent, setHasReadableContent] = useState(
       contentIsNotEmpty(initialContent)
     );
-    const [isExpanded, setIsExpanded] = useState(expanded);
-    useImperativeHandle(ref, () => ({
-      updateContent: (newContent) => {
-        setContent(newContent);
-        setHasReadableContent(contentIsNotEmpty(newContent));
-      },
-    }));
-
+       const [isExpanded] = useState(false); 
+       
     const isThinking =
       content.match(THOUGHT_REGEX_OPEN) && !content.match(THOUGHT_REGEX_CLOSE);
     const isComplete =

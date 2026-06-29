@@ -121,7 +121,7 @@ function RenderAssistantChatContent({ message }) {
     message.match(THOUGHT_REGEX_OPEN) && !message.match(THOUGHT_REGEX_CLOSE);
   if (thinking)
     return (
-      <ThoughtChainComponent ref={thoughtChainRef} content="" expanded={true} />
+      <ThoughtChainComponent ref={thoughtChainRef} content="" />
     );
 
   return (
@@ -130,7 +130,6 @@ function RenderAssistantChatContent({ message }) {
         <ThoughtChainComponent
           ref={thoughtChainRef}
           content=""
-          expanded={true}
         />
       )}
       <span

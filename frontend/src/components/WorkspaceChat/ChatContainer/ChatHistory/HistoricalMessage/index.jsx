@@ -126,7 +126,6 @@ const HistoricalMessage = ({
               <RenderChatContent
                 role={role}
                 message={message}
-                expanded={isLastMessage}
               />
               {tool_call === "quiz_create" && quizData && (
                 <button
@@ -363,7 +362,7 @@ if (typeof message === "string" && message.startsWith(ONBOARDING_PREFIX)) {
     return (
       <>
         {thoughtChain && (
-          <ThoughtChainComponent content={thoughtChain} expanded={expanded} />
+          <ThoughtChainComponent content={thoughtChain} />
         )}
         <span
           className="flex flex-col gap-y-1"
