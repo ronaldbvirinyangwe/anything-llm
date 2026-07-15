@@ -1,20 +1,66 @@
 const RuntimeSettings = require("../runtimeSettings");
-/**  ATTN: SECURITY RESEARCHERS
- * To Security researchers about to submit an SSRF report CVE - please don't.
- * We are aware that the code below is does not defend against any of the thousands of ways
- * you can map a hostname to another IP via tunneling, hosts editing, etc. The code below does not have intention of blocking this
- * and is simply to prevent the user from accidentally putting in non-valid websites, which is all this protects
- * since _all urls must be submitted by the user anyway_ and cannot be done with authentication and manager or admin roles.
- * If an attacker has those roles then the system is already vulnerable and this is not a primary concern.
- *
- * We have gotten this report may times, marked them as duplicate or information and continue to get them. We communicate
- * already that deployment (and security) of an instance is on the deployer and system admin deploying it. This would include
- * isolation, firewalls, and the general security of the instance.
- */
+const dns = require("dns").promises;
+const net = require("net");
 
 const VALID_PROTOCOLS = ["https:", "http:"];
-const INVALID_OCTETS = [192, 172, 10, 127];
 const runtimeSettings = new RuntimeSettings();
+
+function allowAnyIp() {
+  const allowed = runtimeSettings.get("allowAnyIp");
+  if (allowed && !runtimeSettings.get("seenAnyIpWarning")) {
+    console.log(
+      "\x1b[33mURL IP local address restrictions have been disabled by administrator!\x1b[0m"
+    );
+    runtimeSettings.set("seenAnyIpWarning", true);
+  }
+  return allowed;
+}
+
+function isPrivateIp(address) {
+  if (!address || !net.isIP(address)) return true;
+
+  if (net.isIPv4(address)) {
+    const [a, b] = address.split(".").map(Number);
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 0) ||
+      (a === 192 && b === 168) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      a >= 224
+    );
+  }
+
+  const normalized = address.toLowerCase().split("%")[0];
+  if (normalized.startsWith("::ffff:")) {
+    const mapped = normalized.slice("::ffff:".length);
+    if (net.isIPv4(mapped)) return isPrivateIp(mapped);
+    const words = mapped.split(":");
+    if (words.length === 2) {
+      const high = Number.parseInt(words[0], 16);
+      const low = Number.parseInt(words[1], 16);
+      if (Number.isInteger(high) && Number.isInteger(low)) {
+        return isPrivateIp(
+          `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`
+        );
+      }
+    }
+    return true;
+  }
+  return (
+    normalized === "::" ||
+    normalized === "::1" ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    /^fe[89ab]/.test(normalized) ||
+    normalized.startsWith("ff") ||
+    normalized.startsWith("2001:db8:")
+  );
+}
 
 /**
  * If an ip address is passed in the user is attempting to collector some internal service running on internal/private IP.
@@ -25,32 +71,38 @@ const runtimeSettings = new RuntimeSettings();
  * @returns {boolean}
  */
 function isInvalidIp({ hostname }) {
-  if (runtimeSettings.get("allowAnyIp")) {
-    if (!runtimeSettings.get("seenAnyIpWarning")) {
-      console.log(
-        "\x1b[33mURL IP local address restrictions have been disabled by administrator!\x1b[0m"
-      );
-      runtimeSettings.set("seenAnyIpWarning", true);
-    }
-    return false;
+  if (allowAnyIp()) return false;
+  const unwrapped = hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+  return net.isIP(unwrapped) ? isPrivateIp(unwrapped) : false;
+}
+
+async function assertSafeURL(url) {
+  const destination = url instanceof URL ? url : new URL(url);
+  if (!VALID_PROTOCOLS.includes(destination.protocol))
+    throw new Error("Only HTTP(S) URLs are allowed.");
+  if (destination.username || destination.password)
+    throw new Error("URLs containing credentials are not allowed.");
+  if (allowAnyIp()) return destination;
+
+  const hostname = destination.hostname.replace(/^\[|\]$/g, "");
+  const addresses = net.isIP(hostname)
+    ? [{ address: hostname }]
+    : await dns.lookup(hostname, { all: true, verbatim: true });
+  if (!addresses.length || addresses.some(({ address }) => isPrivateIp(address)))
+    throw new Error("URL resolves to a private or reserved IP address.");
+  return destination;
+}
+
+async function safeFetch(url, options = {}, maxRedirects = 5) {
+  let destination = await assertSafeURL(url);
+  for (let redirects = 0; redirects <= maxRedirects; redirects++) {
+    const response = await fetch(destination, { ...options, redirect: "manual" });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get("location");
+    if (!location) throw new Error("Redirect response has no location.");
+    if (redirects === maxRedirects) throw new Error("Too many redirects.");
+    destination = await assertSafeURL(new URL(location, destination));
   }
-
-  const IPRegex = new RegExp(
-    /^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/gi
-  );
-
-  // Not an IP address at all - passthrough
-  if (!IPRegex.test(hostname)) return false;
-  const [octetOne, ..._rest] = hostname.split(".");
-
-  // If fails to validate to number - abort and return as invalid.
-  if (isNaN(Number(octetOne))) return true;
-
-  // Allow localhost loopback and 0.0.0.0 for scraping convenience
-  // for locally hosted services or websites
-  if (["127.0.0.1", "0.0.0.0"].includes(hostname)) return false;
-
-  return INVALID_OCTETS.includes(Number(octetOne));
 }
 
 /**
@@ -134,4 +186,7 @@ module.exports = {
   validURL,
   validateURL,
   validYoutubeVideoUrl,
+  isPrivateIp,
+  assertSafeURL,
+  safeFetch,
 };

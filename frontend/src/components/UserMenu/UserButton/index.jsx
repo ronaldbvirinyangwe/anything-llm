@@ -2,9 +2,10 @@ import useLoginMode from "@/hooks/useLoginMode";
 import usePfp from "@/hooks/usePfp";
 import useUser from "@/hooks/useUser";
 import System from "@/models/system";
+import EducationHierarchy from "@/models/educationHierarchy";
 import paths from "@/utils/paths";
 import { userFromStorage } from "@/utils/request";
-import { Person } from "@phosphor-icons/react";
+import { Buildings, Person } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import AccountModal from "../AccountModal";
 import {
@@ -25,6 +26,7 @@ export default function UserButton() {
   const [showMenu, setShowMenu] = useState(false);
   const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [supportEmail, setSupportEmail] = useState("");
+  const [hasEducationAccess, setHasEducationAccess] = useState(false);
 
   const handleClose = (event) => {
     if (
@@ -66,6 +68,13 @@ export default function UserButton() {
     fetchSupportEmail();
   }, []);
 
+  useEffect(() => {
+    if (mode !== "multi" || !user) return;
+    EducationHierarchy.access()
+      .then(({ enabled }) => setHasEducationAccess(Boolean(enabled)))
+      .catch(() => setHasEducationAccess(false));
+  }, [mode, user]);
+
   if (mode === null) return null;
   return (
     <div className="absolute top-3 right-4 md:top-9 md:right-10 w-fit h-fit z-40">
@@ -73,7 +82,7 @@ export default function UserButton() {
         ref={buttonRef}
         onClick={() => setShowMenu(!showMenu)}
         type="button"
-        className="uppercase transition-all duration-300 w-[35px] h-[35px] text-base font-semibold rounded-full flex items-center bg-theme-action-menu-bg hover:bg-theme-action-menu-item-hover justify-center text-white p-2 hover:border-slate-100 hover:border-opacity-50 border-transparent border"
+        className="uppercase transition-all duration-300 w-[35px] h-[35px] text-base font-semibold rounded-full flex items-center bg-theme-action-menu-bg hover:bg-theme-action-menu-item-hover justify-center text-theme-text-primary p-2 hover:border-theme-sidebar-border border-transparent border"
       >
         {mode === "multi" ? <UserDisplay /> : <Person size={14} />}
       </button>
@@ -87,22 +96,36 @@ export default function UserButton() {
             {mode === "multi" && !!user && (
               <button
                 onClick={handleOpenAccountModal}
-                className="border-none text-white hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md"
+                className="border-none text-theme-text-primary hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md"
               >
                 {t("profile_settings.account")}
               </button>
             )}
+            {hasEducationAccess && (
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  navigate("/education");
+                }}
+                className="flex w-full items-center gap-2 whitespace-nowrap rounded-md border-none px-4 py-1.5 text-left text-theme-text-primary hover:bg-theme-action-menu-item-hover"
+              >
+                <Buildings size={16} /> Education dashboard
+              </button>
+            )}
             <a
               href={supportEmail}
-              className="text-white hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md"
+              className="text-theme-text-primary hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md"
             >
               {t("profile_settings.support")}
             </a>
-            <button className="text-white hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md" 
-            onClick={LinkParent}
-            >
-              Link Parent
-            </button>
+            {user?.role === "student" && (
+              <button
+                className="text-theme-text-primary hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md"
+                onClick={LinkParent}
+              >
+                Link Parent
+              </button>
+            )}
             <button
               onClick={() => {
                 window.localStorage.removeItem(AUTH_USER);
@@ -112,7 +135,7 @@ export default function UserButton() {
                 window.location.replace(paths.home());
               }}
               type="button"
-              className="text-white hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md"
+              className="text-theme-text-primary hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md"
             >
               {t("profile_settings.signout")}
             </button>
@@ -135,7 +158,7 @@ function UserDisplay() {
 
   if (pfp) {
     return (
-      <div className="w-[35px] h-[35px] rounded-full flex-shrink-0 overflow-hidden transition-all duration-300 bg-gray-100 hover:border-slate-100 hover:border-opacity-50 border-transparent border hover:opacity-60">
+      <div className="w-[35px] h-[35px] rounded-full flex-shrink-0 overflow-hidden transition-all duration-300 bg-theme-bg-secondary hover:border-theme-sidebar-border border-transparent border hover:opacity-60">
         <img
           src={pfp}
           alt="User profile picture"

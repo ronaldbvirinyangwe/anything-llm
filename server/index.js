@@ -31,13 +31,21 @@ const { agentFlowEndpoints } = require("./endpoints/agentFlows");
 const { mcpServersEndpoints } = require("./endpoints/mcpServers");
 const { mobileEndpoints } = require("./endpoints/mobile");
 const { workspaceParsedFilesEndpoints } = require("./endpoints/workspacesParsedFiles");
+const { educationEndpoints } = require("./endpoints/education");
 const { httpLogger } = require("./middleware/httpLogger");
 require('./cron/Weeklydigestcron'); // registers the Sunday 7am CAT job
 
 const app = express();
 const apiRouter = express.Router();
-const FILE_LIMIT = "3GB";
-const { connectedClients } = require("./utils/websocket");
+const BODY_LIMIT = process.env.SERVER_BODY_LIMIT || "10mb";
+const {
+  connectedClients,
+  authenticatedWebSocketUser,
+} = require("./utils/websocket");
+const serverPort = process.env.SERVER_PORT || 3001;
+const educationHierarchyEnabled =
+  process.env.NODE_ENV === "development" ||
+  process.env.ENABLE_EDUCATION_HIERARCHY === "true";
 
 // Create the HTTP server instance
 const server = http.createServer(app);
@@ -70,44 +78,41 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 app.set("trust proxy", 1);
-app.use(bodyParser.text({ limit: FILE_LIMIT }));
-app.use(bodyParser.json({ limit: FILE_LIMIT }));
+app.use(bodyParser.text({ limit: BODY_LIMIT }));
+app.use(bodyParser.json({ limit: BODY_LIMIT }));
 app.use(
   bodyParser.urlencoded({
-    limit: FILE_LIMIT,
+    limit: BODY_LIMIT,
     extended: true,
   })
 );
+app.use((error, _request, response, next) => {
+  if (error?.type === "entity.too.large")
+    return response.status(413).json({
+      success: false,
+      error: `Request body exceeds the ${BODY_LIMIT} limit.`,
+    });
+  next(error);
+});
 
 // SSL vs Non-SSL Booting
 if (!!process.env.ENABLE_HTTPS) {
-  bootSSL(app, process.env.SERVER_PORT || 3001);
+  bootSSL(app, serverPort);
 } else {
-  // Use the WebSocket library with the app instance
-  require("@mintplex-labs/express-ws").default(app); 
+  require("@mintplex-labs/express-ws").default(app, server);
 }
 
 // WebSocket endpoint for notifications
-app.ws("/ws/notifications", (ws, req) => {
-  console.log("Client connected to notifications");
+app.ws("/ws/notifications", async (ws, req) => {
+  const user = await authenticatedWebSocketUser(req);
+  if (!user) return ws.close(1008, "Unauthorized");
 
-  ws.on("message", (msg) => {
-    try {
-      const data = JSON.parse(msg);
-      if (data.type === "register") {
-        connectedClients.set(data.userId, ws);
-        console.log("User registered for notifications:", data.userId);
-      }
-    } catch (err) {
-      console.error("Invalid WS message format");
-    }
-  });
+  const userId = Number(user.id);
+  connectedClients.get(userId)?.close(1000, "Replaced by a newer connection");
+  connectedClients.set(userId, ws);
 
   ws.on("close", () => {
-    for (let [userId, clientWs] of connectedClients.entries()) {
-      if (clientWs === ws) connectedClients.delete(userId);
-    }
-    console.log("Client disconnected");
+    if (connectedClients.get(userId) === ws) connectedClients.delete(userId);
   });
 });
 
@@ -135,6 +140,7 @@ communityHubEndpoints(apiRouter);
 agentFlowEndpoints(apiRouter);
 mcpServersEndpoints(apiRouter);
 mobileEndpoints(apiRouter);
+if (educationHierarchyEnabled) educationEndpoints(apiRouter);
 embeddedEndpoints(apiRouter);
 browserExtensionEndpoints(apiRouter);
 
@@ -190,12 +196,6 @@ app.all("*", function (_, response) {
   response.sendStatus(404);
 });
 
-/** * Server performance tuning for school environments 
- * Increased timeouts to 10 minutes to support large PDF processing
- */
-server.timeout = 900000; 
-server.keepAliveTimeout = 900000;
-
 if (!process.env.ENABLE_HTTPS) {
-  bootHTTP(app,  3001);
+  bootHTTP(app, serverPort, server);
 }

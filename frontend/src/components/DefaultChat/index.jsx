@@ -83,7 +83,7 @@ export default function DefaultChatContainer() {
         <div className="mb-6">
           <CurriculumSwitcher />
         </div>
-        <h1 className="text-white text-2xl font-semibold">
+        <h1 className="text-theme-home-text text-2xl font-semibold">
           {t("home.welcome")}, {user.username}!
         </h1>
         <p className="text-theme-home-text-secondary text-base text-center whitespace-pre-line">
@@ -107,7 +107,7 @@ export default function DefaultChatContainer() {
     >
       Enrol Now →
     </NavLink>
-    <p className="text-white/60 text-sm mt-3 italic text-center">
+    <p className="text-theme-home-text-secondary text-sm mt-3 italic text-center">
       Once you enrol, your workspace will be created automatically.
     </p>
   </div>
@@ -136,7 +136,7 @@ const Layout = ({ children }) => {
   return (
     <div
       style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-      className={`relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary light:border-[1px] light:border-theme-sidebar-border w-full h-full overflow-y-scroll ${showScrollbar ? "show-scrollbar" : "no-scroll"}`}
+      className={`relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary border border-theme-sidebar-border w-full h-full overflow-y-scroll ${showScrollbar ? "show-scrollbar" : "no-scroll"}`}
     >
       {children}
     </div>

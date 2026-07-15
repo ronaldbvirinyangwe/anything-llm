@@ -3,6 +3,10 @@ const path = require("path");
 const fs = require("fs");
 const { v4 } = require("uuid");
 const { normalizePath } = require(".");
+const DOCUMENT_UPLOAD_LIMIT =
+  (Number(process.env.DOCUMENT_UPLOAD_LIMIT_MB) || 100) * 1024 * 1024;
+const ASSET_UPLOAD_LIMIT =
+  (Number(process.env.ASSET_UPLOAD_LIMIT_MB) || 10) * 1024 * 1024;
 
 /**
  * Handle File uploads for auto-uploading.
@@ -90,11 +94,14 @@ const pfpUploadStorage = multer.diskStorage({
  * @param {NextFunction} next
  */
 function handleFileUpload(request, response, next) {
-  const upload = multer({ storage: fileUploadStorage }).single("file");
+  const upload = multer({
+    storage: fileUploadStorage,
+    limits: { fileSize: DOCUMENT_UPLOAD_LIMIT, files: 1 },
+  }).single("file");
   upload(request, response, function (err) {
     if (err) {
       response
-        .status(500)
+        .status(err.code === "LIMIT_FILE_SIZE" ? 413 : 400)
         .json({
           success: false,
           error: `Invalid file upload. ${err.message}`,
@@ -109,7 +116,7 @@ function handleFileUpload(request, response, next) {
 function handleExamUpload(request, response, next) {
   const upload = multer({ 
     storage: fileUploadStorage,
-    limits: { fileSize: 10 * 1024 * 1024 } // 10MB per file
+    limits: { fileSize: ASSET_UPLOAD_LIMIT, files: 2 },
   }).fields([
     { name: 'examPaper', maxCount: 1 },
     { name: 'markScheme', maxCount: 1 }
@@ -118,7 +125,7 @@ function handleExamUpload(request, response, next) {
   upload(request, response, function (err) {
     if (err) {
       response
-        .status(500)
+        .status(err.code === "LIMIT_FILE_SIZE" ? 413 : 400)
         .json({
           success: false,
           error: `Invalid file upload. ${err.message}`,
@@ -138,11 +145,14 @@ function handleExamUpload(request, response, next) {
  * @param {NextFunction} next
  */
 function handleAPIFileUpload(request, response, next) {
-  const upload = multer({ storage: fileAPIUploadStorage }).single("file");
+  const upload = multer({
+    storage: fileAPIUploadStorage,
+    limits: { fileSize: DOCUMENT_UPLOAD_LIMIT, files: 1 },
+  }).single("file");
   upload(request, response, function (err) {
     if (err) {
       response
-        .status(500)
+        .status(err.code === "LIMIT_FILE_SIZE" ? 413 : 400)
         .json({
           success: false,
           error: `Invalid file upload. ${err.message}`,
@@ -158,11 +168,14 @@ function handleAPIFileUpload(request, response, next) {
  * Handle logo asset uploads
  */
 function handleAssetUpload(request, response, next) {
-  const upload = multer({ storage: assetUploadStorage }).single("logo");
+  const upload = multer({
+    storage: assetUploadStorage,
+    limits: { fileSize: ASSET_UPLOAD_LIMIT, files: 1 },
+  }).single("logo");
   upload(request, response, function (err) {
     if (err) {
       response
-        .status(500)
+        .status(err.code === "LIMIT_FILE_SIZE" ? 413 : 400)
         .json({
           success: false,
           error: `Invalid file upload. ${err.message}`,
@@ -178,11 +191,14 @@ function handleAssetUpload(request, response, next) {
  * Handle PFP file upload as logos
  */
 function handlePfpUpload(request, response, next) {
-  const upload = multer({ storage: pfpUploadStorage }).single("file");
+  const upload = multer({
+    storage: pfpUploadStorage,
+    limits: { fileSize: ASSET_UPLOAD_LIMIT, files: 1 },
+  }).single("file");
   upload(request, response, function (err) {
     if (err) {
       response
-        .status(500)
+        .status(err.code === "LIMIT_FILE_SIZE" ? 413 : 400)
         .json({
           success: false,
           error: `Invalid file upload. ${err.message}`,

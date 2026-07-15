@@ -2,12 +2,12 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import Sidebar from "../../components/Sidebar";
-import { useTheme } from "../../hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 import "./PaperSelector.css";
 
 export default function PaperSelector() {
   const navigate = useNavigate();
-  const { darkMode } = useTheme();
+  const { darkMode } = useThemeContext();
 
   const [papers, setPapers] = useState([]);
   const [selectedPaper, setSelectedPaper] = useState(null);

@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { create } from "zustand";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import { useTheme } from "../../hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 import { useAuth } from "@/AuthContext";
 import { ChikoroMascot, MascotSpeechBubble, MASCOT_EXPRESSIONS, getQuizExpression } from "@/components/ChikoroMascot";
 import ReactMarkdown from "react-markdown";
@@ -51,7 +51,7 @@ export default function Test({ readOnly = false, externalTest = null }) {
     setLoadingResult,
   } = useTestStore();
 
-  const { darkMode } = useTheme();
+  const { darkMode } = useThemeContext();
   const { setStreak } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();

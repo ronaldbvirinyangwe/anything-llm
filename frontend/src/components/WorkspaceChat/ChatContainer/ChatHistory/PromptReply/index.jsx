@@ -2,6 +2,7 @@ import { memo, useRef, useEffect } from "react";
 import { Warning } from "@phosphor-icons/react";
 import UserIcon from "../../../../UserIcon";
 import renderMarkdown from "@/utils/chat/markdown";
+import DOMPurify from "@/utils/chat/purify";
 import Citations from "../Citation";
 import {
   THOUGHT_REGEX_CLOSE,
@@ -134,7 +135,9 @@ function RenderAssistantChatContent({ message }) {
       )}
       <span
         className="break-words"
-        dangerouslySetInnerHTML={{ __html: renderMarkdown(contentRef.current) }}
+        dangerouslySetInnerHTML={{
+          __html: DOMPurify.sanitize(renderMarkdown(contentRef.current)),
+        }}
       />
     </div>
   );

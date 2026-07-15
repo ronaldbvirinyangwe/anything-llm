@@ -14,6 +14,65 @@ const eagerLoadContextWindows = require("./eagerLoadContextWindows");
 // Update .env keys with the correct values and boot. These are temporary and not real SSL certs - only use for local.
 // Test with https://localhost:3001/api/ping
 // build and copy frontend to server/public with correct API_BASE and start server in prod model and all should be ok
+function configureServer(server) {
+  server.requestTimeout =
+    Number(process.env.SERVER_REQUEST_TIMEOUT_MS) || 900_000;
+  server.headersTimeout =
+    Number(process.env.SERVER_HEADERS_TIMEOUT_MS) || 65_000;
+  server.keepAliveTimeout =
+    Number(process.env.SERVER_KEEP_ALIVE_TIMEOUT_MS) || 5_000;
+  return server;
+}
+
+async function initializeServices() {
+  await setupTelemetry();
+  new CommunicationKey(true);
+  new EncryptionManager();
+  new BackgroundService().boot();
+  await eagerLoadContextWindows();
+}
+
+function installGracefulShutdown(server) {
+  let shuttingDown = false;
+  const shutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received. Closing HTTP server...`);
+    const forceClose = setTimeout(() => process.exit(1), 30_000);
+    forceClose.unref();
+    server.close(async () => {
+      await Promise.resolve(Telemetry.flush()).catch(() => {});
+      clearTimeout(forceClose);
+      process.exit(0);
+    });
+    server.closeIdleConnections?.();
+  };
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  process.once("SIGUSR2", () => shutdown("SIGUSR2"));
+}
+
+function listen(server, port, mode) {
+  configureServer(server);
+  installGracefulShutdown(server);
+  server
+    .listen(port, async () => {
+      try {
+        await initializeServices();
+        console.log(`Primary server in ${mode} mode listening on port ${port}`);
+      } catch (error) {
+        console.error(`Server initialization failed: ${error.message}`);
+        server.close(() => {});
+        process.exitCode = 1;
+      }
+    })
+    .on("error", (error) => {
+      console.error(`Server failed to start: ${error.message}`);
+      process.exitCode = 1;
+    });
+  return server;
+}
+
 function bootSSL(app, port = 3001) {
   try {
     console.log(
@@ -26,18 +85,8 @@ function bootSSL(app, port = 3001) {
     const credentials = { key: privateKey, cert: certificate };
     const server = https.createServer(credentials, app);
 
-    server
-      .listen(port, async () => {
-        await setupTelemetry();
-        new CommunicationKey(true);
-        new EncryptionManager();
-        new BackgroundService().boot();
-        await eagerLoadContextWindows();
-        console.log(`Primary server in HTTPS mode listening on port ${port}`);
-      })
-      .on("error", catchSigTerms);
-
     require("@mintplex-labs/express-ws").default(app, server);
+    listen(server, port, "HTTPS");
     return { app, server };
   } catch (e) {
     console.error(
@@ -53,35 +102,17 @@ function bootSSL(app, port = 3001) {
   }
 }
 
-function bootHTTP(app, port = 3001) {
+function bootHTTP(app, port = 3001, server = null) {
   if (!app) throw new Error('No "app" defined - crashing!');
-
-  app
-    .listen(port, async () => {
-      await setupTelemetry();
-      new CommunicationKey(true);
-      new EncryptionManager();
-      new BackgroundService().boot();
-      await eagerLoadContextWindows();
-      console.log(`Primary server in HTTP mode listening on port ${port}`);
-    })
-    .on("error", catchSigTerms);
-
-  return { app, server: null };
-}
-
-function catchSigTerms() {
-  process.once("SIGUSR2", function () {
-    Telemetry.flush();
-    process.kill(process.pid, "SIGUSR2");
-  });
-  process.on("SIGINT", function () {
-    Telemetry.flush();
-    process.kill(process.pid, "SIGINT");
-  });
+  const httpServer = server || require("http").createServer(app);
+  if (typeof app.ws !== "function")
+    require("@mintplex-labs/express-ws").default(app, httpServer);
+  listen(httpServer, port, "HTTP");
+  return { app, server: httpServer };
 }
 
 module.exports = {
   bootHTTP,
   bootSSL,
+  configureServer,
 };

@@ -12,19 +12,18 @@ const availableThemes = {
  */
 export function useTheme() {
   const [theme, _setTheme] = useState(() => {
-    return localStorage.getItem("theme") || "default";
+    const storedTheme = localStorage.getItem("theme");
+    if (storedTheme === "default" || storedTheme === "light") {
+      return storedTheme;
+    }
+    return window.matchMedia?.("(prefers-color-scheme: light)").matches
+      ? "light"
+      : "default";
   });
 
   useEffect(() => {
-    if (localStorage.getItem("theme") !== null) return;
-    if (!window.matchMedia) return;
-    if (window.matchMedia("(prefers-color-scheme: light)").matches)
-      return _setTheme("light");
-    _setTheme("default");
-  }, []);
-
-  useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    document.documentElement.classList.toggle("dark", theme === "default");
     document.body.classList.toggle("light", theme === "light");
     localStorage.setItem("theme", theme);
     window.dispatchEvent(new Event(REFETCH_LOGO_EVENT));
@@ -52,5 +51,10 @@ export function useTheme() {
     _setTheme(newTheme);
   }
 
-  return { theme, setTheme, availableThemes };
+  return {
+    theme,
+    darkMode: theme === "default",
+    setTheme,
+    availableThemes,
+  };
 }

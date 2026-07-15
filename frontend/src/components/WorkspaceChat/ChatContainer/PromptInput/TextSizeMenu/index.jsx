@@ -2,12 +2,12 @@ import { useState, useRef } from "react";
 import { TextT } from "@phosphor-icons/react";
 import { Tooltip } from "react-tooltip";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "@/hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 
 export default function TextSizeButton() {
   const tooltipRef = useRef(null);
   const { t } = useTranslation();
-  const { theme } = useTheme();
+  const { theme } = useThemeContext();
 
   const toggleTooltip = () => {
     if (!tooltipRef.current) return;

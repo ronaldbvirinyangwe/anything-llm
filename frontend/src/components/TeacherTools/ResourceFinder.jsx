@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import "./lessonplanner.css"; // Reuse your elegant theme
-import { useTheme } from "@/hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 
 const cleanMarkdown = (text) => {
   if (!text) return "";
@@ -80,7 +80,7 @@ const useResourceFinderStore = create((set, get) => ({
 }));
 
 export default function ResourceFinder() {
-  const { theme } = useTheme();
+  const { theme } = useThemeContext();
   const {
     formData,
     resources,

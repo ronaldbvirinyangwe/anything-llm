@@ -5,7 +5,7 @@ import LGroupImgLight from "./l_group-light.png";
 import RGroupImgLight from "./r_group-light.png";
 import AnythingLLMLogo from "@/media/logo/logo.jpg";
 import { useNavigate } from "react-router-dom";
-import { useTheme } from "@/hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 import { useTranslation } from "react-i18next";
 
 const IMG_SRCSET = {
@@ -21,7 +21,7 @@ const IMG_SRCSET = {
 
 export default function OnboardingHome() {
   const navigate = useNavigate();
-  const { theme } = useTheme();
+  const { theme } = useThemeContext();
   const { t } = useTranslation();
   const srcSet = IMG_SRCSET?.[theme] || IMG_SRCSET.default;
 

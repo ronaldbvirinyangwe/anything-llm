@@ -1,5 +1,6 @@
 import React, { useState, createContext,useContext } from "react";
 import { AUTH_TIMESTAMP, AUTH_TOKEN, AUTH_USER } from "@/utils/constants";
+import { safeJsonParse } from "@/utils/request";
 
 export const AuthContext = createContext(null);
 
@@ -13,21 +14,29 @@ function decodeJWTPayload(token) {
 
 export function AuthProvider(props) {
   // Detect and clear stale localStorage if JWT user id doesn't match stored user id
-  const localAuthToken = localStorage.getItem(AUTH_TOKEN);
+  let localAuthToken = localStorage.getItem(AUTH_TOKEN);
   const localUser = localStorage.getItem(AUTH_USER);
+  let storedUser = safeJsonParse(localUser);
+  if (localUser && !storedUser) {
+    localStorage.removeItem(AUTH_USER);
+    localStorage.removeItem(AUTH_TOKEN);
+    localStorage.removeItem(AUTH_TIMESTAMP);
+    localAuthToken = null;
+  }
   if (localAuthToken && localUser) {
     const decoded = decodeJWTPayload(localAuthToken);
-    const storedUser = JSON.parse(localUser);
     if (decoded?.id && storedUser?.id && decoded.id !== storedUser.id) {
-      console.warn("[Auth] JWT/localStorage user id mismatch — clearing stale session. JWT id:", decoded.id, "localStorage id:", storedUser.id);
+      console.warn("[Auth] JWT/localStorage user id mismatch, clearing stale session.");
       localStorage.removeItem(AUTH_USER);
       localStorage.removeItem(AUTH_TOKEN);
       localStorage.removeItem(AUTH_TIMESTAMP);
+      storedUser = null;
+      localAuthToken = null;
     }
   }
   const [store, setStore] = useState({
-    user: localStorage.getItem(AUTH_USER) ? JSON.parse(localStorage.getItem(AUTH_USER)) : null,
-    authToken: localStorage.getItem(AUTH_TOKEN) ?? null,
+    user: storedUser,
+    authToken: storedUser ? localAuthToken : null,
   });
 
   const [actions] = useState({

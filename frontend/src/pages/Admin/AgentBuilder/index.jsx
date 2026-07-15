@@ -6,7 +6,7 @@ import BlockList, { BLOCK_TYPES, BLOCK_INFO } from "./BlockList";
 import AddBlockMenu from "./AddBlockMenu";
 import showToast from "@/utils/toast";
 import AgentFlows from "@/models/agentFlows";
-import { useTheme } from "@/hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 import HeaderMenu from "./HeaderMenu";
 import paths from "@/utils/paths";
 import PublishEntityModal from "@/components/CommunityHub/PublishEntityModal";
@@ -39,7 +39,7 @@ const DEFAULT_BLOCKS = [
 
 export default function AgentBuilder() {
   const { flowId } = useParams();
-  const { theme } = useTheme();
+  const { theme } = useThemeContext();
   const navigate = useNavigate();
   const [agentName, setAgentName] = useState("");
   const [_, setAgentDescription] = useState("");

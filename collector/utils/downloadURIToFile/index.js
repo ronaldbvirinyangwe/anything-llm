@@ -2,7 +2,7 @@ const { WATCH_DIRECTORY } = require("../constants");
 const fs = require("fs");
 const path = require("path");
 const { pipeline } = require("stream/promises");
-const { validURL } = require("../url");
+const { validURL, safeFetch } = require("../url");
 const { default: slugify } = require("slugify");
 
 /**
@@ -25,7 +25,7 @@ async function downloadURIToFile(url, maxTimeout = 10_000) {
       );
     }, maxTimeout);
 
-    const res = await fetch(url, { signal: abortController.signal })
+    const res = await safeFetch(url, { signal: abortController.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         return res;

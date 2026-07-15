@@ -1,7 +1,7 @@
 import { Tooltip } from "react-tooltip";
 import { Brain, CheckCircle } from "@phosphor-icons/react";
 import LLMSelectorModal from "./index";
-import { useTheme } from "@/hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 import { useRef, useEffect, useState } from "react";
 import useUser from "@/hooks/useUser";
 import { useModal } from "@/hooks/useModal";
@@ -14,7 +14,7 @@ export const PROVIDER_SETUP_EVENT = "provider_setup_requested";
 
 export default function LLMSelectorAction() {
   const tooltipRef = useRef(null);
-  const { theme } = useTheme();
+  const { theme } = useThemeContext();
   const { user } = useUser();
   const [saved, setSaved] = useState(false);
   const {

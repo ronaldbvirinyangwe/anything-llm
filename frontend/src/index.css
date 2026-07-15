@@ -17,7 +17,13 @@
   --theme-bg-chat-input: #27282a;
   --theme-text-primary: #ffffff;
   --theme-text-secondary: rgba(255, 255, 255, 0.6);
+  --theme-text-inverse: #111827;
   --theme-placeholder: #57585a;
+  --theme-divider: rgba(255, 255, 255, 0.1);
+  --theme-overlay: rgba(0, 0, 0, 0.6);
+  --theme-scrollbar-thumb: rgba(255, 255, 255, 0.3);
+  --theme-scrollbar-thumb-hover: rgba(255, 255, 255, 0.5);
+  --theme-scrollbar-track: rgba(0, 0, 0, 0.12);
   --theme-sidebar-item-default: rgba(255, 255, 255, 0.1);
   --theme-sidebar-item-selected: rgba(255, 255, 255, 0.3);
   --theme-sidebar-item-hover: #3f3f42;
@@ -30,6 +36,8 @@
   --theme-sidebar-border: rgba(255, 255, 255, 0.1);
   --theme-sidebar-item-workspace-active: #ffffff;
   --theme-sidebar-item-workspace-inactive: #ffffff;
+  --theme-sidebar-item-text-active: #ffffff;
+  --theme-sidebar-item-text-inactive: rgba(255, 255, 255, 0.6);
 
   --theme-sidebar-footer-icon: rgba(255, 255, 255, 0.1);
   --theme-sidebar-footer-icon-fill: #ffffff;
@@ -69,6 +77,37 @@
   --theme-home-update-card-bg: #1c1c1c;
   --theme-home-update-card-hover: #252525;
   --theme-home-update-source: #53b1fd;
+
+  /* Landing page */
+  --theme-landing-bg: #080c10;
+  --theme-landing-nav: rgba(8, 12, 16, 0.85);
+  --theme-landing-surface: #0d1117;
+  --theme-landing-surface-muted: #131922;
+  --theme-landing-surface-subtle: rgba(255, 255, 255, 0.04);
+  --theme-landing-surface-hover: rgba(255, 255, 255, 0.08);
+  --theme-landing-text: #f8fafc;
+  --theme-landing-text-muted: #b2bac3;
+  --theme-landing-text-subtle: #7f8994;
+  --theme-landing-text-faint: #59636e;
+  --theme-landing-border: rgba(255, 255, 255, 0.08);
+  --theme-landing-border-strong: rgba(255, 255, 255, 0.15);
+  --theme-landing-accent: #75d6ff;
+  --theme-landing-gradient-start: #75d6ff;
+  --theme-landing-gradient-middle: #7dd3fc;
+  --theme-landing-gradient-end: #60a5fa;
+  --theme-landing-accent-hover: #ffffff;
+  --theme-landing-accent-secondary: #60a5fa;
+  --theme-landing-accent-foreground: #111827;
+  --theme-landing-accent-soft: rgba(117, 214, 255, 0.1);
+  --theme-landing-accent-soft-hover: rgba(117, 214, 255, 0.16);
+  --theme-landing-accent-border: rgba(117, 214, 255, 0.25);
+  --theme-landing-accent-border-strong: rgba(117, 214, 255, 0.5);
+  --theme-landing-glow: rgba(55, 154, 255, 0.2);
+  --theme-landing-accent-shadow: rgba(117, 214, 255, 0.2);
+  --theme-landing-positive: #4ade80;
+  --theme-landing-positive-soft: rgba(34, 197, 94, 0.15);
+  --theme-landing-positive-border: rgba(34, 197, 94, 0.25);
+  --theme-landing-avatar: #2a2f38;
 
   --theme-checklist-item-bg: #203c48;
   --theme-checklist-item-bg-hover: #255d75;
@@ -117,7 +156,13 @@
   --theme-bg-chat-input: #eaeaea;
   --theme-text-primary: #0e0f0f;
   --theme-text-secondary: #7a7d7e;
+  --theme-text-inverse: #ffffff;
   --theme-placeholder: #9ca3af;
+  --theme-divider: rgba(14, 15, 15, 0.12);
+  --theme-overlay: rgba(15, 23, 42, 0.45);
+  --theme-scrollbar-thumb: rgba(14, 15, 15, 0.28);
+  --theme-scrollbar-thumb-hover: rgba(14, 15, 15, 0.46);
+  --theme-scrollbar-track: rgba(14, 15, 15, 0.06);
   --theme-sidebar-item-default: #ffffff;
   --theme-sidebar-item-selected: #ffffff;
   --theme-sidebar-item-hover: #c8efff;
@@ -172,6 +217,37 @@
   --theme-home-update-card-bg: #edf2fa;
   --theme-home-update-card-hover: #f3f4f6;
   --theme-home-update-source: #0284c7;
+
+  /* Landing page */
+  --theme-landing-bg: #f6fafc;
+  --theme-landing-nav: rgba(246, 250, 252, 0.9);
+  --theme-landing-surface: #ffffff;
+  --theme-landing-surface-muted: #edf5f8;
+  --theme-landing-surface-subtle: rgba(8, 127, 168, 0.055);
+  --theme-landing-surface-hover: rgba(8, 127, 168, 0.1);
+  --theme-landing-text: #111c24;
+  --theme-landing-text-muted: #465864;
+  --theme-landing-text-subtle: #62737e;
+  --theme-landing-text-faint: #82919a;
+  --theme-landing-border: rgba(17, 28, 36, 0.1);
+  --theme-landing-border-strong: rgba(17, 28, 36, 0.2);
+  --theme-landing-accent: #08799f;
+  --theme-landing-gradient-start: #08799f;
+  --theme-landing-gradient-middle: #0369a1;
+  --theme-landing-gradient-end: #1d4ed8;
+  --theme-landing-accent-hover: #05698c;
+  --theme-landing-accent-secondary: #2563eb;
+  --theme-landing-accent-foreground: #ffffff;
+  --theme-landing-accent-soft: rgba(8, 127, 168, 0.09);
+  --theme-landing-accent-soft-hover: rgba(8, 127, 168, 0.15);
+  --theme-landing-accent-border: rgba(8, 127, 168, 0.24);
+  --theme-landing-accent-border-strong: rgba(8, 127, 168, 0.48);
+  --theme-landing-glow: rgba(14, 165, 233, 0.12);
+  --theme-landing-accent-shadow: rgba(8, 127, 168, 0.16);
+  --theme-landing-positive: #16824c;
+  --theme-landing-positive-soft: rgba(22, 130, 76, 0.1);
+  --theme-landing-positive-border: rgba(22, 130, 76, 0.24);
+  --theme-landing-avatar: #dbe7ec;
 
   --theme-checklist-item-bg: #c7e2ee;
   --theme-checklist-item-bg-hover: #a3d9f1;
@@ -229,10 +305,10 @@ This is to override the default border color for the select and input elements
 in the onboarding flow when the theme is not light. This only applies to the
 onboarding flow since its background is dark and is the same fill as the inputs.
 */
-[data-layout="onboarding"] > * select:not([data-theme="light"]),
-[data-layout="onboarding"] > * input:not([data-theme="light"]),
-[data-layout="onboarding"] > * textarea:not([data-theme="light"]) {
-  border: 1px solid #ffffff;
+[data-theme="default"] [data-layout="onboarding"] select,
+[data-theme="default"] [data-layout="onboarding"] input,
+[data-theme="default"] [data-layout="onboarding"] textarea {
+  border: 1px solid var(--theme-chat-input-border);
 }
 
 html,
@@ -252,7 +328,16 @@ body {
     Droid Sans,
     Helvetica Neue,
     sans-serif;
-  background-color: white;
+  background-color: var(--theme-bg-container);
+  color: var(--theme-text-primary);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
 }
 
 a {
@@ -334,50 +419,19 @@ a {
   }
 }
 
-@media (prefers-color-scheme: light) {
-  .sidebar-items:after {
-    content: " ";
-    position: absolute;
-    left: 0;
-    right: 0px;
-    height: 4em;
-    top: 69vh;
-    z-index: 1;
-    pointer-events: none;
-  }
+.sidebar-items:after {
+  content: " ";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4em;
+  top: 69vh;
+  z-index: 1;
+  pointer-events: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  .sidebar-items:after {
-    content: " ";
-    position: absolute;
-    left: 0;
-    right: 0px;
-    height: 4em;
-    top: 69vh;
-    z-index: 1;
-    pointer-events: none;
-  }
-}
-
-@media (prefers-color-scheme: light) {
-  .fade-up-border {
-    background: linear-gradient(
-      to bottom,
-      rgba(220, 221, 223, 10%),
-      rgb(220, 221, 223) 89%
-    );
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  .fade-up-border {
-    background: linear-gradient(
-      to bottom,
-      rgba(41, 37, 36, 50%),
-      rgb(41 37 36) 90%
-    );
-  }
+.fade-up-border {
+  background: linear-gradient(to bottom, transparent, var(--theme-bg-sidebar) 90%);
 }
 
 /**
@@ -477,7 +531,7 @@ a {
 .show-scrollbar {
   overflow-y: scroll !important;
   scrollbar-width: thin !important;
-  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.1) !important;
+  scrollbar-color: var(--theme-scrollbar-thumb) var(--theme-scrollbar-track) !important;
   -webkit-overflow-scrolling: touch !important;
 }
 
@@ -488,13 +542,13 @@ a {
 }
 
 .show-scrollbar::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.1) !important;
+  background: var(--theme-scrollbar-track) !important;
   margin: 3px !important;
   border-radius: 4px !important;
 }
 
 .show-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.3) !important;
+  background-color: var(--theme-scrollbar-thumb) !important;
   border-radius: 4px !important;
   border: none !important;
   min-height: 40px !important;
@@ -560,12 +614,12 @@ dialog[open] {
 }
 
 dialog::backdrop {
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--theme-overlay);
   backdrop-filter: blur(2px);
 }
 
 .backdrop {
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--theme-overlay);
   backdrop-filter: blur(2px);
 }
 
@@ -613,7 +667,7 @@ dialog::backdrop {
 }
 
 .white-fill {
-  fill: white;
+  fill: var(--theme-text-primary);
 }
 
 .tip:before {
@@ -634,13 +688,13 @@ dialog::backdrop {
 }
 
 .user-reply > div:first-of-type {
-  border: 2px solid white;
+  border: 2px solid var(--theme-divider);
 }
 
 .reply > *:last-child::after {
   content: "|";
   animation: blink 1.5s steps(1) infinite;
-  color: white;
+  color: var(--theme-text-primary);
   font-size: 14px;
 }
 
@@ -665,7 +719,9 @@ dialog::backdrop {
 }
 
 .tooltip {
-  @apply !bg-black !text-white !py-2 !px-3 !rounded-md;
+  background-color: var(--theme-popup-menu-bg) !important;
+  color: var(--theme-text-primary) !important;
+  @apply !py-2 !px-3 !rounded-md;
 }
 
 .Toastify__toast-body {
@@ -689,7 +745,8 @@ dialog::backdrop {
 }
 
 .input-label {
-  @apply text-[14px] font-bold text-white;
+  color: var(--theme-text-primary);
+  @apply text-[14px] font-bold;
 }
 
 /**
@@ -738,7 +795,7 @@ dialog::backdrop {
 .markdown table {
   width: 100%;
   border-collapse: collapse;
-  color: #bdbdbe;
+  color: var(--theme-text-secondary);
   font-size: 13px;
   margin: 30px 0px;
   border-radius: 10px;
@@ -747,21 +804,21 @@ dialog::backdrop {
 }
 
 .markdown table thead {
-  color: #fff;
+  color: var(--theme-text-primary);
   text-transform: uppercase;
   font-weight: bolder;
 }
 
 .markdown hr {
   border: 0;
-  border-top: 1px solid #cdcdcd40;
+  border-top: 1px solid var(--theme-divider);
   margin: 1rem 0;
 }
 
 .markdown table th,
 .markdown table td {
   padding: 8px 15px;
-  border-bottom: 1px solid #cdcdcd2e;
+  border-bottom: 1px solid var(--theme-divider);
   text-align: left;
 }
 
@@ -779,12 +836,6 @@ dialog::backdrop {
   .markdown table td {
     padding: 10px;
   }
-}
-
-[data-theme="light"] .markdown table,
-[data-theme="light"] .markdown table th,
-[data-theme="light"] .markdown table td {
-  color: #000;
 }
 
 /* List Styles */
@@ -830,7 +881,7 @@ dialog::backdrop {
 }
 
 .markdown ul li::marker {
-  color: #d0d0d0cf;
+  color: var(--theme-text-secondary);
   padding-top: 10px;
 }
 
@@ -871,7 +922,7 @@ dialog::backdrop {
 
 .markdown strong {
   font-weight: 600;
-  color: #fff;
+  color: var(--theme-text-primary);
 }
 
 .file-row {
@@ -883,24 +934,19 @@ dialog::backdrop {
 .file-row:nth-child(even) {
   @apply bg-theme-bg-primary;
   background-color: var(--theme-file-row-even);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--theme-divider);
 }
 
 .file-row:nth-child(odd) {
   @apply bg-theme-bg-secondary;
   background-color: var(--theme-file-row-odd);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--theme-divider);
 }
 
 .file-row.selected:nth-child(even),
 .file-row.selected:nth-child(odd) {
   background-color: var(--theme-file-row-selected-even);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-[data-theme="light"] .file-row.selected:nth-child(even),
-[data-theme="light"] .file-row.selected:nth-child(odd) {
-  border-bottom: 1px solid rgba(222, 222, 222, 0.5);
+  border-bottom: 1px solid var(--theme-divider);
 }
 
 /* Flex upload modal to be a column when on small screens so that the UI
@@ -927,38 +973,34 @@ does not extend the close button beyond the viewport. */
 .white-scrollbar {
   overflow-y: scroll;
   scrollbar-width: thin;
-  scrollbar-color: #ffffff #18181b;
+  scrollbar-color: var(--theme-scrollbar-thumb) var(--theme-scrollbar-track);
   margin-right: 8px;
 }
 
 /* Webkit browsers (Chrome, Safari) */
 .white-scrollbar::-webkit-scrollbar {
   width: 3px;
-  background-color: #18181b;
+  background-color: var(--theme-scrollbar-track);
 }
 
 .white-scrollbar::-webkit-scrollbar-track {
-  background-color: #18181b;
+  background-color: var(--theme-scrollbar-track);
   margin-right: 8px;
 }
 
 .white-scrollbar::-webkit-scrollbar-thumb {
-  background-color: #ffffff;
+  background-color: var(--theme-scrollbar-thumb);
   border-radius: 4px;
-  border: 2px solid #18181b;
+  border: 2px solid var(--theme-scrollbar-track);
 }
 
 .white-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: #cccccc;
+  background-color: var(--theme-scrollbar-thumb-hover);
 }
 
 /* Recharts rendering styles */
 .recharts-text > * {
-  fill: #fff;
-}
-
-[data-theme="light"] .recharts-text > * {
-  fill: #000;
+  fill: var(--theme-text-primary);
 }
 
 .recharts-legend-wrapper {
@@ -1057,7 +1099,13 @@ does not extend the close button beyond the viewport. */
 }
 
 .rti--container {
-  @apply !bg-theme-settings-input-bg !text-white !placeholder-white !placeholder-opacity-60 !text-sm !rounded-lg !p-2.5;
+  background-color: var(--theme-settings-input-bg) !important;
+  color: var(--theme-settings-input-text) !important;
+  @apply !text-sm !rounded-lg !p-2.5;
+}
+
+.rti--input::placeholder {
+  color: var(--theme-settings-input-placeholder) !important;
 }
 
 @keyframes fadeUpIn {
@@ -1123,7 +1171,9 @@ does not extend the close button beyond the viewport. */
   background: #f0f7ff; /* soft blue background */
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
   animation: fadeIn 0.3s ease-out;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
   max-width: 450px;
   margin-left: 900px;
 }

@@ -5,6 +5,7 @@ import { AuthProvider } from "@/AuthContext";
 import PrivateRoute, {
   AdminRoute,
   ManagerRoute,
+  StudentRoute,
 } from "@/components/PrivateRoute";
 import { AUTH_TOKEN } from "@/utils/constants";
 import { ToastContainer } from "react-toastify";
@@ -61,6 +62,9 @@ import ThePowerOfHomeLanguage from "@/pages/Blog/ThePowerOfHomeLanguage";
 import DeleteAccount from "./components/DeleteAccount/DeleteAccount";
 
 const Main = lazy(() => import("@/pages/Main"));
+const EducationDashboard = lazy(() => import("./pages/EducationDashboard"));
+const educationHierarchyEnabled =
+  import.meta.env.VITE_ENABLE_EDUCATION_HIERARCHY === "true";
 
 function HomeRoute() {
   const token = localStorage.getItem(AUTH_TOKEN);
@@ -70,6 +74,7 @@ function HomeRoute() {
 const InvitePage = lazy(() => import("@/pages/Invite"));
 const WorkspaceChat = lazy(() => import("@/pages/WorkspaceChat"));
 const AdminUsers = lazy(() => import("@/pages/Admin/Users"));
+const EducationAccess = lazy(() => import("@/pages/Admin/EducationAccess"));
 const AdminInvites = lazy(() => import("@/pages/Admin/Invitations"));
 const AdminWorkspaces = lazy(() => import("@/pages/Admin/Workspaces"));
 const AdminLogs = lazy(() => import("@/pages/Admin/Logging"));
@@ -187,7 +192,10 @@ export default function App() {
                     <Route path="/payments/history" element={<PaymentHistory/ >} />
                     <Route path="parent/dashboard" element={<ParentDashboard/ >} />
                     <Route path="/link-student" element={<LinkParent/ >} />
-                    <Route path="/link-parent" element={<GenerateLinkCode/ >} />
+                    <Route
+                      path="/link-parent"
+                      element={<StudentRoute Component={GenerateLinkCode} />}
+                    />
                     <Route path="/parent/reports/:childId" element={<ParentReport/ >} />
                     <Route path="/upload-exam" element={<ExamPaperUpload/ >} />
 <Route path="/student/results" element={<StudentResults />} />
@@ -197,6 +205,18 @@ export default function App() {
 <Route path="/teacher/quiz-results/:quizId" element={<TeacherQuizResults />} />
 <Route path="/teacher/quizzes" element={<TeacherQuizResults />} />
 <Route path="/teacher/quizzes/:quizId" element={<TeacherQuizResults />} />
+                  {educationHierarchyEnabled && (
+                    <>
+                      <Route
+                        path="/education"
+                        element={<PrivateRoute Component={EducationDashboard} />}
+                      />
+                      <Route
+                        path="/education/:scopeType/:scopeId"
+                        element={<PrivateRoute Component={EducationDashboard} />}
+                      />
+                    </>
+                  )}
                   <Route
                     path="/workspace/:slug/settings/:tab"
                     element={<ManagerRoute Component={WorkspaceSettings} />}
@@ -322,6 +342,10 @@ export default function App() {
                   <Route
                     path="/settings/users"
                     element={<ManagerRoute Component={AdminUsers} />}
+                  />
+                  <Route
+                    path="/settings/education-access"
+                    element={<AdminRoute Component={EducationAccess} />}
                   />
                   <Route
                     path="/settings/workspaces"

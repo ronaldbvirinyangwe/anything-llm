@@ -14,6 +14,7 @@ const {
   loadYouTubeTranscript,
 } = require("../../utils/extensions/YoutubeTranscript");
 const RuntimeSettings = require("../../utils/runtimeSettings");
+const { assertSafeURL, safeFetch } = require("../../utils/url");
 
 /**
  * Scrape a generic URL and return the content in the specified format
@@ -152,37 +153,45 @@ async function getPageContent({ link, captureAs = "text", headers = {} }) {
           if (captureAs === "html") return document.documentElement.innerHTML;
           return document.body.innerText;
         }, captureAs);
-        await browser.close();
         return result;
       },
     });
 
-    // Override scrape method if headers are available
-    let overrideHeaders = validatedHeaders(headers);
-    if (Object.keys(overrideHeaders).length > 0) {
-      loader.scrape = async function () {
+    loader.scrape = secureScrape(loader, validatedHeaders(headers));
+
+    function secureScrape(loaderInstance, overrideHeaders) {
+      return async function () {
         const { launch } = await PuppeteerWebBaseLoader.imports();
         const browser = await launch({
           headless: "new",
           defaultViewport: null,
           ignoreDefaultArgs: ["--disable-extensions"],
-          ...this.options?.launchOptions,
+          ...loaderInstance.options?.launchOptions,
         });
-        const page = await browser.newPage();
-        await page.setExtraHTTPHeaders(overrideHeaders);
-
-        await page.goto(this.webPath, {
-          timeout: 180000,
-          waitUntil: "networkidle2",
-          ...this.options?.gotoOptions,
-        });
-
-        const bodyHTML = this.options?.evaluate
-          ? await this.options.evaluate(page, browser)
-          : await page.evaluate(() => document.body.innerHTML);
-
-        await browser.close();
-        return bodyHTML;
+        try {
+          const page = await browser.newPage();
+          if (Object.keys(overrideHeaders).length)
+            await page.setExtraHTTPHeaders(overrideHeaders);
+          await page.setRequestInterception(true);
+          page.on("request", async (request) => {
+            try {
+              await assertSafeURL(request.url());
+              request.continue();
+            } catch {
+              request.abort("blockedbyclient");
+            }
+          });
+          await page.goto(loaderInstance.webPath, {
+            timeout: 180000,
+            waitUntil: "networkidle2",
+            ...loaderInstance.options?.gotoOptions,
+          });
+          return loaderInstance.options?.evaluate
+            ? await loaderInstance.options.evaluate(page, browser)
+            : await page.evaluate(() => document.body.innerHTML);
+        } finally {
+          await browser.close();
+        }
       };
     }
 
@@ -197,7 +206,7 @@ async function getPageContent({ link, captureAs = "text", headers = {} }) {
   }
 
   try {
-    const pageText = await fetch(link, {
+    const pageText = await safeFetch(link, {
       method: "GET",
       headers: {
         "Content-Type": "text/plain",

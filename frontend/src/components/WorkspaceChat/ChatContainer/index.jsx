@@ -474,8 +474,11 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
         // so the guard actually works across all event handlers.
         let isMounted = true;
 
+        const token = localStorage.getItem("chikoroai_authToken");
         const socket = new WebSocket(
-          `${websocketURI()}/api/agent-invocation/${socketId}`
+          `${websocketURI()}/api/agent-invocation/${socketId}${
+            token ? `?token=${encodeURIComponent(token)}` : ""
+          }`
         );
         socket.supportsAgentStreaming = false;
 
@@ -819,9 +822,11 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
     const host = wsBase
       ? wsBase.replace(/^wss?:\/\//, "")
       : window.location.host.includes("localhost")
-        ? "localhost:3009"
+        ? "localhost:3001"
         : window.location.host;
-    const wsUrl = `${protocol}//${host}/ws/notifications`;
+    const token = localStorage.getItem("chikoroai_authToken");
+    if (!token) return;
+    const wsUrl = `${protocol}//${host}/ws/notifications?token=${encodeURIComponent(token)}`;
 
     let ws;
     try {
@@ -831,10 +836,6 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
       console.error("❌ Failed to create notification WebSocket:", error);
       return;
     }
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "register", userId: user.id }));
-    };
 
     ws.onmessage = (event) => {
       try {

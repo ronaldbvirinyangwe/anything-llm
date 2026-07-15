@@ -1,9 +1,9 @@
-import { useTheme } from "@/hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 import { useTranslation } from "react-i18next";
 
 export default function ThemePreference() {
   const { t } = useTranslation();
-  const { theme, setTheme, availableThemes } = useTheme();
+  const { theme, setTheme, availableThemes } = useThemeContext();
 
   return (
     <div className="flex flex-col gap-y-0.5 my-4">

@@ -8,7 +8,7 @@ import {
   ATTACHMENTS_PROCESSED_EVENT,
   REMOVE_ATTACHMENT_EVENT,
 } from "../../DnDWrapper";
-import { useTheme } from "@/hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 import ParsedFilesMenu from "./ParsedFilesMenu";
 
 /**
@@ -17,7 +17,7 @@ import ParsedFilesMenu from "./ParsedFilesMenu";
  */
 export default function AttachItem() {
   const { t } = useTranslation();
-  const { theme } = useTheme();
+  const { theme } = useThemeContext();
   const { slug, threadSlug = null } = useParams();
   const tooltipRef = useRef(null);
   const [isEmbedding, setIsEmbedding] = useState(false);

@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
-import { useTheme } from "@/hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 import {
   FiArrowLeft, FiLink, FiCopy, FiCheck, FiUsers, FiBook, FiUserPlus
 } from "react-icons/fi";
 
 export default function LinkStudent() {
-  const { theme } = useTheme();
+  const { theme } = useThemeContext();
   const [students, setStudents] = useState([]);
   const [availableStudents, setAvailableStudents] = useState([]);
   const [form, setForm] = useState({ studentId: "", subject: "" });

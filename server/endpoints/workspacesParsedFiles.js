@@ -72,8 +72,13 @@ function workspaceParsedFilesEndpoints(app) {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const thread = threadSlug
-          ? await WorkspaceThread.get({ slug: String(threadSlug) })
+          ? await WorkspaceThread.get({
+              slug: String(threadSlug),
+              workspace_id: workspace.id,
+              ...(multiUserMode(response) ? { user_id: user?.id } : {}),
+            })
           : null;
+        if (threadSlug && !thread) return response.sendStatus(404).end();
         const { files, contextWindow, currentContextTokenCount } =
           await WorkspaceParsedFiles.getContextMetadataAndLimits(
             workspace,
@@ -97,9 +102,17 @@ function workspaceParsedFilesEndpoints(app) {
     async function (request, response) {
       try {
         const { fileIds = [] } = reqBody(request);
-        if (!fileIds.length) return response.sendStatus(400).end();
+        const user = await userFromSession(request, response);
+        const workspace = response.locals.workspace;
+        const ids = Array.isArray(fileIds)
+          ? fileIds.map(Number).filter(Number.isInteger)
+          : [];
+        if (!ids.length || ids.length !== fileIds.length || ids.length > 100)
+          return response.sendStatus(400).end();
         const success = await WorkspaceParsedFiles.delete({
-          id: { in: fileIds.map((id) => parseInt(id)) },
+          id: { in: ids },
+          workspaceId: workspace.id,
+          ...(multiUserMode(response) ? { userId: user.id } : {}),
         });
         return response.status(success ? 200 : 500).end();
       } catch (e) {
@@ -122,9 +135,16 @@ function workspaceParsedFilesEndpoints(app) {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
 
-        if (!fileId) return response.sendStatus(400).end();
+        const parsedFileId = Number(fileId);
+        if (!Number.isInteger(parsedFileId)) return response.sendStatus(400).end();
+        const parsedFile = await WorkspaceParsedFiles.get({
+          id: parsedFileId,
+          workspaceId: workspace.id,
+          ...(multiUserMode(response) ? { userId: user.id } : {}),
+        });
+        if (!parsedFile) return response.sendStatus(404).end();
         const { success, error, document } =
-          await WorkspaceParsedFiles.moveToDocumentsAndEmbed(fileId, workspace);
+          await WorkspaceParsedFiles.moveToDocumentsAndEmbed(parsedFileId, workspace);
 
         if (!success) {
           return response.status(500).json({
@@ -151,9 +171,6 @@ function workspaceParsedFilesEndpoints(app) {
       } catch (e) {
         console.error(e.message, e);
         return response.sendStatus(500).end();
-      } finally {
-        if (!fileId) return;
-        await WorkspaceParsedFiles.delete({ id: parseInt(fileId) });
       }
     }
   );
@@ -163,8 +180,8 @@ function workspaceParsedFilesEndpoints(app) {
     [
       validatedRequest,
       flexUserRoleValid([ROLES.all]),
-      handleFileUpload,
       validWorkspaceSlug,
+      handleFileUpload,
     ],
     async function (request, response) {
       try {

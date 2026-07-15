@@ -9,7 +9,7 @@ import {
   FiCalendar, FiClock, FiLayers, FiUpload, FiX,
   FiEdit2, FiCheck, FiAlertTriangle,
 } from "react-icons/fi";
-import { useTheme } from "@/hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -418,7 +418,7 @@ const useSchemeStore = create((set, get) => ({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function SchemeOfWorkCreator() {
-  const { theme } = useTheme();
+  const { theme } = useThemeContext();
   const {
     formData, syllabusFile, holidayWeeks, scheme, isLoading, error,
     setFormField, setSyllabusFile, toggleHolidayWeek, updateWeek,

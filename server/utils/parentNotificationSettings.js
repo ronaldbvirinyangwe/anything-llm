@@ -1,24 +1,33 @@
 const express = require("express");
 const router = express.Router();
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
-const { authenticateToken } = require("./middleware/auth");
+const prisma = require("./prisma");
+const { validatedRequest } = require("./middleware/validatedRequest");
 
-router.get("/notification-settings/:childId", authenticateToken, async (req, res) => {
+router.get("/notification-settings/:childId", validatedRequest, async (req, res) => {
   try {
-    const { childId } = req.params;
-    const userId = req.user.id;
+    const childId = Number(req.params.childId);
+    const userId = res.locals.user?.id;
+    if (!Number.isInteger(childId) || !userId)
+      return res.status(400).json({ success: false, error: "Invalid child ID" });
 
     const parentRecord = await prisma.parents.findFirst({
       where: { user_id: userId },
+      select: { id: true },
     });
 
     if (!parentRecord) {
       return res.status(404).json({ success: false, error: "Parent record not found" });
     }
 
+    const link = await prisma.parent_students.findFirst({
+      where: { parentId: parentRecord.id, studentId: childId },
+      select: { id: true },
+    });
+    if (!link)
+      return res.status(403).json({ success: false, error: "Child access denied" });
+
     const settings = await prisma.parentNotificationSettings.findFirst({
-      where: { parentId: parentRecord.id, studentId: parseInt(childId) },
+      where: { parentId: parentRecord.id, studentId: childId },
     });
 
     res.json({
@@ -26,7 +35,7 @@ router.get("/notification-settings/:childId", authenticateToken, async (req, res
       settings: settings || {
         weeklyDigest: true,
         alertsEnabled: true,
-        alertThreshold: 40,
+        alertThreshold: 70,
       },
     });
   } catch (err) {
@@ -35,13 +44,25 @@ router.get("/notification-settings/:childId", authenticateToken, async (req, res
   }
 });
 
-router.post("/notification-settings", authenticateToken, async (req, res) => {
+router.post("/notification-settings", validatedRequest, async (req, res) => {
   try {
     const { childId, weeklyDigest, alertsEnabled, alertThreshold } = req.body;
-    const userId = req.user.id;
+    const studentId = Number(childId);
+    const threshold = Number(alertThreshold);
+    const userId = res.locals.user?.id;
+    if (
+      !userId ||
+      !Number.isInteger(studentId) ||
+      typeof weeklyDigest !== "boolean" ||
+      typeof alertsEnabled !== "boolean" ||
+      !Number.isInteger(threshold) ||
+      threshold < 0 ||
+      threshold > 100
+    ) return res.status(400).json({ success: false, error: "Invalid settings" });
 
     const parentRecord = await prisma.parents.findFirst({
       where: { user_id: userId },
+      select: { id: true },
     });
 
     if (!parentRecord) {
@@ -49,13 +70,19 @@ router.post("/notification-settings", authenticateToken, async (req, res) => {
     }
 
     const parentId = parentRecord.id;
+    const link = await prisma.parent_students.findFirst({
+      where: { parentId, studentId },
+      select: { id: true },
+    });
+    if (!link)
+      return res.status(403).json({ success: false, error: "Child access denied" });
 
     const settings = await prisma.parentNotificationSettings.upsert({
       where: {
-        parentId_studentId: { parentId, studentId: parseInt(childId) },
+        parentId_studentId: { parentId, studentId },
       },
-      update: { weeklyDigest, alertsEnabled, alertThreshold },
-      create: { parentId, studentId: parseInt(childId), weeklyDigest, alertsEnabled, alertThreshold },
+      update: { weeklyDigest, alertsEnabled, alertThreshold: threshold },
+      create: { parentId, studentId, weeklyDigest, alertsEnabled, alertThreshold: threshold },
     });
 
     res.json({ success: true, settings });
@@ -65,24 +92,27 @@ router.post("/notification-settings", authenticateToken, async (req, res) => {
   }
 });
 
-router.post("/parent-contact", authenticateToken, async (req, res) => {
+router.post("/parent-contact", validatedRequest, async (req, res) => {
   try {
     const { email } = req.body;
-    const userId = Number(req.user.id);
+    const userId = res.locals.user?.id;
 
-    if (!email || !email.includes("@")) {
+    if (!userId || typeof email !== "string" || email.length > 254 || !/^\S+@\S+\.\S+$/.test(email)) {
       return res.status(400).json({ success: false, error: "Invalid email" });
     }
 
-    const user = await prisma.users.findUnique({ where: { id: userId } });
+    const user = await prisma.users.findUnique({
+      where: { id: userId },
+      select: { username: true },
+    });
 
     const result = await prisma.parents.upsert({
       where: { user_id: userId },
-      update: { email },
+      update: { email: email.trim() },
       create: {
         user_id: userId,
-        email,
-        name: user?.username || user?.name || "Parent",
+        email: email.trim(),
+        name: user?.username || "Parent",
       },
     });
 
@@ -93,4 +123,3 @@ router.post("/parent-contact", authenticateToken, async (req, res) => {
   }
 });
 module.exports = router;
-

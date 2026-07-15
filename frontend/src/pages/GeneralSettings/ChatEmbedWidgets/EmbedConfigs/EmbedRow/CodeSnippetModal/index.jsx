@@ -4,6 +4,7 @@ import showToast from "@/utils/toast";
 import hljs from "highlight.js";
 import "@/utils/chat/themes/github-dark.css";
 import "@/utils/chat/themes/github.css";
+import DOMPurify from "@/utils/chat/purify";
 
 export default function CodeSnippetModal({ embed, closeModal }) {
   return (
@@ -106,10 +107,12 @@ const ScriptTag = ({ embed }) => {
         <div
           className="flex w-full text-left flex-col gap-y-1 pr-6 pl-4 whitespace-pre-line"
           dangerouslySetInnerHTML={{
-            __html: hljs.highlight(snippet, {
-              language: "html",
-              ignoreIllegals: true,
-            }).value,
+            __html: DOMPurify.sanitize(
+              hljs.highlight(snippet, {
+                language: "html",
+                ignoreIllegals: true,
+              }).value
+            ),
           }}
         />
         {copied ? (

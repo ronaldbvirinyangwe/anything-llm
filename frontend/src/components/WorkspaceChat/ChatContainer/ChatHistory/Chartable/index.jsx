@@ -31,6 +31,7 @@ import CustomCell from "./CustomCell.jsx";
 import Tooltip from "./CustomTooltip.jsx";
 import { safeJsonParse } from "@/utils/request.js";
 import renderMarkdown from "@/utils/chat/markdown.js";
+import DOMPurify from "@/utils/chat/purify";
 import { WorkspaceProfileImage } from "../PromptReply/index.jsx";
 import { memo, useCallback, useState } from "react";
 import { saveAs } from "file-saver";
@@ -397,7 +398,7 @@ export function Chartable({ props, workspace }) {
               <span
                 className={`flex flex-col gap-y-1 mt-2`}
                 dangerouslySetInnerHTML={{
-                  __html: renderMarkdown(content.caption),
+                  __html: DOMPurify.sanitize(renderMarkdown(content.caption)),
                 }}
               />
             </div>
@@ -418,7 +419,7 @@ export function Chartable({ props, workspace }) {
           <span
             className={`flex flex-col gap-y-1 mt-2`}
             dangerouslySetInnerHTML={{
-              __html: renderMarkdown(content.caption),
+              __html: DOMPurify.sanitize(renderMarkdown(content.caption)),
             }}
           />
         </div>

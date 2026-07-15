@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import DOMPurify from "@/utils/chat/purify";
 import axios from "axios";
 import { Link } from "react-router-dom";
 import katex from "katex";
@@ -786,11 +787,11 @@ function MathText({ text }) {
     <span style={{ textTransform: "none" }}>
       {parts.map((part, i) => {
         if (part.startsWith("$$") && part.endsWith("$$") && part.length > 4) {
-          try { return <span key={i} dangerouslySetInnerHTML={{ __html: katex.renderToString(part.slice(2,-2), { displayMode: true, throwOnError: false }) }} />; }
+          try { return <span key={i} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(katex.renderToString(part.slice(2,-2), { displayMode: true, throwOnError: false })) }} />; }
           catch { return <span key={i}>{part}</span>; }
         }
         if (part.startsWith("$") && part.endsWith("$") && part.length > 2) {
-          try { return <span key={i} dangerouslySetInnerHTML={{ __html: katex.renderToString(part.slice(1,-1), { throwOnError: false }) }} />; }
+          try { return <span key={i} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(katex.renderToString(part.slice(1,-1), { throwOnError: false })) }} />; }
           catch { return <span key={i}>{part}</span>; }
         }
         return <span key={i}>{part}</span>;

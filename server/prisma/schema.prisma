@@ -145,6 +145,9 @@ model users {
   workspace_parsed_files      workspace_parsed_files[]
   threads                     workspace_threads[]
   workspace_users             workspace_users[]
+  organization_memberships    organization_memberships[]
+  submittedSchoolVerifications school_verification_submissions[] @relation("SchoolVerificationSubmitter")
+  reviewedSchoolVerifications  school_verification_submissions[] @relation("SchoolVerificationReviewer")
 }
 
 model recovery_codes {
@@ -488,6 +491,7 @@ model students {
     student_courses                 student_courses[]                   // ← add this
   student_lesson_progress         student_lesson_progress[]           // ← add this
   student_assignment_submissions  student_assignment_submissions[]  
+  class_students                  class_students[]
 
   @@index([user_id])
   @@map("students")
@@ -502,6 +506,7 @@ model teachers {
   class_links      class_links[]
   shared_quizzes   shared_quizzes[]
   teacher_students teacher_students[]
+  class_teachers   class_teachers[]
   user             users              @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
@@ -802,4 +807,131 @@ model student_assignment_submissions {
 
   @@index([studentId])
   @@index([assignmentId])
+}
+
+model organizations {
+  id                      Int                               @id @default(autoincrement())
+  code                    String                            @unique
+  name                    String
+  type                    String
+  parentId                Int?
+  active                  Boolean                           @default(true)
+  metadata                Json?
+  createdAt               DateTime                          @default(now())
+  updatedAt               DateTime                          @updatedAt
+  parent                  organizations?                    @relation("OrganizationTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children                organizations[]                   @relation("OrganizationTree")
+  memberships             organization_memberships[]
+  classes                 education_classes[]
+  verificationSubmissions school_verification_submissions[]
+
+  @@index([parentId])
+  @@index([type])
+}
+
+model organization_memberships {
+  id             Int           @id @default(autoincrement())
+  organizationId Int
+  userId         Int
+  role           String
+  canViewPii     Boolean       @default(false)
+  validFrom      DateTime      @default(now())
+  validTo        DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   organizations @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           users         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, role])
+  @@index([userId])
+}
+
+model academic_periods {
+  id        Int                 @id @default(autoincrement())
+  code      String              @unique
+  name      String
+  year      Int
+  term      Int?
+  startsAt  DateTime
+  endsAt    DateTime
+  active    Boolean             @default(true)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  classes   education_classes[]
+}
+
+model education_classes {
+  id               Int              @id @default(autoincrement())
+  code             String           @unique
+  schoolId         Int
+  academicPeriodId Int
+  name             String
+  grade            String?
+  curriculum       String?
+  subject          String?
+  active           Boolean          @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  school           organizations    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicPeriod   academic_periods @relation(fields: [academicPeriodId], references: [id], onDelete: Restrict)
+  students         class_students[]
+  teachers         class_teachers[]
+
+  @@index([schoolId])
+  @@index([academicPeriodId])
+}
+
+model class_students {
+  id         Int               @id @default(autoincrement())
+  classId    Int
+  studentId  Int
+  status     String            @default("active")
+  enrolledAt DateTime          @default(now())
+  leftAt     DateTime?
+  class      education_classes @relation(fields: [classId], references: [id], onDelete: Cascade)
+  student    students          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, studentId])
+  @@index([studentId])
+}
+
+model class_teachers {
+  id        Int               @id @default(autoincrement())
+  classId   Int
+  teacherId Int
+  subject   String?
+  role      String            @default("teacher")
+  createdAt DateTime          @default(now())
+  class     education_classes @relation(fields: [classId], references: [id], onDelete: Cascade)
+  teacher   teachers          @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, teacherId, subject])
+  @@index([teacherId])
+}
+
+model school_verification_submissions {
+  id                   Int           @id @default(autoincrement())
+  schoolId             Int
+  submittedBy          Int
+  proposedName         String?
+  schoolLevel          String
+  provinceId           Int
+  districtId           Int
+  sector               String
+  responsibleAuthority String
+  address              String?
+  notes                String?
+  status               String        @default("pending")
+  reviewedBy           Int?
+  reviewNotes          String?
+  reviewedAt           DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  school               organizations @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  submitter            users         @relation("SchoolVerificationSubmitter", fields: [submittedBy], references: [id], onDelete: Cascade)
+  reviewer             users?        @relation("SchoolVerificationReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([schoolId, status])
+  @@index([submittedBy])
+  @@index([status, createdAt])
 }

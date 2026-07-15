@@ -4,7 +4,7 @@ import { BrowserRouter as Router } from "react-router-dom";
 import App from "@/App.jsx";
 import "./chunkErrorHandler.js";
 import "@/index.css";
-const isDev = process.env.NODE_ENV !== "production";
+const isDev = import.meta.env.DEV;
 const REACTWRAP = isDev ? React.Fragment : React.StrictMode;
 
 ReactDOM.createRoot(document.getElementById("root")).render(

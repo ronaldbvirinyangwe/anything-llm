@@ -43,6 +43,9 @@ const {
 const { fetchPfp, determinePfpFilepath } = require("../utils/files/pfp");
 const { exportChatsAsType } = require("../utils/helpers/chat/convertTo");
 const { EventLogs } = require("../models/eventLogs");
+const {
+  syncTeacherStudentToEducationClass,
+} = require("../utils/educationCompatibility");
 const { CollectorApi } = require("../utils/collectorApi");
 const {
   recoverAccount,
@@ -62,8 +65,7 @@ const {
 const { TemporaryAuthToken } = require("../models/temporaryAuthToken");
 const { SystemPromptVariables } = require("../models/systemPromptVariables");
 const { VALID_COMMANDS } = require("../utils/chats");
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+const prisma = require("../utils/prisma");
 const { Workspace } = require("../models/workspace");
 const jwt = require("jsonwebtoken");
 const { Paynow } = require("paynow");
@@ -103,6 +105,50 @@ const ECOCASH_REGEX = /^(07[7-8])[0-9]{7}$/;
 
 function systemEndpoints(app) {
   if (!app) return;
+
+  async function canAccessStudent(user, student) {
+    if (!user?.id || !student) return false;
+    if (Number(student.user_id) === Number(user.id)) return true;
+    if ([ROLES.admin, ROLES.manager].includes(user.role)) return true;
+
+    if (user.role === "teacher") {
+      const teacher = await prisma.teachers.findFirst({
+        where: { user_id: user.id },
+        select: { id: true },
+      });
+      if (!teacher) return false;
+      return Boolean(await prisma.teacher_students.findFirst({
+        where: { teacherId: teacher.id, studentId: student.id },
+        select: { id: true },
+      }));
+    }
+
+    if (user.role === "parent") {
+      const parent = await prisma.parents.findFirst({
+        where: { user_id: user.id },
+        select: { id: true },
+      });
+      if (!parent) return false;
+      return Boolean(await prisma.parent_students.findFirst({
+        where: { parentId: parent.id, studentId: student.id },
+        select: { id: true },
+      }));
+    }
+
+    return false;
+  }
+
+  function validAnswerArray(answers, maxItems = 100) {
+    return Array.isArray(answers) &&
+      answers.length > 0 &&
+      answers.length <= maxItems &&
+      answers.every((answer) =>
+        (typeof answer === "string" && answer.length <= 10_000) ||
+        (answer && typeof answer === "object" &&
+          Number.isInteger(Number(answer.questionIndex)) &&
+          typeof answer.answer === "string" && answer.answer.length <= 10_000)
+      );
+  }
 
   app.get("/ping", (_, response) => {
     response.status(200).json({ online: true });
@@ -1125,6 +1171,7 @@ app.post("/system/enrol/parent", [validatedRequest], async (request, response) =
 
 app.get("/system/student/:userId", [validatedRequest], async (request, response) => {
   try {
+    const sessionUser = response.locals.user;
     const userId = Number(request.params.userId);
 
     if (!Number.isInteger(userId)) {
@@ -1136,7 +1183,7 @@ app.get("/system/student/:userId", [validatedRequest], async (request, response)
 
     const student = await prisma.students.findFirst({
       where: { user_id: userId },
-      include: { user: true },
+      include: { user: { select: { id: true, username: true, role: true, pfpFilename: true } } },
     });
 
     if (!student) {
@@ -1145,6 +1192,9 @@ app.get("/system/student/:userId", [validatedRequest], async (request, response)
         error: "Student not found",
       });
     }
+
+    if (!(await canAccessStudent(sessionUser, student)))
+      return response.status(403).json({ success: false, error: "Access denied" });
 
     if (
       student.subscription_expiration_date &&
@@ -1163,14 +1213,9 @@ app.get("/system/student/:userId", [validatedRequest], async (request, response)
   }
 });
 
-app.get("/system/teacher/my-quizzes", async (req, res) => {
+app.get("/system/teacher/my-quizzes", [validatedRequest], async (req, res) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1];
-    if (!token) return res.status(401).json({ success: false, error: "Unauthorized" });
-
-    // 1. Get User ID
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId = decoded.userId || decoded.id || decoded.user_id || decoded.sub;
+    const userId = res.locals.user.id;
 
     // 2. Find Teacher Profile
     const teacher = await prisma.teachers.findFirst({
@@ -1215,16 +1260,19 @@ app.get("/system/teacher/my-quizzes", async (req, res) => {
 });
 app.get("/system/teacher/:userId", [validatedRequest], async (request, response) => {
   try {
+    const sessionUser = response.locals.user;
     const { userId } = request.params;
     const id = Number(userId);
 
     if (isNaN(id)) {
       return response.status(400).json({ success: false, error: "Invalid teacher ID." });
     }
+    if (id !== sessionUser.id && ![ROLES.admin, ROLES.manager].includes(sessionUser.role))
+      return response.status(403).json({ success: false, error: "Access denied" });
 
     const teacher = await prisma.teachers.findFirst({
       where: { user_id: id },
-      include: { user: true },
+      include: { user: { select: { id: true, username: true, role: true, pfpFilename: true } } },
     });
 
     if (!teacher) {
@@ -1240,10 +1288,13 @@ app.get("/system/teacher/:userId", [validatedRequest], async (request, response)
 
    app.get("/system/parent/:userId", [validatedRequest], async (request, response) => {
     try {
+      const sessionUser = response.locals.user;
       const { userId } = request.params;
+      if (Number(userId) !== sessionUser.id && ![ROLES.admin, ROLES.manager].includes(sessionUser.role))
+        return response.status(403).json({ success: false, error: "Access denied" });
       const parent = await prisma.parents.findFirst({
         where: { user_id: Number(userId) },
-        include: { user: true },
+        include: { user: { select: { id: true, username: true, role: true, pfpFilename: true } } },
       });
 
       if (!parent) {
@@ -2069,6 +2120,17 @@ app.post("/quiz/mark", [validatedRequest], async (req, res) => {
   const user = res.locals.user;
 
   try {
+    if (
+      !user?.id ||
+      !quiz ||
+      !Array.isArray(quiz.questions) ||
+      quiz.questions.length < 1 ||
+      quiz.questions.length > 100 ||
+      !validAnswerArray(answers) ||
+      answers.length !== quiz.questions.length
+    ) {
+      return res.status(400).json({ success: false, error: "Invalid quiz or answers." });
+    }
     // ---------- Helper functions ----------
     const normalize = (s = "") =>
       String(s || "")
@@ -2353,7 +2415,14 @@ app.post("/quiz/submit", [validatedRequest], async (req, res) => {
     // 2. Extract payload
     const { quiz, answers } = reqBody(req);
 
-    if (!quiz || !quiz.questions || !answers || !Array.isArray(answers)) {
+    if (
+      !quiz ||
+      !Array.isArray(quiz.questions) ||
+      quiz.questions.length < 1 ||
+      quiz.questions.length > 100 ||
+      !validAnswerArray(answers) ||
+      answers.length !== quiz.questions.length
+    ) {
       return res.status(400).json({ success: false, error: "Missing or invalid quiz payload." });
     }
 
@@ -2530,10 +2599,10 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
     }
 
     // 🔔 Parent notification for low scores (non-blocking)
-   prisma.students.findFirst({ where: { user_id: studentId }, select: { id: true, name: true } })
+   prisma.students.findFirst({ where: { user_id: sessionUser.id }, select: { id: true, name: true } })
   .then((student) => {
     return sendLowScoreAlert({
-      childId: student?.id ?? studentId, // use the students.id, not the users.id, if downstream code expects it
+      childId: student?.id ?? sessionUser.id,
       childName: student?.name || "Your child",
       subject: quiz.subject,
       score: finalScore,
@@ -3072,6 +3141,10 @@ app.get("/system/reports/student/:id", [validatedRequest], async (request, respo
       return response.status(404).json({ success: false, error: "Student not found" });
     }
 
+    if (!(await canAccessStudent(sessionUser, student))) {
+      return response.status(403).json({ success: false, error: "Student access denied" });
+    }
+
     if (!student.user_id) {
       return response.status(400).json({ success: false, error: "Student record has no user_id" });
     }
@@ -3577,10 +3650,17 @@ app.get("/system/flashcards/weak-areas/:userId", [validatedRequest], async (requ
       return response.status(401).json({ success: false, error: "Unauthorized" });
     }
 
-    const userId = parseInt(request.params.userId);
+    const requestedUserId = Number(request.params.userId);
+    const student = await prisma.students.findFirst({
+      where: { user_id: requestedUserId },
+      select: { id: true, user_id: true },
+    });
+    if (!student) return response.status(404).json({ success: false, error: "Student not found." });
+    if (!(await canAccessStudent(sessionUser, student)))
+      return response.status(403).json({ success: false, error: "Student access denied." });
 
     const cards = await prisma.weakAreaCard.findMany({
-      where: { userId },
+      where: { userId: student.user_id },
       orderBy: [
         { resolved: "asc" },      // unresolved first
         { timesWrong: "desc" },   // most persistent first
@@ -3669,27 +3749,33 @@ app.post("/flashcards/mastery/xp", [validatedRequest], async (req, res) => {
   }
 });
 
-app.post("/system/link-student/:userId", async (req, res) => {
+app.post("/system/link-student/:userId", [validatedRequest], async (req, res) => {
   try {
-    const { userId } = req.params;
     const { studentId, subject } = req.body;
-    const id = Number(userId);
+    const id = res.locals.user.id;
+    const parsedStudentId = Number(studentId);
 
-    if (isNaN(id) || !studentId || !subject)
+    if (!Number.isInteger(parsedStudentId) || typeof subject !== "string" || !subject.trim() || subject.length > 200)
       return res.status(400).json({ success: false, error: "Invalid request data." });
 
-    const teacher = await prisma.teachers.findFirst({ where: { userId: id } });
+    const teacher = await prisma.teachers.findFirst({ where: { user_id: id } });
     if (!teacher) return res.status(404).json({ success: false, error: "Teacher profile not found." });
 
     const existing = await prisma.teacher_students.findFirst({
-      where: { teacherId: teacher.id, studentId },
+      where: { teacherId: teacher.id, studentId: parsedStudentId },
     });
     if (existing)
       return res.status(409).json({ success: false, error: "Student already linked." });
 
     const link = await prisma.teacher_students.create({
-      data: { teacherId: teacher.id, studentId, subject },
+      data: { teacherId: teacher.id, studentId: parsedStudentId, subject: subject.trim() },
     });
+
+    syncTeacherStudentToEducationClass({
+      teacherId: teacher.id,
+      studentId: parsedStudentId,
+      subject: subject.trim(),
+    }).catch((error) => console.error("Education hierarchy sync failed:", error));
 
     res.json({ success: true, link });
   } catch (err) {
@@ -3701,6 +3787,17 @@ app.post("/system/link-student/:userId", async (req, res) => {
 app.post("/system/teacher/generate-quiz", [validatedRequest], async (req, res) => {
   try {
     const { subject, topic, grade, difficulty, numQuestions, questionType, curriculum } = req.body;
+    const questionCount = Number(numQuestions);
+    if (
+      typeof subject !== "string" || !subject.trim() || subject.length > 500 ||
+      (typeof grade !== "string" && typeof grade !== "number") || String(grade).length > 50 ||
+      topic && (typeof topic !== "string" || topic.length > 500) ||
+      !Number.isInteger(questionCount) || questionCount < 1 || questionCount > 100 ||
+      !["multiple-choice", "structured", "mixed"].includes(questionType) ||
+      difficulty && !["easy", "medium", "hard"].includes(difficulty)
+    ) {
+      return res.status(400).json({ success: false, error: "Invalid quiz generation input." });
+    }
 
     const gradeNum = parseInt(grade) || 0;
     const ageRange = gradeNum <= 2 ? "6-8 years old" : gradeNum <= 4 ? "9-10 years old" : gradeNum <= 7 ? "11-13 years old" : gradeNum <= 9 ? "14-15 years old" : "16-18 years old";
@@ -3974,23 +4071,36 @@ function cleanThinkingModelOutput(rawText, contentType = 'general') {
 app.post("/system/teacher/share-quiz-with-class", [validatedRequest], async (req, res) => {
   try {
     const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.user_id) {
+    if (!sessionUser?.id) {
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
     const { quiz, subject, topic, difficulty, studentIds,timeLimit,tabLimit } = req.body;
+    const parsedStudentIds = Array.isArray(studentIds) ? studentIds.map(Number) : [];
+    if (
+      typeof quiz !== "string" || !quiz.trim() || quiz.length > 100_000 ||
+      typeof subject !== "string" || !subject.trim() || subject.length > 500 ||
+      parsedStudentIds.length < 1 || parsedStudentIds.length > 100 ||
+      parsedStudentIds.some((id) => !Number.isInteger(id)) ||
+      new Set(parsedStudentIds).size !== parsedStudentIds.length
+    ) return res.status(400).json({ success: false, error: "Invalid quiz assignment." });
 
     // Generate unique quiz code
     const crypto = await import("crypto");
     const quizCode = crypto.randomBytes(6).toString("hex").toUpperCase();
 
     const teacher = await prisma.teachers.findFirst({
-      where: { user_id: sessionUser.user_id }
+      where: { user_id: sessionUser.id }
     });
 
     if (!teacher) {
       return res.status(400).json({ success: false, error: "Teacher record not found" });
     }
+    const linkedStudentCount = await prisma.teacher_students.count({
+      where: { teacherId: teacher.id, studentId: { in: parsedStudentIds } },
+    });
+    if (linkedStudentCount !== new Set(parsedStudentIds).size)
+      return res.status(403).json({ success: false, error: "One or more students are not linked to this teacher." });
 
     // Save quiz to database
     const savedQuiz = await prisma.shared_quizzes.create({
@@ -4009,7 +4119,7 @@ app.post("/system/teacher/share-quiz-with-class", [validatedRequest], async (req
     });
 
     // Link quiz to specific students
-    const studentQuizLinks = studentIds.map(studentId => ({
+    const studentQuizLinks = parsedStudentIds.map(studentId => ({
       quiz_id: savedQuiz.id,
       student_id: studentId,
       assigned_at: new Date(),
@@ -4023,7 +4133,7 @@ app.post("/system/teacher/share-quiz-with-class", [validatedRequest], async (req
     // Get student user IDs from student records
     const students = await prisma.students.findMany({
       where: {
-        id: { in: studentIds }
+        id: { in: parsedStudentIds }
       },
       select: {
         id: true,
@@ -4095,14 +4205,14 @@ app.post("/system/teacher/share-quiz-with-class", [validatedRequest], async (req
 app.get("/system/notifications/unread", [validatedRequest], async (req, res) => {
   try {
     const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.user_id) {
+    if (!sessionUser?.id) {
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
     // Fetch unread quiz notifications
     const notifications = await prisma.notifications.findMany({
       where: {
-        userId: sessionUser.user_id,
+        userId: sessionUser.id,
         type: 'quiz_assigned',
         read: false,
       },
@@ -4112,7 +4222,7 @@ app.get("/system/notifications/unread", [validatedRequest], async (req, res) => 
       take: 20
     });
 
-    console.log(`📬 User ${sessionUser.user_id} has ${notifications.length} unread notifications`);
+    console.log(`📬 User ${sessionUser.id} has ${notifications.length} unread notifications`);
 
     res.json({
       success: true,
@@ -4134,7 +4244,7 @@ app.get("/system/notifications/unread", [validatedRequest], async (req, res) => 
 app.patch("/system/notifications/:id/read", [validatedRequest], async (req, res) => {
   try {
     const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.user_id) {
+    if (!sessionUser?.id) {
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
@@ -4144,7 +4254,7 @@ app.patch("/system/notifications/:id/read", [validatedRequest], async (req, res)
     const notification = await prisma.notifications.findFirst({
       where: {
         id: notificationId,
-        userId: sessionUser.user_id,
+        userId: sessionUser.id,
       }
     });
 
@@ -4170,7 +4280,7 @@ app.patch("/system/notifications/:id/read", [validatedRequest], async (req, res)
 app.post("/system/push-token", [validatedRequest], async (req, res) => {
   try {
     const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.user_id) {
+    if (!sessionUser?.id) {
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
@@ -4182,11 +4292,11 @@ app.post("/system/push-token", [validatedRequest], async (req, res) => {
     // Upsert — avoids duplicates if the user re-registers
     await prisma.pushToken.upsert({
       where: { token },
-      update: { userId: sessionUser.user_id, platform: platform || 'unknown' },
-      create: { userId: sessionUser.user_id, token, platform: platform || 'unknown' },
+      update: { userId: sessionUser.id, platform: platform || 'unknown' },
+      create: { userId: sessionUser.id, token, platform: platform || 'unknown' },
     });
 
-    console.log(`📱 Push token registered for user ${sessionUser.user_id}`);
+    console.log(`📱 Push token registered for user ${sessionUser.id}`);
     res.json({ success: true });
   } catch (err) {
     console.error("Error saving push token:", err);
@@ -4197,18 +4307,22 @@ app.post("/system/push-token", [validatedRequest], async (req, res) => {
 app.post("/system/teacher/create-quiz-link", [validatedRequest], async (req, res) => {
   try {
     const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.user_id) {
+    if (!sessionUser?.id) {
       return res.status(401).json({ success: false, error: "Unauthorized" });
     }
 
     // ✅ FIX: Destructure timeLimit and tabLimit from req.body
     const { quiz, subject, topic, difficulty, timeLimit, tabLimit } = req.body;
+    if (
+      typeof quiz !== "string" || !quiz.trim() || quiz.length > 100_000 ||
+      typeof subject !== "string" || !subject.trim() || subject.length > 500
+    ) return res.status(400).json({ success: false, error: "Invalid quiz." });
 
     const crypto = await import("crypto");
     const quizCode = crypto.randomBytes(6).toString("hex").toUpperCase();
     
     const teacher = await prisma.teachers.findFirst({
-      where: { user_id: sessionUser.user_id },
+      where: { user_id: sessionUser.id },
     });
 
     if (!teacher) {
@@ -4282,16 +4396,33 @@ app.get("/system/quiz/:code", async (req, res) => {
 
 
 
-app.post("/system/student/submit-quiz", async (req, res) => {
+app.post("/system/student/submit-quiz", [validatedRequest], async (req, res) => {
   try {
+    const sessionUser = res.locals.user;
     const {
       quizCode,
       answers,
-      studentId,
       tabViolations,
       tabLimitExceeded,
       autoSubmitted,
     } = req.body;
+
+    if (
+      !sessionUser?.id ||
+      typeof quizCode !== "string" ||
+      quizCode.length < 1 ||
+      quizCode.length > 100 ||
+      !validAnswerArray(answers)
+    ) {
+      return res.status(400).json({ success: false, error: "Invalid quiz submission." });
+    }
+
+    const student = await prisma.students.findFirst({
+      where: { user_id: sessionUser.id },
+      select: { id: true, name: true, user_id: true },
+    });
+    if (!student)
+      return res.status(403).json({ success: false, error: "Student profile required." });
 
     const quiz = await prisma.shared_quizzes.findUnique({
       where: { quiz_code: quizCode },
@@ -4300,11 +4431,19 @@ app.post("/system/student/submit-quiz", async (req, res) => {
     if (!quiz) {
       return res.status(404).json({ success: false, error: "Quiz not found" });
     }
+    if (quiz.is_class_specific) {
+      const assignment = await prisma.student_quiz_assignments.findFirst({
+        where: { quiz_id: quiz.id, student_id: student.id },
+        select: { id: true },
+      });
+      if (!assignment)
+        return res.status(403).json({ success: false, error: "This quiz is not assigned to you." });
+    }
 
     // ✅ Check if student already submitted this quiz
     const existingSubmission = await prisma.quiz_results.findFirst({
       where: {
-        user_id: studentId,
+        user_id: sessionUser.id,
         quiz_code: quizCode,
       },
     });
@@ -4349,6 +4488,15 @@ app.post("/system/student/submit-quiz", async (req, res) => {
         markScheme: markScheme,
       };
     });
+
+    const answerIndexes = answers.map((answer) => Number(answer.questionIndex));
+    if (
+      answers.length > parsedQuestions.length ||
+      new Set(answerIndexes).size !== answerIndexes.length ||
+      answerIndexes.some((index) => index < 0 || index >= parsedQuestions.length)
+    ) {
+      return res.status(400).json({ success: false, error: "Answers do not match this quiz." });
+    }
 
     // 🧮 Grade and generate feedback
     const detailedFeedback = [];
@@ -4479,7 +4627,7 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
     try {
       const result = await prisma.quiz_results.create({
         data: {
-          user_id: studentId,
+          user_id: sessionUser.id,
           subject: quiz.subject,
           quiz_code: quiz.quiz_code,
           shared_quiz_id: quiz.id,
@@ -4492,11 +4640,10 @@ Remember: Start your response with "SCORE:" immediately. No preamble.`;
       });
 
       // 🔔 Parent notification for low scores (non-blocking)
-     prisma.students.findFirst({ where: { user_id: studentId }, select: { id: true, name: true } })
-  .then((student) => {
+     Promise.resolve(student).then((studentProfile) => {
     return sendLowScoreAlert({
-      childId: student?.id ?? studentId, // use the students.id, not the users.id, if downstream code expects it
-      childName: student?.name || "Your child",
+      childId: studentProfile.id,
+      childName: studentProfile.name || "Your child",
       subject: quiz.subject,
       score: finalScore,
       quizId: result.id,
@@ -4596,12 +4743,12 @@ function cleanAIResponse(text) {
 }
 
 // Get student's own quiz results
-app.get("/system/student/my-results/:studentId", async (req, res) => {
+app.get("/system/student/my-results/:studentId", [validatedRequest], async (req, res) => {
   try {
-    const { studentId } = req.params;
+    const userId = res.locals.user.id;
 
     const results = await prisma.quiz_results.findMany({
-      where: { user_id: parseInt(studentId) },
+      where: { user_id: userId },
       include: {
         shared_quiz: {
           select: {
@@ -4649,12 +4796,15 @@ app.get("/system/student/my-results/:studentId", async (req, res) => {
 });
 
 // Get detailed result for a specific quiz
-app.get("/system/student/result-detail/:resultId", async (req, res) => {
+app.get("/system/student/result-detail/:resultId", [validatedRequest], async (req, res) => {
   try {
     const { resultId } = req.params;
 
-    const result = await prisma.quiz_results.findUnique({
-      where: { id: parseInt(resultId) },
+    const id = Number(resultId);
+    if (!Number.isInteger(id))
+      return res.status(400).json({ success: false, error: "Invalid result ID" });
+    const result = await prisma.quiz_results.findFirst({
+      where: { id, user_id: res.locals.user.id },
       include: {
         shared_quiz: {
           select: {
@@ -4708,18 +4858,10 @@ app.get("/system/student/result-detail/:resultId", async (req, res) => {
 
 // Get detailed result for a specific quiz (for teachers)
 // Get detailed result for a specific quiz (for teachers)
-app.get("/system/teacher/result-detail/:resultId", async (req, res) => {
+app.get("/system/teacher/result-detail/:resultId", [validatedRequest], async (req, res) => {
   try {
     const { resultId } = req.params;
-    const token = req.headers.authorization?.split(" ")[1];
-    
-    if (!token) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    // 1. Get User ID
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId = decoded.userId || decoded.id || decoded.user_id || decoded.sub;
+    const userId = res.locals.user.id;
 
     // 2. ✅ FIX: Find the Teacher Profile first (Ownership Check Fix)
     const teacherProfile = await prisma.teachers.findFirst({
@@ -4767,8 +4909,16 @@ app.get("/system/teacher/result-detail/:resultId", async (req, res) => {
       });
     }
 
-    // 4. ✅ FIX: Verify ownership using Teacher ID (not User ID)
-    if (result.shared_quiz.teacher_id !== teacherProfile.id) {
+    const student = await prisma.students.findFirst({
+      where: { user_id: result.user_id },
+      select: { id: true, user_id: true },
+    });
+
+    if (
+      result.shared_quiz?.teacher_id !== teacherProfile.id ||
+      !student ||
+      !(await canAccessStudent(res.locals.user, student))
+    ) {
       return res.status(403).json({ 
         success: false, 
         error: "You don't have permission to view this result" 
@@ -4808,17 +4958,10 @@ app.get("/system/teacher/result-detail/:resultId", async (req, res) => {
 
 // Get overview of all results for a specific quiz (for teachers)
 
-app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
+app.get("/system/teacher/quiz-results/:quizId", [validatedRequest], async (req, res) => {
   try {
     const { quizId } = req.params;
-    const token = req.headers.authorization?.split(" ")[1];
-    
-    if (!token) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId = decoded.userId || decoded.id || decoded.user_id || decoded.sub;
+    const userId = res.locals.user.id;
 
     if (!userId) {
       return res.status(401).json({ success: false, error: "Invalid Token" });
@@ -4857,7 +5000,14 @@ app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
     }
 
     const results = await prisma.quiz_results.findMany({
-      where: { shared_quiz_id: parseInt(quizId) },
+      where: {
+        shared_quiz_id: parseInt(quizId),
+        user: {
+          students: {
+            some: { teacher_students: { some: { teacherId: teacherProfile.id } } },
+          },
+        },
+      },
       include: {
         user: {
           select: {
@@ -4944,24 +5094,27 @@ app.get("/system/teacher/quiz-results/:quizId", async (req, res) => {
     res.status(500).json({ success: false, error: "Failed to fetch quiz results" });
   }
 });
-app.get("/system/teacher/student-results/:studentId", async (req, res) => {
+app.get("/system/teacher/student-results/:studentId", [validatedRequest], async (req, res) => {
   try {
     const { studentId } = req.params;
-    const token = req.headers.authorization?.split(" ")[1];
-    
-    if (!token) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const teacherId = decoded.userId;
+    const sessionUser = res.locals.user;
+    const teacher = await prisma.teachers.findFirst({
+      where: { user_id: sessionUser.id },
+      select: { id: true },
+    });
+    const student = await prisma.students.findFirst({
+      where: { id: Number(studentId) },
+      select: { id: true, user_id: true, name: true, grade: true },
+    });
+    if (!teacher || !student || !(await canAccessStudent(sessionUser, student)))
+      return res.status(403).json({ success: false, error: "Student access denied" });
 
     // Get all quiz results for this student from this teacher's quizzes
     const results = await prisma.quiz_results.findMany({
       where: { 
-        user_id: parseInt(studentId),
+        user_id: student.user_id,
         shared_quiz: {
-          teacher_id: teacherId  // Only show results from this teacher's quizzes
+          teacher_id: teacher.id
         }
       },
       include: {
@@ -4972,12 +5125,6 @@ app.get("/system/teacher/student-results/:studentId", async (req, res) => {
             difficulty: true,
             quiz_code: true,
             created_at: true,
-          },
-        },
-        user: {
-          select: {
-            name: true,
-            grade: true,
           },
         },
       },
@@ -4995,8 +5142,8 @@ app.get("/system/teacher/student-results/:studentId", async (req, res) => {
       totalQuestions: result.total_questions,
       correctAnswers: result.correct_answers,
       submittedAt: result.submitted_at,
-      studentName: result.user?.name || "Unknown",
-      studentGrade: result.user?.grade || null,
+      studentName: student.name || "Unknown",
+      studentGrade: student.grade || null,
       detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
     }));
 
@@ -5124,12 +5271,9 @@ ${formatInstructions}`;
   }
 });
 
-app.get("/system/teacher/my-students/:userId", async (req, res) => {
-  const { userId } = req.params;
-  const id = Number(userId);
-  if (isNaN(id)) return res.status(400).json({ success: false, error: "Invalid teacher ID." });
-
+app.get("/system/teacher/my-students/:userId", [validatedRequest], async (req, res) => {
   try {
+    const id = res.locals.user.id;
     const teacher = await prisma.teachers.findFirst({
       where: { user_id: id },
     });
@@ -5158,20 +5302,10 @@ app.get("/system/teacher/my-students/:userId", async (req, res) => {
 // Get child report for parent
 app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, res) => {
   try {
-    const { childId } = req.params;
-    
-    // Get userId from the token in the Authorization header
-    const token = req.headers.authorization?.replace("Bearer ", "");
-    if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        error: "Authentication required" 
-      });
-    }
-
-    // Decode the token to get user ID
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId = decoded.id;
+    const childId = Number(req.params.childId);
+    const userId = res.locals.user.id;
+    if (!Number.isInteger(childId))
+      return res.status(400).json({ success: false, error: "Invalid child ID" });
 
     console.log("🔍 Fetching report for childId:", childId, "by userId:", userId);
     
@@ -5194,7 +5328,7 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
     const link = await prisma.parent_students.findFirst({
       where: {
         parentId: parent.id,
-        studentId: Number(childId),
+        studentId: childId,
       },
     });
 
@@ -5210,7 +5344,7 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
     
     // Get student info
     const student = await prisma.students.findUnique({
-      where: { id: Number(childId) },
+      where: { id: childId },
     });
 
     if (!student) {
@@ -5404,7 +5538,10 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
   }
 });
 
-app.get("/system/students", async (req, res) => {
+app.get("/system/students", [
+  validatedRequest,
+  flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.teacher]),
+], async (req, res) => {
   try {
     const students = await prisma.students.findMany({
       select: { id: true, name: true, grade: true, subscription_status: true,subscription_plan: true,subscription_expiration_date: true, },
@@ -5419,9 +5556,14 @@ app.get("/system/students", async (req, res) => {
 
 app.get("/system/parent/my-children/:parentId", [validatedRequest], async (req, res) => {
   try {
-    const { parentId } = req.params;
+    const parent = await prisma.parents.findFirst({
+      where: { user_id: res.locals.user.id },
+      select: { id: true },
+    });
+    if (!parent)
+      return res.status(403).json({ success: false, error: "Parent profile not found" });
     const links = await prisma.parent_students.findMany({
-      where: { parentId: Number(parentId) },
+      where: { parentId: parent.id },
       include: {
         student: true,
       },
@@ -5457,6 +5599,7 @@ function generateLinkCode(length = 8) {
 app.post("/system/student/generate-link-code", [validatedRequest], async (req, res) => {
   try {
     const { studentId } = req.body;
+    const userId = res.locals.user.id;
 
     // Validate studentId
     if (!studentId || isNaN(Number(studentId))) {
@@ -5465,26 +5608,6 @@ app.post("/system/student/generate-link-code", [validatedRequest], async (req, r
         error: "Invalid student ID",
       });
     }
-
-    // Authenticate via JWT (same pattern used in /system/parent/child-report)
-    const token = req.headers.authorization?.replace("Bearer ", "");
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: "Authentication required",
-      });
-    }
-
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (jwtErr) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid or expired token",
-      });
-    }
-    const userId = decoded.id;
 
     // Verify student exists
     const student = await prisma.students.findUnique({
@@ -5561,26 +5684,7 @@ app.post("/system/student/generate-link-code", [validatedRequest], async (req, r
 app.post("/system/parent/link-child", [validatedRequest], async (req, res) => {
   try {
     const { linkCode } = req.body;
-
-    // Authenticate via JWT
-    const token = req.headers.authorization?.replace("Bearer ", "");
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: "Authentication required",
-      });
-    }
-
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (jwtErr) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid or expired token",
-      });
-    }
-    const userId = decoded.id;
+    const userId = res.locals.user.id;
 
     // Validate input
     if (!linkCode) {
@@ -5684,12 +5788,12 @@ app.post("/system/teacher/create-class-link", [validatedRequest], async (req, re
     const { subject } = req.body;
     const sessionUser = await userFromSession(req, res);
 
-    if (!sessionUser?.user_id) {  // ✅ Check user_id instead of id
+    if (!sessionUser?.id) {
       return res.status(401).json({ success: false, error: "Not authenticated" });
     }
 
     const teacher = await prisma.teachers.findFirst({
-  where: { user_id: sessionUser.user_id },  // ✅ Use user_id instead of id
+  where: { user_id: sessionUser.id },
     });
 
     if (!teacher) {
@@ -5716,11 +5820,11 @@ app.post("/system/student/join-class/:classCode", [validatedRequest], async (req
     const { classCode } = req.params;
     const sessionUser = await userFromSession(req, res);
 
-    if (!sessionUser?.user_id)
+    if (!sessionUser?.id)
       return res.status(401).json({ success: false, error: "Unauthorized" });
 
     const student = await prisma.students.findFirst({
-      where: { user_id: sessionUser.user_id },
+      where: { user_id: sessionUser.id },
     });
     if (!student)
       return res.status(404).json({ success: false, error: "Student profile not found" });
@@ -5752,6 +5856,12 @@ app.post("/system/student/join-class/:classCode", [validatedRequest], async (req
       },
     });
 
+    syncTeacherStudentToEducationClass({
+      teacherId: classLink.teacherId,
+      studentId: student.id,
+      subject: classLink.subject,
+    }).catch((error) => console.error("Education hierarchy sync failed:", error));
+
     res.json({ success: true, message: `Joined ${classLink.subject} successfully!` });
   } catch (err) {
     console.error("Error joining class:", err);
@@ -5761,11 +5871,16 @@ app.post("/system/student/join-class/:classCode", [validatedRequest], async (req
 
 app.get("/system/student/active-link-code/:studentId", [validatedRequest], async (req, res) => {
   try {
-    const { studentId } = req.params;
+    const student = await prisma.students.findFirst({
+      where: { user_id: res.locals.user.id },
+      select: { id: true },
+    });
+    if (!student)
+      return res.status(403).json({ success: false, error: "Student profile required" });
     
     const linkCode = await prisma.student_link_codes.findFirst({
       where: {
-        studentId: Number(studentId),
+        studentId: student.id,
         used: false,
         expiresAt: { gte: new Date() },
       },

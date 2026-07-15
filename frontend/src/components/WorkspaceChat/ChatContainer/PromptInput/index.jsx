@@ -261,7 +261,7 @@ export default function PromptInput({
         className="flex flex-col gap-y-1 rounded-t-lg md:w-3/4 w-full mx-auto max-w-xl items-center"
       >
         <div className="flex items-center rounded-lg md:mb-4 md:w-full">
-          <div className="w-[95vw] md:w-[635px] bg-theme-bg-chat-input light:bg-white light:border-solid light:border-[1px] light:border-theme-chat-input-border shadow-sm rounded-2xl flex flex-col px-2 overflow-hidden">
+          <div className="w-[95vw] md:w-[635px] bg-theme-bg-chat-input border border-theme-chat-input-border shadow-sm rounded-2xl flex flex-col px-2 overflow-hidden">
             <AttachmentManager attachments={attachments} />
             <div className="flex items-center border-b border-theme-chat-input-border mx-3">
               <textarea
@@ -281,7 +281,7 @@ export default function PromptInput({
                 }}
                 value={promptInput}
                 spellCheck={Appearance.get("enableSpellCheck")}
-                className={`border-none cursor-text max-h-[50vh] md:max-h-[350px] md:min-h-[40px] mx-2 md:mx-0 pt-[12px] w-full leading-5 md:text-md text-white bg-transparent placeholder:text-white/60 light:placeholder:text-theme-text-primary resize-none active:outline-none focus:outline-none flex-grow mb-1 ${textSizeClass}`}
+                className={`border-none cursor-text max-h-[50vh] md:max-h-[350px] md:min-h-[40px] mx-2 md:mx-0 pt-[12px] w-full leading-5 md:text-md text-theme-text-primary bg-transparent placeholder:text-theme-settings-input-placeholder resize-none active:outline-none focus:outline-none flex-grow mb-1 ${textSizeClass}`}
                 placeholder={t("nyora mubvunzo wako pano......")}
               />
               {isStreaming ? (

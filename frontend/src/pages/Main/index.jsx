@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import PasswordModal, { usePasswordModal } from "@/components/Modals/Password";
 import { FullScreenLoader } from "@/components/Preloader";
 import Home from "./Home";
@@ -8,16 +9,42 @@ import ParentDashboard from "../../components/Parents/ParentDashboard";
 import { isMobile } from "react-device-detect";
 import Sidebar, { SidebarMobileHeader } from "@/components/Sidebar";
 import { userFromStorage } from "@/utils/request";
+import EducationHierarchy from "@/models/educationHierarchy";
 
 export default function Main() {
   const { loading, requiresAuth, mode } = usePasswordModal();
+  const navigate = useNavigate();
+  const user = userFromStorage();
+  const [checkingEducationAccess, setCheckingEducationAccess] = useState(
+    user?.role === "default"
+  );
 
-  if (loading) return <FullScreenLoader />;
+  useEffect(() => {
+    if (user?.role !== "default") {
+      setCheckingEducationAccess(false);
+      return;
+    }
+
+    let active = true;
+    EducationHierarchy.access()
+      .then(({ enabled }) => {
+        if (!active) return;
+        if (enabled) {
+          navigate("/education", { replace: true });
+          return;
+        }
+        setCheckingEducationAccess(false);
+      })
+      .catch(() => active && setCheckingEducationAccess(false));
+    return () => {
+      active = false;
+    };
+  }, [navigate, user?.id, user?.role]);
+
+  if (loading || checkingEducationAccess) return <FullScreenLoader />;
   if (requiresAuth !== false)
     return <>{requiresAuth !== null && <PasswordModal mode={mode} />}</>;
 
-  const user = userFromStorage();
-  
   // If user is a teacher or parent, render their complete dashboard
   if (user?.role === "teacher") {
     return <TeacherDashboard />;

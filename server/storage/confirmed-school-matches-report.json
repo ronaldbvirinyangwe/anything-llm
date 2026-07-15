@@ -1,0 +1,230 @@
+{
+  "dryRun": true,
+  "generatedAt": "2026-07-15T08:28:48.474Z",
+  "approvedMatches": 20,
+  "mergedMatches": 0,
+  "alreadyMergedMatches": 20,
+  "preview": [
+    {
+      "sourceName": "Greengables College",
+      "sourceOrganizationId": 113,
+      "schoolNumber": "18014",
+      "canonicalName": "Green Gables High School",
+      "targetOrganizationId": 9402,
+      "province": "Bulawayo",
+      "district": "Khami",
+      "classesToMove": 0,
+      "membershipsToMove": 24
+    },
+    {
+      "sourceName": "Lorn Farm Primary",
+      "sourceOrganizationId": 89,
+      "schoolNumber": "2818",
+      "canonicalName": "Lorn Farm Primary School",
+      "targetOrganizationId": 1798,
+      "province": "Manicaland",
+      "district": "Mutare",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Millerite International",
+      "sourceOrganizationId": 92,
+      "schoolNumber": "1707",
+      "canonicalName": "Millerite International School",
+      "targetOrganizationId": 10223,
+      "province": "Harare",
+      "district": "Mbare/Hatfield",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Tropical Vineyayrd",
+      "sourceOrganizationId": 109,
+      "schoolNumber": "18025",
+      "canonicalName": "Tropical Vineyard College",
+      "targetOrganizationId": 88,
+      "province": "Bulawayo",
+      "district": "Imbizo",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Mukaro High School",
+      "sourceOrganizationId": 110,
+      "schoolNumber": "10006",
+      "canonicalName": "Mukaro High School",
+      "targetOrganizationId": 5293,
+      "province": "Masvingo",
+      "district": "Gutu",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Chimowa secondary",
+      "sourceOrganizationId": 143,
+      "schoolNumber": "6227",
+      "canonicalName": "Chimowa Secondary School",
+      "targetOrganizationId": 3275,
+      "province": "Mashonaland East",
+      "district": "Chikomba",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Whitewater High",
+      "sourceOrganizationId": 154,
+      "schoolNumber": "14203",
+      "canonicalName": "Whitewater Secondary School",
+      "targetOrganizationId": 7708,
+      "province": "Matabeleland South",
+      "district": "Matobo",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Mdubiwa Secondary",
+      "sourceOrganizationId": 147,
+      "schoolNumber": "16237",
+      "canonicalName": "Mdubiwa Secondary School",
+      "targetOrganizationId": 8428,
+      "province": "Midlands",
+      "district": "Gweru",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Nyamanyora secondary",
+      "sourceOrganizationId": 145,
+      "schoolNumber": "7129",
+      "canonicalName": "Nyamanyora Secondary School",
+      "targetOrganizationId": 4112,
+      "province": "Mashonaland East",
+      "district": "Mudzi",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Thornhill High",
+      "sourceOrganizationId": 148,
+      "schoolNumber": "16769",
+      "canonicalName": "Thornhill High School",
+      "targetOrganizationId": 8955,
+      "province": "Midlands",
+      "district": "Gweru",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Mbizo high school",
+      "sourceOrganizationId": 149,
+      "schoolNumber": "16756",
+      "canonicalName": "Mbizo High School",
+      "targetOrganizationId": 8942,
+      "province": "Midlands",
+      "district": "Kwekwe",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Batanai Zisco High",
+      "sourceOrganizationId": 150,
+      "schoolNumber": "16341",
+      "canonicalName": "Batanai Zisco High School",
+      "targetOrganizationId": 8532,
+      "province": "Midlands",
+      "district": "Kwekwe",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Chikwidibe Sec",
+      "sourceOrganizationId": 155,
+      "schoolNumber": "5241",
+      "canonicalName": "Chikwidibe Secondary School",
+      "targetOrganizationId": 2953,
+      "province": "Mashonaland Central",
+      "district": "Guruve",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "AMR Convent High school",
+      "sourceOrganizationId": 156,
+      "schoolNumber": "12979",
+      "canonicalName": "AMR Convent Secondary School",
+      "targetOrganizationId": 9454,
+      "province": "Matabeleland North",
+      "district": "Lupane",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Horse shoe Secondary School",
+      "sourceOrganizationId": 160,
+      "schoolNumber": "5243",
+      "canonicalName": "Horseshoe Secondary School",
+      "targetOrganizationId": 2955,
+      "province": "Mashonaland Central",
+      "district": "Guruve",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Gota Secondary",
+      "sourceOrganizationId": 162,
+      "schoolNumber": "5000",
+      "canonicalName": "Gota Secondary School",
+      "targetOrganizationId": 2831,
+      "province": "Mashonaland Central",
+      "district": "Guruve",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Chifamba High",
+      "sourceOrganizationId": 161,
+      "schoolNumber": "4019",
+      "canonicalName": "Chifamba Secondary School",
+      "targetOrganizationId": 2306,
+      "province": "Mashonaland Central",
+      "district": "Guruve",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Kazozo Secondary School",
+      "sourceOrganizationId": 157,
+      "schoolNumber": "2136",
+      "canonicalName": "Kazozo Secondary School",
+      "targetOrganizationId": 1121,
+      "province": "Manicaland",
+      "district": "Nyanga",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Manzimnyama Secondary",
+      "sourceOrganizationId": 151,
+      "schoolNumber": "16251",
+      "canonicalName": "Manzimnyama Secondary School",
+      "targetOrganizationId": 8442,
+      "province": "Midlands",
+      "district": "Kwekwe",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    },
+    {
+      "sourceName": "Muhlanguleni High",
+      "sourceOrganizationId": 144,
+      "schoolNumber": "10130",
+      "canonicalName": "Muhlanguleni (Mukai) High School",
+      "targetOrganizationId": 5415,
+      "province": "Masvingo",
+      "district": "Chiredzi",
+      "classesToMove": 0,
+      "membershipsToMove": 1
+    }
+  ],
+  "merged": []
+}

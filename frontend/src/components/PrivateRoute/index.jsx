@@ -144,6 +144,26 @@ export function ManagerRoute({ Component }) {
   );
 }
 
+export function StudentRoute({ Component }) {
+  const { isAuthd, shouldRedirectToOnboarding } = useIsAuthenticated();
+  if (isAuthd === null) return <FullScreenLoader />;
+
+  if (shouldRedirectToOnboarding) {
+    return <Navigate to={paths.onboarding.home()} />;
+  }
+
+  const user = userFromStorage();
+  return isAuthd && user?.role === "student" ? (
+    <KeyboardShortcutWrapper>
+      <UserMenu>
+        <Component />
+      </UserMenu>
+    </KeyboardShortcutWrapper>
+  ) : (
+    <Navigate to={paths.home()} />
+  );
+}
+
 export default function PrivateRoute({ Component }) {
   const { isAuthd, shouldRedirectToOnboarding } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;

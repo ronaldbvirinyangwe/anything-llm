@@ -40,8 +40,8 @@ export default function ThreadItem({
         style={{ width: THREAD_CALLOUT_DETAIL_WIDTH / 2 }}
         className={`${
           isActive
-            ? "border-l-2 border-b-2 border-white light:border-theme-sidebar-border z-[2]"
-            : "border-l border-b border-[#6F6F71] light:border-theme-sidebar-border z-[1]"
+            ? "border-l-2 border-b-2 border-theme-text-primary z-[2]"
+            : "border-l border-b border-theme-sidebar-border z-[1]"
         } h-[50%] absolute top-0 left-3 rounded-bl-lg`}
       ></div>
       {/* Downstroke border for next item */}
@@ -50,8 +50,8 @@ export default function ThreadItem({
           style={{ width: THREAD_CALLOUT_DETAIL_WIDTH / 2 }}
           className={`${
             idx <= activeIdx && !isActive
-              ? "border-l-2 border-white light:border-theme-sidebar-border z-[2]"
-              : "border-l border-[#6F6F71] light:border-theme-sidebar-border z-[1]"
+              ? "border-l-2 border-theme-text-primary z-[2]"
+              : "border-l border-theme-sidebar-border z-[1]"
           } h-[100%] absolute top-0 left-3`}
         ></div>
       )}
@@ -68,7 +68,7 @@ export default function ThreadItem({
           <div className="w-full flex justify-between">
             <div className="w-full pl-2 py-1">
               <p
-                className={`text-left text-sm text-slate-400/50 light:text-slate-500 italic`}
+                className="text-left text-sm text-theme-text-secondary italic"
               >
                 deleted thread
               </p>
@@ -80,7 +80,7 @@ export default function ThreadItem({
                 onClick={() => toggleMarkForDeletion(thread.id)}
               >
                 <ArrowCounterClockwise
-                  className="text-zinc-300 hover:text-white light:text-theme-text-secondary hover:light:text-theme-text-primary"
+                  className="text-theme-text-secondary hover:text-theme-text-primary"
                   size={18}
                 />
               </button>
@@ -98,7 +98,7 @@ export default function ThreadItem({
           >
             <p
               className={`text-left text-sm truncate max-w-[150px] ${
-                isActive ? "font-medium text-white" : "text-theme-text-primary"
+                isActive ? "font-medium text-theme-text-primary" : "text-theme-text-secondary"
               }`}
             >
               {thread.name}
@@ -116,7 +116,7 @@ export default function ThreadItem({
                 onClick={() => toggleMarkForDeletion(thread.id)}
               >
                 <X
-                  className="text-zinc-300 light:text-theme-text-secondary hover:text-white hover:light:text-theme-text-primary"
+                  className="text-theme-text-secondary hover:text-theme-text-primary"
                   weight="bold"
                   size={18}
                 />
@@ -130,7 +130,7 @@ export default function ThreadItem({
                   aria-label="Thread options"
                 >
                   <DotsThree
-                    className="text-slate-300 light:text-theme-text-secondary hover:text-white hover:light:text-theme-text-primary"
+                    className="text-theme-text-secondary hover:text-theme-text-primary"
                     size={25}
                   />
                 </button>

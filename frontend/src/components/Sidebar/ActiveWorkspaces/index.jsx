@@ -111,7 +111,7 @@ export default function ActiveWorkspaces() {
                           aria-current={isActive ? "page" : ""}
                           className={`
                             transition-all duration-[200ms]
-                            flex flex-grow w-[75%] gap-x-2 py-[6px] pl-[4px] pr-[6px] rounded-[4px] text-white justify-start items-center
+                            flex flex-grow w-[75%] gap-x-2 py-[6px] pl-[4px] pr-[6px] rounded-[4px] text-theme-text-primary justify-start items-center
                             bg-theme-sidebar-item-default
                             hover:bg-theme-sidebar-subitem-hover hover:font-bold
                             ${
@@ -136,7 +136,7 @@ export default function ActiveWorkspaces() {
                               <div className="w-[130px] overflow-hidden">
                                 <p
                                   className={`
-                                  text-[14px] leading-loose whitespace-nowrap overflow-hidden text-white
+                                  text-[14px] leading-loose whitespace-nowrap overflow-hidden text-theme-text-primary
                                   ${
                                     isActive ? "font-bold" : "font-medium"
                                   } truncate
@@ -164,7 +164,7 @@ export default function ActiveWorkspaces() {
                                     setSelectedWs(workspace);
                                     showModal();
                                   }}
-                                  className="border-none rounded-md flex items-center justify-center ml-auto p-[2px] hover:bg-[#646768] text-[#A7A8A9] hover:text-white"
+                                  className="border-none rounded-md flex items-center justify-center ml-auto p-[2px] hover:bg-theme-action-menu-item-hover text-theme-text-secondary hover:text-theme-text-primary"
                                 >
                                   <UploadSimple className="h-[20px] w-[20px]" />
                                 </button>
@@ -180,14 +180,14 @@ export default function ActiveWorkspaces() {
                                           )
                                     );
                                   }}
-                                  className="rounded-md flex items-center justify-center text-[#A7A8A9] hover:text-white ml-auto p-[2px] hover:bg-[#646768]"
+                                  className="rounded-md flex items-center justify-center text-theme-text-secondary hover:text-theme-text-primary ml-auto p-[2px] hover:bg-theme-action-menu-item-hover"
                                   aria-label="General appearance settings"
                                 >
                                   <GearSix
                                     color={
                                       isInWorkspaceSettings &&
                                       workspace.slug === slug
-                                        ? "#46C8FF"
+                                        ? "var(--theme-button-primary)"
                                         : undefined
                                     }
                                     className="h-[20px] w-[20px]"

@@ -1,5 +1,5 @@
 const path = require("path");
-const { validURL } = require("../../utils/url");
+const { validURL, safeFetch } = require("../../utils/url");
 const { processSingleFile } = require("../../processSingleFile");
 const { downloadURIToFile } = require("../../utils/downloadURIToFile");
 const { ACCEPTED_MIMES } = require("../../utils/constants");
@@ -22,7 +22,7 @@ async function getContentTypeFromURL(url) {
       console.error("Timeout fetching content type for URL:", url.toString());
     }, 5_000);
 
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       method: "HEAD",
       signal: abortController.signal,
     }).finally(() => clearTimeout(timeout));

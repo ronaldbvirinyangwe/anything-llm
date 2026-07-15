@@ -141,24 +141,24 @@ async function sendWeeklyDigestToAllParents() {
           user_id: true,  // ✅ needed for sendParentPush (PushToken references users.id)
         }
       },
-      child: {
+      student: {
         select: {
           id: true,
           name: true,
           grade: true,
-          quizResults: {
-            where: { createdAt: { gte: weekAgo } },
-            include: { quiz: { select: { subject: true } } },
-            orderBy: { createdAt: "desc" },
-          },
+          user_id: true,
         },
       },
     },
   });
 
   for (const setting of settings) {
-    const { parent, child } = setting;
-    const quizzes = child.quizResults || [];
+    const { parent, student: child } = setting;
+    const quizzes = await prisma.quiz_results.findMany({
+      where: { user_id: child.user_id, submitted_at: { gte: weekAgo } },
+      orderBy: { submitted_at: "desc" },
+      select: { score: true, subject: true, submitted_at: true },
+    });
 
     if (quizzes.length === 0) {
       // No activity this week — send a gentle nudge instead
@@ -177,7 +177,7 @@ async function sendWeeklyDigestToAllParents() {
 
     const subjectBreakdown = {};
     quizzes.forEach((q) => {
-      const subj = q.quiz?.subject || "General";
+      const subj = q.subject || "General";
       if (!subjectBreakdown[subj]) subjectBreakdown[subj] = { total: 0, count: 0 };
       subjectBreakdown[subj].total += parseFloat(q.score);
       subjectBreakdown[subj].count += 1;

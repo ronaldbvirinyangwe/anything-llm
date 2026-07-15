@@ -1,5 +1,13 @@
 process.env.STORAGE_DIR = "test-storage"; // needed for tests to run
-const { validURL, validateURL, validYoutubeVideoUrl } = require("../../../utils/url");
+const dns = require("dns").promises;
+const {
+  validURL,
+  validateURL,
+  validYoutubeVideoUrl,
+  isPrivateIp,
+  assertSafeURL,
+  safeFetch,
+} = require("../../../utils/url");
 
 // Mock the RuntimeSettings module
 jest.mock("../../../utils/runtimeSettings", () => {
@@ -32,7 +40,7 @@ describe("validURL", () => {
     // JS URL does not require extensions, so in theory
     // these should be valid
     expect(validURL("https://random")).toBe(true);
-    expect(validURL("http://123")).toBe(true);
+    expect(validURL("http://123")).toBe(false);
 
     // missing protocols
     expect(validURL("www.google.com")).toBe(false);
@@ -56,9 +64,8 @@ describe("validURL", () => {
     expect(validURL("http://10.0.0.1")).toBe(false);
     expect(validURL("http://172.16.0.1")).toBe(false);
 
-    // But localhost should still be allowed
-    expect(validURL("http://127.0.0.1")).toBe(true);
-    expect(validURL("http://0.0.0.0")).toBe(true);
+    expect(validURL("http://127.0.0.1")).toBe(false);
+    expect(validURL("http://0.0.0.0")).toBe(false);
   });
 
   it("should allow any IP when allowAnyIp is true", () => {
@@ -71,6 +78,72 @@ describe("validURL", () => {
     expect(validURL("http://192.168.1.1")).toBe(true);
     expect(validURL("http://10.0.0.1")).toBe(true);
     expect(validURL("http://172.16.0.1")).toBe(true);
+  });
+});
+
+describe("SSRF validation", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    const RuntimeSettings = require("../../../utils/runtimeSettings");
+    new RuntimeSettings().get.mockImplementation(
+      (key) => key === "seenAnyIpWarning"
+    );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    global.fetch = originalFetch;
+  });
+
+  it("rejects loopback, private, link-local, metadata, and IPv6 local ranges", () => {
+    [
+      "127.0.0.1",
+      "10.1.2.3",
+      "172.31.1.2",
+      "192.168.1.2",
+      "169.254.169.254",
+      "::1",
+      "fd00::1",
+      "fe80::1",
+      "::ffff:127.0.0.1",
+      "::ffff:7f00:1",
+    ].forEach((address) => expect(isPrivateIp(address)).toBe(true));
+    expect(isPrivateIp("8.8.8.8")).toBe(false);
+    expect(isPrivateIp("2606:4700:4700::1111")).toBe(false);
+  });
+
+  it("rejects hostnames resolving to a private address", async () => {
+    jest.spyOn(dns, "lookup").mockResolvedValue([
+      { address: "169.254.169.254", family: 4 },
+    ]);
+    await expect(
+      assertSafeURL("http://metadata.example/latest")
+    ).rejects.toThrow("private or reserved");
+  });
+
+  it("revalidates redirect destinations", async () => {
+    jest.spyOn(dns, "lookup").mockResolvedValue([
+      { address: "8.8.8.8", family: 4 },
+    ]);
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 302,
+      headers: new Headers({ location: "http://169.254.169.254/latest" }),
+    });
+    await expect(safeFetch("https://example.com")).rejects.toThrow(
+      "private or reserved"
+    );
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the explicit allowAnyIp override", async () => {
+    const RuntimeSettings = require("../../../utils/runtimeSettings");
+    new RuntimeSettings().get.mockImplementation(
+      (key) => key === "allowAnyIp"
+    );
+    await expect(assertSafeURL("http://127.0.0.1")).resolves.toBeInstanceOf(
+      URL
+    );
   });
 });
 

@@ -137,6 +137,9 @@ links: {
     return `${API_BASE}/docs`;
   },
   settings: {
+    educationAccess: () => {
+      return `/settings/education-access`;
+    },
     users: () => {
       return `/settings/users`;
     },

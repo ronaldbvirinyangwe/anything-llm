@@ -5,6 +5,28 @@ const {
 } = require("../utils/middleware/multiUserProtected");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { Telemetry } = require("../models/telemetry");
+const { Workspace } = require("../models/workspace");
+const { WorkspaceChats } = require("../models/workspaceChats");
+const { WorkspaceUser } = require("../models/workspaceUsers");
+const prisma = require("../utils/prisma");
+
+const MAX_GENERATION_ITEMS = 50;
+
+function validText(value, maxLength = 500) {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+}
+
+async function workspaceForUser(user, workspaceSlug) {
+  if (!workspaceSlug || !validText(workspaceSlug, 100)) return null;
+  const workspace = await Workspace.get({ slug: workspaceSlug });
+  if (!workspace) return null;
+  if ([ROLES.admin, ROLES.manager].includes(user.role)) return workspace;
+  const membership = await WorkspaceUser.get({
+    workspace_id: workspace.id,
+    user_id: user.id,
+  });
+  return membership ? workspace : null;
+}
 
 function agentFlowEndpoints(app) {
  
@@ -192,8 +214,9 @@ app.post(
     }
   );
 
-app.post("/agent-flows/quiz/create", async (req, res) => {
+app.post("/agent-flows/quiz/create", [validatedRequest], async (req, res) => {
   try {
+    const sessionUser = res.locals.user;
     const {
       subject,
       topic = "",
@@ -201,18 +224,35 @@ app.post("/agent-flows/quiz/create", async (req, res) => {
       numQuestions = 5,
       difficulty = "medium",
       userMessage = "",
-      userId = null,
       workspaceSlug = null
     } = req.body;
+
+    const questionCount = Number(numQuestions);
 
     // topic is the specific concept from the conversation; fall back to userMessage
     const quizTopic = topic || userMessage || "general curriculum topics";
 
-    if (!subject || !grade) {
+    if (
+      !sessionUser?.id ||
+      !validText(subject) ||
+      (typeof grade !== "string" && typeof grade !== "number") ||
+      !validText(String(grade), 50) ||
+      (topic && !validText(topic)) ||
+      (userMessage && !validText(userMessage, 2_000)) ||
+      !["easy", "medium", "hard"].includes(difficulty) ||
+      !Number.isInteger(questionCount) ||
+      questionCount < 1 ||
+      questionCount > MAX_GENERATION_ITEMS
+    ) {
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: subject and grade",
+        error: "Invalid generation input. Use 1-50 questions and bounded text fields.",
       });
+    }
+
+    const workspace = await workspaceForUser(sessionUser, workspaceSlug);
+    if (workspaceSlug && !workspace) {
+      return res.status(403).json({ success: false, error: "Workspace access denied" });
     }
 
     console.log(`🤖 Agent is generating a quiz for ${subject} (Grade ${grade})`);
@@ -227,14 +267,10 @@ app.post("/agent-flows/quiz/create", async (req, res) => {
     if (wantsHistoryBased && workspaceSlug) {
       try {
         // ✅ FIX: Get workspace ID from slug first
-        const { Workspace } = require("../models/workspace");
-        const workspace = await Workspace.get({ slug: workspaceSlug });
-        
         if (workspace) {
-          const { WorkspaceChats } = require("../models/workspaceChats");
           const recentChats = await WorkspaceChats.where(
-            { workspaceId: workspace.id }, // ✅ Use workspace.id (number) not slug
-            100,
+            { workspaceId: workspace.id, user_id: sessionUser.id },
+            50,
             { id: "desc" }
           );
           
@@ -373,13 +409,8 @@ const vllmBase = process.env.VLLM_BASE_PATH || process.env.OLLAMA_BASE_PATH || "
 
     console.log(`✅ Quiz generated with ${quiz.questions.length} questions`);
 
-    if (userId) {
-      // Save to chat history for persistence
+    // Save to chat history for persistence
 try {
-  const { WorkspaceChats } = require("../models/workspaceChats");
-  const { Workspace } = require("../models/workspace");
-  if (workspaceSlug) {
-    const workspace = await Workspace.get({ slug: workspaceSlug });
     if (workspace) {
       await WorkspaceChats.new({
         workspaceId: workspace.id,
@@ -394,15 +425,13 @@ try {
           quizData: quiz,
         },
         threadId: null,
-        user: userId ? { id: parseInt(userId) } : null,
+        user: { id: sessionUser.id },
       });
       console.log("💾 Quiz saved to chat history");
     }
-  }
 } catch (chatErr) {
   console.warn("⚠️ Failed to save quiz to chat history:", chatErr.message);
 }
-    }
 
     return res.status(200).json({
       success: true,
@@ -419,8 +448,9 @@ try {
 });
 
 
-app.post("/agent-flows/flashcard/create", async (req, res) => {
+app.post("/agent-flows/flashcard/create", [validatedRequest], async (req, res) => {
   try {
+    const sessionUser = res.locals.user;
     const {
       subject,
       topic = "",
@@ -429,18 +459,33 @@ app.post("/agent-flows/flashcard/create", async (req, res) => {
       numQuestions,
       difficulty = "medium",
       userMessage = "",
-      userId = null,
       workspaceSlug = null
     } = req.body;
 
-    const resolvedNumCards = numCards || numQuestions || 10;
+    const resolvedNumCards = Number(numQuestions ?? numCards);
     const flashcardTopic = topic || userMessage || "general curriculum topics";
 
-    if (!subject || !grade) {
+    if (
+      !sessionUser?.id ||
+      !validText(subject) ||
+      (typeof grade !== "string" && typeof grade !== "number") ||
+      !validText(String(grade), 50) ||
+      (topic && !validText(topic)) ||
+      (userMessage && !validText(userMessage, 2_000)) ||
+      !["easy", "medium", "hard"].includes(difficulty) ||
+      !Number.isInteger(resolvedNumCards) ||
+      resolvedNumCards < 1 ||
+      resolvedNumCards > MAX_GENERATION_ITEMS
+    ) {
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: subject and grade",
+        error: "Invalid generation input. Use 1-50 cards and bounded text fields.",
       });
+    }
+
+    const workspace = await workspaceForUser(sessionUser, workspaceSlug);
+    if (workspaceSlug && !workspace) {
+      return res.status(403).json({ success: false, error: "Workspace access denied" });
     }
 
     console.log(`🎴 VLLM BASE: ${process.env.VLLM_BASE_PATH} || fallback: http://192.168.1.128:11434/v1`);
@@ -455,13 +500,9 @@ app.post("/agent-flows/flashcard/create", async (req, res) => {
 
     if (wantsHistoryBased && workspaceSlug) {
       try {
-        const { Workspace } = require("../models/workspace");
-        const workspace = await Workspace.get({ slug: workspaceSlug });
-
         if (workspace) {
-          const { WorkspaceChats } = require("../models/workspaceChats");
           const recentChats = await WorkspaceChats.where(
-            { workspaceId: workspace.id },
+            { workspaceId: workspace.id, user_id: sessionUser.id },
             100,
             { id: "desc" }
           );
@@ -590,55 +631,46 @@ Return ONLY the JSON object. Start with { and end with }. No other text.`;
 
     let savedFlashcardSetId = null;
 
-    if (userId) {
-      // Save to chat history
-      try {
-        const { WorkspaceChats } = require("../models/workspaceChats");
-        const { Workspace } = require("../models/workspace");
-        if (workspaceSlug) {
-          const workspace = await Workspace.get({ slug: workspaceSlug });
-          if (workspace) {
-            await WorkspaceChats.new({
-              workspaceId: workspace.id,
-              prompt: userMessage || `Create ${subject} flashcards`,
-              response: {
-                text: `Flashcards created successfully on ${subject} for Grade ${grade}!`,
-                sources: [],
-                type: "chat",
-                attachments: [],
-                metrics: {},
-                tool_call: "flashcard_create",
-                flashcardData: flashcards,
-              },
-              threadId: null,
-              user: { id: parseInt(userId) },
-            });
-            console.log("💾 Flashcards saved to chat history");
-          }
-        }
-      } catch (chatErr) {
-        console.warn("⚠️ Failed to save flashcards to chat history:", chatErr.message);
-      }
-
-      // Save to saved_flashcard_sets and capture the ID
-      try {
-        const { PrismaClient } = require("@prisma/client");
-        const prisma = new PrismaClient();
-        const savedSet = await prisma.savedFlashcardSet.create({
-          data: {
-            userId: parseInt(userId),
-            subject,
-            grade,
-            difficulty,
-            userMessage: userMessage || null,
-            cards: flashcards.cards,
+    // Save to chat history
+    try {
+      if (workspace) {
+        await WorkspaceChats.new({
+          workspaceId: workspace.id,
+          prompt: userMessage || `Create ${subject} flashcards`,
+          response: {
+            text: `Flashcards created successfully on ${subject} for Grade ${grade}!`,
+            sources: [],
+            type: "chat",
+            attachments: [],
+            metrics: {},
+            tool_call: "flashcard_create",
+            flashcardData: flashcards,
           },
+          threadId: null,
+          user: { id: sessionUser.id },
         });
-        savedFlashcardSetId = savedSet.id;
-        console.log("💾 Flashcard set saved, ID:", savedFlashcardSetId);
-      } catch (dbErr) {
-        console.warn("⚠️ Failed to save flashcard set to DB:", dbErr.message);
+        console.log("💾 Flashcards saved to chat history");
       }
+    } catch (chatErr) {
+      console.warn("⚠️ Failed to save flashcards to chat history:", chatErr.message);
+    }
+
+    // Save to saved_flashcard_sets and capture the ID
+    try {
+      const savedSet = await prisma.savedFlashcardSet.create({
+        data: {
+          userId: sessionUser.id,
+          subject,
+          grade,
+          difficulty,
+          userMessage: userMessage || null,
+          cards: flashcards.cards,
+        },
+      });
+      savedFlashcardSetId = savedSet.id;
+      console.log("💾 Flashcard set saved, ID:", savedFlashcardSetId);
+    } catch (dbErr) {
+      console.warn("⚠️ Failed to save flashcard set to DB:", dbErr.message);
     }
 
     return res.status(200).json({
@@ -708,10 +740,8 @@ app.post("/agent-flows/web-search", async (req, res) => {
 // Get saved quizzes for a user
 app.get("/agent-flows/quiz/history/:userId", [validatedRequest], async (req, res) => {
   try {
-    const { PrismaClient } = require("@prisma/client");
-    const prisma = new PrismaClient();
     const quizzes = await prisma.savedQuiz.findMany({
-      where: { userId: parseInt(req.params.userId) },
+      where: { userId: res.locals.user.id },
       orderBy: { createdAt: "desc" },
       take: 20,
     });
@@ -724,10 +754,8 @@ app.get("/agent-flows/quiz/history/:userId", [validatedRequest], async (req, res
 // Get saved flashcard sets for a user
 app.get("/agent-flows/flashcard/history/:userId", [validatedRequest], async (req, res) => {
   try {
-    const { PrismaClient } = require("@prisma/client");
-    const prisma = new PrismaClient();
     const flashcardSets = await prisma.savedFlashcardSet.findMany({
-      where: { userId: parseInt(req.params.userId) },
+      where: { userId: res.locals.user.id },
       orderBy: { createdAt: "desc" },
       take: 20,
     });
@@ -740,10 +768,10 @@ app.get("/agent-flows/flashcard/history/:userId", [validatedRequest], async (req
 // GET a single flashcard set by ID
 app.get("/agent-flows/flashcard/:id", [validatedRequest], async (req, res) => {
   try {
-    const { PrismaClient } = require("@prisma/client");
-    const prisma = new PrismaClient();
-    const flashcardSet = await prisma.savedFlashcardSet.findUnique({
-      where: { id: parseInt(req.params.id) },
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: "Invalid ID" });
+    const flashcardSet = await prisma.savedFlashcardSet.findFirst({
+      where: { id, userId: res.locals.user.id },
     });
     if (!flashcardSet) return res.status(404).json({ success: false, error: "Not found" });
     return res.status(200).json({ success: true, flashcardSet });
@@ -755,10 +783,10 @@ app.get("/agent-flows/flashcard/:id", [validatedRequest], async (req, res) => {
 // GET a single quiz by ID (same fix needed for quiz reopen)
 app.get("/agent-flows/quiz/:id", [validatedRequest], async (req, res) => {
   try {
-    const { PrismaClient } = require("@prisma/client");
-    const prisma = new PrismaClient();
-    const quiz = await prisma.savedQuiz.findUnique({
-      where: { id: parseInt(req.params.id) },
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: "Invalid ID" });
+    const quiz = await prisma.savedQuiz.findFirst({
+      where: { id, userId: res.locals.user.id },
     });
     if (!quiz) return res.status(404).json({ success: false, error: "Not found" });
     return res.status(200).json({ success: true, quiz });
@@ -869,7 +897,7 @@ setTimeout(() => {
           {
             type: "api-call",
             config: {
-              url: `${process.env.API_BASE || "http://localhost:3009"}/api/agent-flows/flashcard/create`, 
+              url: `${process.env.API_BASE || "http://localhost:3001"}/api/agent-flows/flashcard/create`,
               method: "POST",
               bodyType: "json", 
               body: JSON.stringify({

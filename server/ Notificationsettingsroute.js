@@ -29,7 +29,7 @@ router.get("/notification-settings/:childId", authenticateToken, async (req, res
       settings: settings || {
         weeklyDigest: true,
         alertsEnabled: true,
-        alertThreshold: 40,
+        alertThreshold: 70,
       },
     });
   } catch (err) {
@@ -61,7 +61,7 @@ router.get("/notification-settings/:childId", authenticateToken, async (req, res
       settings: settings || {
         weeklyDigest: true,
         alertsEnabled: true,
-        alertThreshold: 40,
+        alertThreshold: 70,
       },
     });
   } catch (err) {

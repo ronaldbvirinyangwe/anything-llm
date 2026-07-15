@@ -34,9 +34,6 @@ export default defineConfig({
       "Expires": "0",
     }
   },
-  define: {
-    "process.env": process.env
-  },
   css: {
     postcss
   },

@@ -7,6 +7,7 @@ const {
   WEBSOCKET_BAIL_COMMANDS,
 } = require("../utils/agents/aibitat/plugins/websocket");
 const { safeJsonParse } = require("../utils/http");
+const { authenticatedWebSocketUser } = require("../utils/websocket");
 
 // Setup listener for incoming messages to relay to socket so it can be handled by agent plugin.
 function relayToSocket(message) {
@@ -19,6 +20,18 @@ function agentWebsocket(app) {
 
   app.ws("/agent-invocation/:uuid", async function (socket, request) {
     try {
+      const invocation = await WorkspaceAgentInvocation.get({
+        uuid: String(request.params.uuid),
+        closed: false,
+      });
+      if (!invocation) return socket.close(1008, "Invalid invocation");
+
+      if (invocation.user_id) {
+        const user = await authenticatedWebSocketUser(request);
+        if (!user || Number(user.id) !== Number(invocation.user_id))
+          return socket.close(1008, "Unauthorized");
+      }
+
       const agentHandler = await new AgentHandler({
         uuid: String(request.params.uuid),
       }).init();

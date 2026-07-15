@@ -5,6 +5,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (() => {
+        const storedTheme = localStorage.getItem("theme");
+        const theme = ["default", "light"].includes(storedTheme)
+          ? storedTheme
+          : matchMedia("(prefers-color-scheme: light)").matches
+            ? "light"
+            : "default";
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.classList.toggle("dark", theme === "default");
+      })();
+    </script>
     <title>Chikoro AI — AI Homework Help & Tutor for Zimbabwe Students</title>
 
     <!-- Primary SEO -->

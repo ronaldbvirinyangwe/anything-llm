@@ -1,7 +1,9 @@
 import React, { useEffect } from "react";
+import { API_BASE } from "@/utils/constants";
+import DOMPurify from "@/utils/chat/purify";
 import { create } from "zustand";
 import { useNavigate, useParams } from "react-router-dom";
-import { useTheme } from "../../hooks/useTheme";
+import { useThemeContext } from "@/ThemeContext";
 import "./test.css";
 
 // 🧠 Zustand store
@@ -16,7 +18,7 @@ const useViewStore = create((set) => ({
 
 export default function ViewTest() {
   const { result, loading, error, setResult, setError, setLoading } = useViewStore();
-  const { darkMode } = useTheme();
+  const { darkMode } = useThemeContext();
   const navigate = useNavigate();
   const { id } = useParams();
 
@@ -25,7 +27,7 @@ export default function ViewTest() {
     if (!id) return;
     setLoading(true);
 
-    fetch(`http://api.chikoro-ai.com/api/quiz/result/${id}`, {
+    fetch(`${API_BASE}/quiz/result/${id}`, {
       headers: {
         Authorization: `Bearer ${localStorage.getItem("chikoroai_authToken")}`,
       },
@@ -130,11 +132,11 @@ export default function ViewTest() {
                   <p
   className="feedback-text"
   dangerouslySetInnerHTML={{
-    __html: (f.feedback || "")
+    __html: DOMPurify.sanitize((f.feedback || "")
       // Convert **bold** → <strong>bold</strong>
       .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
       // Convert line breaks → <br/>
-      .replace(/\n/g, "<br/>"),
+      .replace(/\n/g, "<br/>")),
   }}
 />
                 </div>
