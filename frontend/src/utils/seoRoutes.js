@@ -145,6 +145,76 @@ export const SEO_ROUTES = {
     "Read practical study guides, AI education insights, and ZIMSEC exam tips for Zimbabwean students, parents, and teachers.",
     "CollectionPage"
   ),
+  "/blog/chikoro-ai-features-guide": articleMetadata(
+    "/blog/chikoro-ai-features-guide",
+    "Chikoro AI Features: Complete Guide for Zimbabwe | Chikoro AI",
+    "Explore implemented Chikoro AI features for Zimbabwean students, teachers, parents and schools, including tutoring, quizzes, study plans and reports.",
+    "2026-08-11",
+    {
+      headline:
+        "Chikoro AI Features: A Complete Guide for Zimbabwean Learners, Teachers and Families",
+      about: {
+        "@type": "SoftwareApplication",
+        name: "Chikoro AI education platform features",
+      },
+    }
+  ),
+  "/blog/chikoro-ai-for-students-zimbabwe": articleMetadata(
+    "/blog/chikoro-ai-for-students-zimbabwe",
+    "Chikoro AI for Students in Zimbabwe: Study Guide | Chikoro AI",
+    "Learn how Zimbabwean students can use Chikoro AI for explanations, uploads, notes, quizzes, flashcards, answer feedback and study plans.",
+    "2026-08-11",
+    {
+      headline:
+        "Chikoro AI for Students in Zimbabwe: Study, Practise and Track Your Progress",
+      about: {
+        "@type": "Thing",
+        name: "AI study tools for Zimbabwean students",
+      },
+    }
+  ),
+  "/blog/chikoro-ai-for-teachers-zimbabwe": articleMetadata(
+    "/blog/chikoro-ai-for-teachers-zimbabwe",
+    "Chikoro AI for Teachers: Planning and Quizzes | Chikoro AI",
+    "Use Chikoro AI to draft lesson plans and schemes, generate and share quizzes, extract exam questions and review learner performance.",
+    "2026-08-11",
+    {
+      headline:
+        "Chikoro AI for Teachers in Zimbabwe: Lesson Plans, Quizzes and Learner Reports",
+      about: {
+        "@type": "Thing",
+        name: "AI teaching tools for Zimbabwean teachers",
+      },
+    }
+  ),
+  "/blog/chikoro-ai-for-parents-zimbabwe": articleMetadata(
+    "/blog/chikoro-ai-for-parents-zimbabwe",
+    "Chikoro AI for Parents: Child Progress Guide | Chikoro AI",
+    "Learn how parents can link a child's Chikoro AI account, understand quiz reports and weak areas, and configure learning alerts.",
+    "2026-08-11",
+    {
+      headline:
+        "Chikoro AI for Parents in Zimbabwe: Follow Your Child's Learning Progress",
+      about: {
+        "@type": "Thing",
+        name: "Parent access to student learning progress",
+      },
+    }
+  ),
+  "/blog/chikoro-ai-for-schools-zimbabwe": articleMetadata(
+    "/blog/chikoro-ai-for-schools-zimbabwe",
+    "Chikoro AI for Schools: Education Dashboards | Chikoro AI",
+    "Explore Chikoro AI school analytics, scoped access, class dashboards and responsible rollout considerations for Zimbabwean education leaders.",
+    "2026-08-11",
+    {
+      headline:
+        "Chikoro AI for Schools in Zimbabwe: Assessment Insights and Education Dashboards",
+      about: {
+        "@type": "Thing",
+        name: "School assessment analytics and education leadership dashboards",
+      },
+    }
+  ),
   "/blog/best-ai-tools-homework-help-zimbabwe-2026": articleMetadata(
     "/blog/best-ai-tools-homework-help-zimbabwe-2026",
     "Best AI Tools for Homework Help in Zimbabwe (2026) | Chikoro AI",

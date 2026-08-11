@@ -58,7 +58,7 @@ export default function ParentDashboard() {
 
   const fetchChildren = async () => {
     try {
-      const res  = await fetch(`${API_BASE}/system/parent/my-children`, {
+      const res  = await fetch(`${API_BASE}/system/parent/me/children`, {
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       });
       const data = await res.json();

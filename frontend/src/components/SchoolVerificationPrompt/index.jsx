@@ -32,11 +32,7 @@ export default function SchoolVerificationPrompt() {
     EducationHierarchy.schoolVerificationContext()
       .then((result) => {
         setContext(result);
-        const nextSchool = result.schools.find(
-          (item) =>
-            !sessionStorage.getItem(`school-verification-dismissed-${item.id}`)
-        );
-        setSchool(nextSchool || null);
+        setSchool(result.schools[0] || null);
       })
       .catch(() => null);
   }, []);
@@ -58,11 +54,13 @@ export default function SchoolVerificationPrompt() {
 
   if (!context || !school || !form) return null;
   const provinces = context.organizations.filter(
-    ({ type }) => type === "province"
+    ({ type, metadata }) => type === "province" && !metadata?.provisional
   );
   const districts = context.organizations.filter(
-    ({ type, parentId }) =>
-      type === "district" && String(parentId) === form.provinceId
+    ({ type, parentId, metadata }) =>
+      type === "district" &&
+      !metadata?.provisional &&
+      String(parentId) === form.provinceId
   );
 
   const update = (key, value) =>
@@ -73,7 +71,6 @@ export default function SchoolVerificationPrompt() {
     }));
 
   const dismiss = () => {
-    sessionStorage.setItem(`school-verification-dismissed-${school.id}`, "1");
     setSchool(null);
   };
 
@@ -178,11 +175,16 @@ export default function SchoolVerificationPrompt() {
               District
               <select
                 required
+                disabled={!form.provinceId}
                 value={form.districtId}
                 onChange={(event) => update("districtId", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-theme-sidebar-border bg-theme-bg-primary px-3 py-3 text-sm normal-case text-theme-text-primary"
+                className="mt-2 w-full rounded-xl border border-theme-sidebar-border bg-theme-bg-primary px-3 py-3 text-sm normal-case text-theme-text-primary disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <option value="">Select district</option>
+                <option value="">
+                  {form.provinceId
+                    ? "Select district"
+                    : "Select province first"}
+                </option>
                 {districts.map((district) => (
                   <option key={district.id} value={district.id}>
                     {district.name}

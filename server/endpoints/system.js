@@ -44,6 +44,7 @@ const { fetchPfp, determinePfpFilepath } = require("../utils/files/pfp");
 const { exportChatsAsType } = require("../utils/helpers/chat/convertTo");
 const { EventLogs } = require("../models/eventLogs");
 const {
+  ensureProvisionalSchool,
   syncTeacherStudentToEducationClass,
 } = require("../utils/educationCompatibility");
 const { CollectorApi } = require("../utils/collectorApi");
@@ -1114,6 +1115,11 @@ NOW EXTRACT ALL QUESTIONS (start with "1." immediately):`;
         data: { role: "teacher" },
       }),
     ]);
+    try {
+      await ensureProvisionalSchool(teacher);
+    } catch (error) {
+      console.error("Unable to provision teacher school membership:", error);
+    }
 
     const newToken = jwt.sign(
       { id: updatedUser.id, username: updatedUser.username, role: updatedUser.role },
@@ -1322,7 +1328,7 @@ app.get("/system/teacher/:userId", [validatedRequest], async (request, response)
   }
 });
 
-   app.get("/system/parent/:userId", [validatedRequest], async (request, response) => {
+   app.get("/system/parent/profile/:userId", [validatedRequest], async (request, response) => {
     try {
       const sessionUser = response.locals.user;
       const { userId } = request.params;
@@ -5721,7 +5727,7 @@ app.get("/system/students", [
 });
 
 
-app.get("/system/parent/my-children", [validatedRequest, flexUserRoleValid([ROLES.parent])], async (req, res) => {
+app.get("/system/parent/me/children", [validatedRequest, flexUserRoleValid([ROLES.parent])], async (req, res) => {
   try {
     const parent = await prisma.parents.findFirst({
       where: { user_id: res.locals.user.id },

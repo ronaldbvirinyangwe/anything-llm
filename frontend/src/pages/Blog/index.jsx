@@ -4,6 +4,56 @@ import PublicSiteShell from "@/components/PublicSiteShell";
 
 const posts = [
   {
+    slug: "chikoro-ai-features-guide",
+    title:
+      "Chikoro AI Features: A Complete Guide for Zimbabwean Learners, Teachers and Families",
+    excerpt:
+      "A practical guide to the tutoring, assessment, planning and reporting tools currently implemented in Chikoro AI, including the limits users should understand.",
+    date: "11 August 2026",
+    readTime: "13 min read",
+    tag: "Chikoro AI Guide",
+  },
+  {
+    slug: "chikoro-ai-for-students-zimbabwe",
+    title:
+      "Chikoro AI for Students in Zimbabwe: Study, Practise and Track Your Progress",
+    excerpt:
+      "Learn how to use explanations, uploaded material, notes, quizzes, flashcards, answer feedback and study plans as one practical revision routine.",
+    date: "11 August 2026",
+    readTime: "11 min read",
+    tag: "Student Guide",
+  },
+  {
+    slug: "chikoro-ai-for-teachers-zimbabwe",
+    title:
+      "Chikoro AI for Teachers in Zimbabwe: Lesson Plans, Quizzes and Learner Reports",
+    excerpt:
+      "A clear teacher workflow for drafting plans, building and sharing assessments, extracting exam questions and reviewing learner results responsibly.",
+    date: "11 August 2026",
+    readTime: "12 min read",
+    tag: "Teacher Guide",
+  },
+  {
+    slug: "chikoro-ai-for-parents-zimbabwe",
+    title:
+      "Chikoro AI for Parents in Zimbabwe: Follow Your Child's Learning Progress",
+    excerpt:
+      "How parent linking, quiz reports, weak areas, low-score alerts and weekly digests work, with guidance for interpreting AI feedback carefully.",
+    date: "11 August 2026",
+    readTime: "9 min read",
+    tag: "Parent Guide",
+  },
+  {
+    slug: "chikoro-ai-for-schools-zimbabwe",
+    title:
+      "Chikoro AI for Schools in Zimbabwe: Assessment Insights and Education Dashboards",
+    excerpt:
+      "What the controlled-rollout school dashboards measure, how scoped access works and why the platform does not replace a school information system.",
+    date: "11 August 2026",
+    readTime: "11 min read",
+    tag: "Schools & Leadership",
+  },
+  {
     slug: "the-power-of-home-language-learning",
     title:
       "The Power of Home Language Learning: Why Studying in Shona Can Boost Your Grades",

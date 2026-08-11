@@ -61,6 +61,13 @@ import Landing from "@/pages/Landing";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import TermsOfService from "@/pages/TermsofService";
 import ThePowerOfHomeLanguage from "@/pages/Blog/ThePowerOfHomeLanguage";
+import {
+  ChikoroAIFeaturesGuide,
+  ChikoroAIForParents,
+  ChikoroAIForSchools,
+  ChikoroAIForStudents,
+  ChikoroAIForTeachers,
+} from "@/pages/Blog/FeatureGuides";
 import DeleteAccount from "./components/DeleteAccount/DeleteAccount";
 import SeoManager from "@/components/SeoManager";
 import NotFound from "@/pages/404";
@@ -175,6 +182,26 @@ export default function App() {
                     element={<TermsOfService />}
                   />
                   <Route path="/blog" element={<Blog />} />
+                  <Route
+                    path="/blog/chikoro-ai-features-guide"
+                    element={<ChikoroAIFeaturesGuide />}
+                  />
+                  <Route
+                    path="/blog/chikoro-ai-for-students-zimbabwe"
+                    element={<ChikoroAIForStudents />}
+                  />
+                  <Route
+                    path="/blog/chikoro-ai-for-teachers-zimbabwe"
+                    element={<ChikoroAIForTeachers />}
+                  />
+                  <Route
+                    path="/blog/chikoro-ai-for-parents-zimbabwe"
+                    element={<ChikoroAIForParents />}
+                  />
+                  <Route
+                    path="/blog/chikoro-ai-for-schools-zimbabwe"
+                    element={<ChikoroAIForSchools />}
+                  />
                   <Route
                     path="/blog/best-ai-tools-homework-help-zimbabwe-2026"
                     element={<BestAiToolsZimbabwe2026 />}
@@ -322,13 +349,13 @@ export default function App() {
                       <Route
                         path="/education"
                         element={
-                            <EducationRoute Component={EducationDashboard} />
+                          <EducationRoute Component={EducationDashboard} />
                         }
                       />
                       <Route
                         path="/education/:scopeType/:scopeId"
                         element={
-                            <EducationRoute Component={EducationDashboard} />
+                          <EducationRoute Component={EducationDashboard} />
                         }
                       />
                     </>

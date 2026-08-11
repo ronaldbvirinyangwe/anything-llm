@@ -20,6 +20,7 @@ import {
   FiZap,
   FiX,
 } from "react-icons/fi";
+import chikoroLogo from "@/media/logo/logo.jpg";
 import CoursesModel from "@/models/courses";
 import "katex/dist/katex.min.css";
 import "./courses.css";
@@ -1204,8 +1205,8 @@ export function Courses() {
             onClick={() => navigate("/")}
             aria-label="Return to home"
           >
-            <span aria-hidden="true">C</span>
-            <strong>Chikoro Courses</strong>
+            <img src={chikoroLogo} alt="" aria-hidden="true" />
+            <strong>Chikoro AI</strong>
           </button>
           <button
             className="courses-topbar__home"

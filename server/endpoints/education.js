@@ -2,6 +2,9 @@ const prisma = require("../utils/prisma");
 const { EventLogs } = require("../models/eventLogs");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const {
+  ensureProvisionalSchool,
+} = require("../utils/educationCompatibility");
+const {
   ORGANIZATION_TYPES,
   accessCapabilities,
   buildEducationAccess,
@@ -31,7 +34,12 @@ const RESPONSIBLE_AUTHORITIES = new Set([
   "other",
   "unknown",
 ]);
-const SCHOOL_VERIFICATION_ROLES = ["school_admin", "headmaster", "deputy_head"];
+const SCHOOL_VERIFICATION_ROLES = [
+  "school_admin",
+  "headmaster",
+  "deputy_head",
+  "teacher",
+];
 
 function numericId(value) {
   const id = Number(value);
@@ -410,7 +418,7 @@ function educationEndpoints(app) {
         if (!user?.id)
           return response.status(401).json({ error: "Unauthorized" });
         const now = new Date();
-        const memberships = await prisma.organization_memberships.findMany({
+        let memberships = await prisma.organization_memberships.findMany({
           where: {
             userId: user.id,
             validFrom: { lte: now },
@@ -424,6 +432,28 @@ function educationEndpoints(app) {
             },
           },
         });
+        if (memberships.length === 0 && user.role === "teacher") {
+          const teacher = await prisma.teachers.findFirst({
+            where: { user_id: user.id },
+          });
+          if (teacher) {
+            await ensureProvisionalSchool(teacher);
+            memberships = await prisma.organization_memberships.findMany({
+              where: {
+                userId: user.id,
+                validFrom: { lte: now },
+                OR: [{ validTo: null }, { validTo: { gt: now } }],
+                role: { in: SCHOOL_VERIFICATION_ROLES },
+                organization: { type: "school", active: true },
+              },
+              include: {
+                organization: {
+                  include: { parent: { include: { parent: true } } },
+                },
+              },
+            });
+          }
+        }
         const schoolIds = memberships.map(
           ({ organizationId }) => organizationId
         );

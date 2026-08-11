@@ -76,15 +76,11 @@
   gap: 10px;
   font-size: 14px;
 }
-.courses-brand > span {
-  display: grid;
-  place-items: center;
+.courses-brand > img {
   width: 32px;
   height: 32px;
-  border-radius: 10px 10px 10px 3px;
-  background: var(--courses-accent);
-  color: #06232e;
-  font-weight: 900;
+  border-radius: 10px;
+  object-fit: cover;
 }
 .courses-topbar__home,
 .courses-back {

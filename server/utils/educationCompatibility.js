@@ -151,4 +151,4 @@ async function syncTeacherStudentToEducationClass({
   return educationClass;
 }
 
-module.exports = { syncTeacherStudentToEducationClass };
+module.exports = { ensureProvisionalSchool, syncTeacherStudentToEducationClass };
