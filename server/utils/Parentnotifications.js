@@ -7,8 +7,14 @@ const { Resend } = require("resend");
 const { PrismaClient } = require("@prisma/client");
 
 const expo = new Expo();
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
 const prisma = new PrismaClient();
+
+const parentReportPath = (childId) => `/parent/reports/${childId}`;
+const parentReportUrl = (childId) =>
+  `${(process.env.APP_URL || "https://chikoro-ai.com").replace(/\/+$/, "")}${parentReportPath(childId)}`;
 
 // ─────────────────────────────────────────────────────────────────
 // 1. SEND PUSH TO PARENT
@@ -61,19 +67,29 @@ async function sendParentPush(parentUserId, { title, body, data }) {
 //    Usage:
 //    await sendLowScoreAlert({ childId, childName, subject, score, quizId })
 // ─────────────────────────────────────────────────────────────────
-async function sendLowScoreAlert({ childId, childName, subject, score, quizId }) {
+async function sendLowScoreAlert({
+  childId,
+  childName,
+  subject,
+  score,
+  quizId,
+}) {
   const settings = await prisma.parentNotificationSettings.findMany({
-    where: { studentId: childId, alertsEnabled: true, alertThreshold: { gte: score } },
+    where: {
+      studentId: childId,
+      alertsEnabled: true,
+      alertThreshold: { gte: score },
+    },
     include: {
       parent: {
         select: {
           id: true,
           name: true,
           user_id: true,
-          email: true,  // ✅ included so we can send email alerts
-        }
-      }
-    }
+          email: true, // ✅ included so we can send email alerts
+        },
+      },
+    },
   });
 
   if (settings.length === 0) {
@@ -88,11 +104,16 @@ async function sendLowScoreAlert({ childId, childName, subject, score, quizId })
     await sendParentPush(parent.user_id, {
       title: `⚠️ ${childName} needs support`,
       body: `${childName} scored ${score}% on a ${subject} quiz. Tap to view the report.`,
-      data: { type: "low_score_alert", childId, quizId, link: `/parent/report/${childId}` },
+      data: {
+        type: "low_score_alert",
+        childId,
+        quizId,
+        link: parentReportPath(childId),
+      },
     });
 
     // Email alert — only if parent has an email saved
-    if (parent.email) {
+    if (parent.email && resend) {
       try {
         await resend.emails.send({
           from: "Chikoro AI <alerts@chikoro-ai.com>",
@@ -107,15 +128,24 @@ async function sendLowScoreAlert({ childId, childName, subject, score, quizId })
             childId,
           }),
         });
-        console.log(`✅ Low score email sent to ${parent.email} for ${childName}`);
+        console.log(
+          `✅ Low score email sent to ${parent.email} for ${childName}`
+        );
       } catch (err) {
-        console.error(`❌ Failed to send low score email to ${parent.email}:`, err);
+        console.error(
+          `❌ Failed to send low score email to ${parent.email}:`,
+          err
+        );
       }
-    } else {
+    } else if (!parent.email) {
       console.log(`⚠️ No email for parent ${parent.name} — push only`);
+    } else {
+      console.log("⚠️ RESEND_API_KEY is not configured — push only");
     }
 
-    console.log(`✅ Push sent to parent ${parent.name} (user_id: ${parent.user_id}) for ${childName}`);
+    console.log(
+      `✅ Push sent to parent ${parent.name} (user_id: ${parent.user_id}) for ${childName}`
+    );
   }
 }
 
@@ -138,8 +168,8 @@ async function sendWeeklyDigestToAllParents() {
           id: true,
           email: true,
           name: true,
-          user_id: true,  // ✅ needed for sendParentPush (PushToken references users.id)
-        }
+          user_id: true, // ✅ needed for sendParentPush (PushToken references users.id)
+        },
       },
       student: {
         select: {
@@ -162,10 +192,15 @@ async function sendWeeklyDigestToAllParents() {
 
     if (quizzes.length === 0) {
       // No activity this week — send a gentle nudge instead
-      await sendParentPush(parent.user_id, {  // ✅ was parent.id — fixed to parent.user_id
+      await sendParentPush(parent.user_id, {
+        // ✅ was parent.id — fixed to parent.user_id
         title: `📚 ${child.name} hasn't been active this week`,
         body: "Encourage them to complete a quiz or flashcard session today.",
-        data: { type: "weekly_nudge", childId: child.id, link: `/parent/report/${child.id}` },
+        data: {
+          type: "weekly_nudge",
+          childId: child.id,
+          link: parentReportPath(child.id),
+        },
       });
       continue;
     }
@@ -178,7 +213,8 @@ async function sendWeeklyDigestToAllParents() {
     const subjectBreakdown = {};
     quizzes.forEach((q) => {
       const subj = q.subject || "General";
-      if (!subjectBreakdown[subj]) subjectBreakdown[subj] = { total: 0, count: 0 };
+      if (!subjectBreakdown[subj])
+        subjectBreakdown[subj] = { total: 0, count: 0 };
       subjectBreakdown[subj].total += parseFloat(q.score);
       subjectBreakdown[subj].count += 1;
     });
@@ -191,14 +227,19 @@ async function sendWeeklyDigestToAllParents() {
     const trend = computeTrend(quizzes);
 
     // Push notification summary
-    await sendParentPush(parent.user_id, {  // ✅ was parent.id — fixed to parent.user_id
+    await sendParentPush(parent.user_id, {
+      // ✅ was parent.id — fixed to parent.user_id
       title: `📊 ${child.name}'s weekly report is ready`,
       body: `Average score this week: ${avgScore}%. Tap to view the full report.`,
-      data: { type: "weekly_digest", childId: child.id, link: `/parent/report/${child.id}` },
+      data: {
+        type: "weekly_digest",
+        childId: child.id,
+        link: parentReportPath(child.id),
+      },
     });
 
     // Weekly digest email — only if parent has an email saved
-    if (parent.email) {
+    if (parent.email && resend) {
       try {
         await resend.emails.send({
           from: "Chikoro AI <weekly@chikoro-ai.com>",
@@ -216,12 +257,21 @@ async function sendWeeklyDigestToAllParents() {
             childId: child.id,
           }),
         });
-        console.log(`✅ Weekly digest sent to ${parent.email} for ${child.name}`);
+        console.log(
+          `✅ Weekly digest sent to ${parent.email} for ${child.name}`
+        );
       } catch (err) {
-        console.error(`❌ Failed to send weekly digest to ${parent.email}:`, err);
+        console.error(
+          `❌ Failed to send weekly digest to ${parent.email}:`,
+          err
+        );
       }
+    } else if (parent.email) {
+      console.log("⚠️ RESEND_API_KEY is not configured — push only");
     } else {
-      console.log(`⚠️ No email for parent ${parent.name} — push sent, digest email skipped`);
+      console.log(
+        `⚠️ No email for parent ${parent.name} — push sent, digest email skipped`
+      );
     }
   }
 }
@@ -233,14 +283,23 @@ function computeTrend(quizzes) {
   if (quizzes.length < 2) return "stable";
   const recent = quizzes.slice(0, 3);
   const older = quizzes.slice(-3);
-  const recentAvg = recent.reduce((s, q) => s + parseFloat(q.score), 0) / recent.length;
-  const olderAvg = older.reduce((s, q) => s + parseFloat(q.score), 0) / older.length;
+  const recentAvg =
+    recent.reduce((s, q) => s + parseFloat(q.score), 0) / recent.length;
+  const olderAvg =
+    older.reduce((s, q) => s + parseFloat(q.score), 0) / older.length;
   if (recentAvg > olderAvg + 5) return "improving 📈";
   if (recentAvg < olderAvg - 5) return "declining 📉";
   return "stable ➡️";
 }
 
-function buildLowScoreEmailHtml({ parentName, childName, subject, score, threshold, childId }) {
+function buildLowScoreEmailHtml({
+  parentName,
+  childName,
+  subject,
+  score,
+  threshold,
+  childId,
+}) {
   return `
 <!DOCTYPE html>
 <html>
@@ -276,7 +335,7 @@ function buildLowScoreEmailHtml({ parentName, childName, subject, score, thresho
         This is a good time to check in with ${childName} about this subject and encourage them to review the material or try again.
       </p>
 
-      <a href="${process.env.APP_URL || "https://chikoro-ai.com/"}/parent/report/${childId}"
+      <a href="${parentReportUrl(childId)}"
         style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:600;font-size:15px;">
         View Full Report →
       </a>
@@ -295,8 +354,15 @@ function buildLowScoreEmailHtml({ parentName, childName, subject, score, thresho
 }
 
 function buildWeeklyDigestEmailHtml({
-  parentName, childName, grade, quizCount, avgScore,
-  subjectBreakdown, weakSubjects, trend, childId,
+  parentName,
+  childName,
+  grade,
+  quizCount,
+  avgScore,
+  subjectBreakdown,
+  weakSubjects,
+  trend,
+  childId,
 }) {
   const subjectRows = Object.entries(subjectBreakdown)
     .map(([subj, data]) => {
@@ -311,12 +377,13 @@ function buildWeeklyDigestEmailHtml({
     })
     .join("");
 
-  const weakSection = weakSubjects.length > 0
-    ? `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:16px;margin:20px 0;">
+  const weakSection =
+    weakSubjects.length > 0
+      ? `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:16px;margin:20px 0;">
         <strong style="color:#92400e;">⚠️ Needs attention:</strong>
         <span style="color:#78350f;"> ${weakSubjects.join(", ")}</span>
       </div>`
-    : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px;margin:20px 0;">
+      : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px;margin:20px 0;">
         <strong style="color:#15803d;">✅ Strong week across all subjects!</strong>
       </div>`;
 
@@ -374,7 +441,7 @@ function buildWeeklyDigestEmailHtml({
 
       ${weakSection}
 
-      <a href="${process.env.APP_URL || "https://chikoro-ai.com/"}/parent/report/${childId}"
+      <a href="${parentReportUrl(childId)}"
         style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:600;font-size:15px;margin-top:8px;">
         View Full Report →
       </a>
@@ -392,4 +459,8 @@ function buildWeeklyDigestEmailHtml({
 </html>`;
 }
 
-module.exports = { sendParentPush, sendLowScoreAlert, sendWeeklyDigestToAllParents };
+module.exports = {
+  sendParentPush,
+  sendLowScoreAlert,
+  sendWeeklyDigestToAllParents,
+};

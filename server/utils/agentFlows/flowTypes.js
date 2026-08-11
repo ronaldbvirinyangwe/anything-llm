@@ -82,4 +82,32 @@ const FLOW_TYPES = {
   },
 };
 
+const LEGACY_FLOW_TYPES = {
+  "api-call": FLOW_TYPES.API_CALL.type,
+  "llm-instruction": FLOW_TYPES.LLM_INSTRUCTION.type,
+  "web-scraping": FLOW_TYPES.WEB_SCRAPING.type,
+};
+
+function normalizeFlowType(type) {
+  return LEGACY_FLOW_TYPES[type] || type;
+}
+
+function normalizeFlowConfig(config = {}) {
+  const steps = Array.isArray(config.steps)
+    ? config.steps
+    : Array.isArray(config.blocks)
+      ? config.blocks
+      : [];
+
+  return {
+    ...config,
+    steps: steps.map((step) => ({
+      ...step,
+      type: normalizeFlowType(step.type),
+    })),
+  };
+}
+
 module.exports.FLOW_TYPES = FLOW_TYPES;
+module.exports.normalizeFlowConfig = normalizeFlowConfig;
+module.exports.normalizeFlowType = normalizeFlowType;

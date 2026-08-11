@@ -1,15 +1,6 @@
-import React, { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-
-const SEO = {
-  title: "Chikoro AI APK Now Available on APKPure | Download for Android | Chikoro AI",
-  description:
-    "Download the Chikoro AI APK directly from APKPure. Get Zimbabwe's AI tutor on your Android phone — no Google Play needed. Works offline-friendly, supports Shona & Ndebele.",
-  canonical: "https://chikoro-ai.com/blog/chikoro-ai-apk-apkpure",
-  publishedDate: "2026-03-14",
-  keywords:
-    "Chikoro AI APK, Chikoro AI APKPure, download Chikoro AI Android, Zimbabwe AI tutor APK, Chikoro AI app download",
-};
+import React from "react";
+import { Link } from "react-router-dom";
+import PublicSiteShell from "@/components/PublicSiteShell";
 
 const sections = [
   {
@@ -79,121 +70,64 @@ const sections = [
 ];
 
 export default function ChikoroAIApkPure() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    document.title = SEO.title;
-    const setMeta = (name, content, prop = false) => {
-      const sel = prop ? `meta[property="${name}"]` : `meta[name="${name}"]`;
-      let el = document.querySelector(sel);
-      if (!el) { el = document.createElement("meta"); prop ? el.setAttribute("property", name) : el.setAttribute("name", name); document.head.appendChild(el); }
-      el.setAttribute("content", content);
-    };
-    const setLink = (rel, href) => {
-      let el = document.querySelector(`link[rel="${rel}"]`);
-      if (!el) { el = document.createElement("link"); el.setAttribute("rel", rel); document.head.appendChild(el); }
-      el.setAttribute("href", href);
-    };
-    setMeta("description", SEO.description);
-    setMeta("keywords", SEO.keywords);
-    setMeta("og:title", SEO.title, true);
-    setMeta("og:description", SEO.description, true);
-    setMeta("og:url", SEO.canonical, true);
-    setMeta("og:type", "article", true);
-    setMeta("article:published_time", SEO.publishedDate, true);
-    setMeta("twitter:title", SEO.title, true);
-    setMeta("twitter:description", SEO.description, true);
-    setLink("canonical", SEO.canonical);
-
-    let ld = document.getElementById("ld-article");
-    if (!ld) { ld = document.createElement("script"); ld.id = "ld-article"; ld.type = "application/ld+json"; document.head.appendChild(ld); }
-    ld.textContent = JSON.stringify({
-      "@context": "https://schema.org",
-      "@type": "Article",
-      "headline": "Chikoro AI APK Now Available on APKPure",
-      "description": SEO.description,
-      "datePublished": SEO.publishedDate,
-      "dateModified": SEO.publishedDate,
-      "url": SEO.canonical,
-      "publisher": { "@type": "Organization", "name": "Chikoro AI", "url": "https://chikoro-ai.com" },
-      "author": { "@type": "Organization", "name": "Chikoro AI" },
-      "inLanguage": "en-ZW",
-      "about": { "@type": "Thing", "name": "Chikoro AI Android App" }
-    });
-
-    return () => {
-      document.title = "Chikoro AI — AI Homework Help & Tutor for Zimbabwe Students";
-      document.getElementById("ld-article")?.remove();
-    };
-  }, []);
-
   return (
-    <div className="min-h-screen bg-theme-bg-primary text-theme-text-primary">
-      {/* Nav */}
-      <nav className="sticky top-0 z-50 flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#080c10]/80 backdrop-blur-xl">
-        <button
-          onClick={() => navigate("/")}
-          className="text-xl font-bold bg-gradient-to-r from-[#75D6FF] via-white to-[#75D6FF] bg-clip-text text-transparent"
-        >
-          Chikoro AI
-        </button>
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate("/blog")} className="text-sm text-theme-text-secondary hover:text-white transition-colors">Blog</button>
-          <button onClick={() => navigate("/pricing")} className="text-sm text-theme-text-secondary hover:text-white transition-colors">Pricing</button>
-          <button
-            onClick={() => navigate("/register")}
-            className="text-sm font-semibold px-4 py-2 rounded-lg bg-[#75D6FF] text-gray-900 hover:bg-white transition-colors"
-          >
-            Get started free
-          </button>
-        </div>
-      </nav>
-
+    <PublicSiteShell>
       <article className="max-w-3xl mx-auto px-6 pt-12 pb-20">
         {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-xs text-theme-text-secondary mb-8">
-          <button onClick={() => navigate("/blog")} className="hover:text-white transition-colors">Blog</button>
+        <div className="mb-8 flex items-center gap-2 text-xs text-landing-text-muted">
+          <Link
+            to="/blog"
+            className="transition-colors hover:text-landing-text"
+          >
+            Blog
+          </Link>
           <span>/</span>
-          <span className="text-white">Chikoro AI APK on APKPure</span>
+          <span className="text-landing-text">Chikoro AI APK on APKPure</span>
         </div>
 
         {/* Meta */}
         <div className="flex items-center gap-3 mb-6 flex-wrap">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-[#75D6FF]/10 text-[#75D6FF] border border-[#75D6FF]/30">
+          <span className="rounded-full border border-landing-accent-border bg-landing-accent-soft px-3 py-1 text-xs font-semibold text-landing-accent">
             App Updates
           </span>
-          <span className="text-xs text-theme-text-secondary">4 April 2026</span>
-          <span className="text-xs text-theme-text-secondary">&bull; 5 min read</span>
+          <span className="text-xs text-landing-text-muted">14 March 2026</span>
+          <span className="text-xs text-landing-text-muted">
+            &bull; 5 min read
+          </span>
         </div>
 
         {/* Title */}
-        <h1 className="text-3xl md:text-4xl font-bold text-white leading-tight mb-6">
+        <h1 className="mb-6 text-3xl font-bold leading-tight text-landing-text md:text-4xl">
           Chikoro AI APK Is Now Available on APKPure
         </h1>
 
         {/* Intro */}
-        <p className="text-theme-text-secondary leading-relaxed mb-4">
-          Not every Zimbabwe student has access to the Google Play Store — and that should not stop
-          anyone from getting AI-powered homework help. The Chikoro AI APK is now listed on APKPure,
-          one of the world's most trusted alternative Android app stores, so you can install it on
-          any Android phone in minutes.
+        <p className="mb-4 leading-relaxed text-landing-text-muted">
+          Not every Zimbabwe student has access to the Google Play Store — and
+          that should not stop anyone from getting AI-powered homework help. The
+          Chikoro AI APK is now listed on APKPure, one of the world's most
+          trusted alternative Android app stores, so you can install it on any
+          Android phone in minutes.
         </p>
-        <p className="text-theme-text-secondary leading-relaxed mb-4">
-          Whether your phone does not have Google Play, you prefer to manage your own app installs,
-          or you simply want a direct download link to share with a friend, this guide covers
-          everything you need to know about getting Chikoro AI onto your Android device via APKPure.
+        <p className="mb-4 leading-relaxed text-landing-text-muted">
+          Whether your phone does not have Google Play, you prefer to manage
+          your own app installs, or you simply want a direct download link to
+          share with a friend, this guide covers everything you need to know
+          about getting Chikoro AI onto your Android device via APKPure.
         </p>
 
         {/* Quick tip box */}
-        <div className="rounded-xl bg-[#75D6FF]/5 border border-[#75D6FF]/30 p-5 mb-10">
-          <p className="text-sm text-[#75D6FF] font-semibold mb-1">Direct download link</p>
-          <p className="text-sm text-theme-text-secondary leading-relaxed">
+        <div className="mb-10 rounded-xl border border-landing-accent-border bg-landing-accent-soft p-5">
+          <p className="mb-1 text-sm font-semibold text-landing-accent">
+            Direct download link
+          </p>
+          <p className="text-sm leading-relaxed text-landing-text-muted">
             The Chikoro AI APK is available at{" "}
             <a
               href="https://apkpure.com/p/com.scaleszw.chikoroai"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#75D6FF] underline underline-offset-2 hover:text-white transition-colors"
+              className="text-landing-accent underline underline-offset-2 transition-colors hover:text-landing-accent-hover"
             >
               apkpure.com/p/com.scaleszw.chikoroai
             </a>
@@ -205,10 +139,15 @@ export default function ChikoroAIApkPure() {
         <div className="space-y-10">
           {sections.map(({ heading, body }) => (
             <div key={heading}>
-              <h2 className="text-xl font-bold text-white mb-4">{heading}</h2>
+              <h2 className="mb-4 text-xl font-bold text-landing-text">
+                {heading}
+              </h2>
               <div className="space-y-3">
                 {body.map((para, i) => (
-                  <p key={i} className="text-theme-text-secondary leading-relaxed text-sm">
+                  <p
+                    key={i}
+                    className="text-sm leading-relaxed text-landing-text-muted"
+                  >
                     {para}
                   </p>
                 ))}
@@ -218,11 +157,13 @@ export default function ChikoroAIApkPure() {
         </div>
 
         {/* Compatibility table */}
-        <div className="mt-12 mb-10 rounded-xl border border-white/10 bg-theme-bg-secondary overflow-hidden">
-          <div className="px-6 py-4 border-b border-white/10">
-            <h2 className="text-base font-bold text-white">Android version compatibility</h2>
+        <div className="mb-10 mt-12 overflow-hidden rounded-xl border border-landing-border bg-landing-surface">
+          <div className="border-b border-landing-border px-6 py-4">
+            <h2 className="text-base font-bold text-landing-text">
+              Android version compatibility
+            </h2>
           </div>
-          <div className="divide-y divide-white/10">
+          <div className="divide-y divide-landing-border">
             {[
               { version: "Android 14", status: "Full support", ok: true },
               { version: "Android 13", status: "Full support", ok: true },
@@ -231,24 +172,40 @@ export default function ChikoroAIApkPure() {
               { version: "Android 10", status: "Full support", ok: true },
               { version: "Android 9 (Pie)", status: "Full support", ok: true },
               { version: "Android 8 (Oreo)", status: "Full support", ok: true },
-              { version: "Android 7 and below", status: "Not supported", ok: false },
+              {
+                version: "Android 7 and below",
+                status: "Not supported",
+                ok: false,
+              },
             ].map(({ version, status, ok }) => (
-              <div key={version} className="flex items-center justify-between px-6 py-3">
-                <span className="text-sm text-theme-text-secondary">{version}</span>
-                <span className={`text-sm font-semibold ${ok ? "text-[#75D6FF]" : "text-white/30"}`}>
+              <div
+                key={version}
+                className="flex items-center justify-between px-6 py-3"
+              >
+                <span className="text-sm text-landing-text-muted">
+                  {version}
+                </span>
+                <span
+                  className={`text-sm font-semibold ${ok ? "text-landing-accent" : "text-landing-text-faint"}`}
+                >
                   {status}
                 </span>
               </div>
             ))}
           </div>
-          <div className="px-6 py-3 bg-white/[0.02]">
-            <p className="text-xs text-white/40">Check your Android version under Settings → About Phone → Android Version.</p>
+          <div className="bg-landing-surface-subtle px-6 py-3">
+            <p className="text-xs text-landing-text-faint">
+              Check your Android version under Settings → About Phone → Android
+              Version.
+            </p>
           </div>
         </div>
 
         {/* Summary */}
         <div className="mb-10">
-          <h2 className="text-xl font-bold text-white mb-4">How to get the app right now</h2>
+          <h2 className="mb-4 text-xl font-bold text-landing-text">
+            How to get the app right now
+          </h2>
           <ul className="space-y-3">
             {[
               "Go to apkpure.com/p/com.scaleszw.chikoroai on your phone's browser",
@@ -257,8 +214,11 @@ export default function ChikoroAIApkPure() {
               "Open the downloaded APK file and tap Install",
               "Sign in or register for free and start asking questions",
             ].map((item, i) => (
-              <li key={i} className="flex items-start gap-3 text-sm text-theme-text-secondary">
-                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#75D6FF]/20 text-[#75D6FF] text-xs flex items-center justify-center font-bold mt-0.5">
+              <li
+                key={i}
+                className="flex items-start gap-3 text-sm text-landing-text-muted"
+              >
+                <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-landing-accent-soft text-xs font-bold text-landing-accent">
                   {i + 1}
                 </span>
                 {item}
@@ -268,59 +228,33 @@ export default function ChikoroAIApkPure() {
         </div>
 
         {/* CTA */}
-        <div className="rounded-2xl bg-[#75D6FF]/5 border border-[#75D6FF]/30 p-8 text-center">
-          <h2 className="text-xl font-bold text-white mb-3">Zimbabwe's AI tutor — now on any Android phone</h2>
-          <p className="text-sm text-theme-text-secondary mb-6 max-w-md mx-auto">
-            Ask any ZIMSEC or Cambridge question and get a step-by-step explanation in English, Shona,
-            or Ndebele. Upload a past paper or worksheet and get it solved instantly — 24/7.
+        <div className="rounded-2xl border border-landing-accent-border bg-landing-accent-soft p-8 text-center">
+          <h2 className="mb-3 text-xl font-bold text-landing-text">
+            Zimbabwe's AI tutor — now on any Android phone
+          </h2>
+          <p className="mx-auto mb-6 max-w-md text-sm text-landing-text-muted">
+            Ask any ZIMSEC or Cambridge question and get a step-by-step
+            explanation in English, Shona, or Ndebele. Upload a past paper or
+            worksheet and get it solved instantly — 24/7.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <a
               href="https://apkpure.com/p/com.scaleszw.chikoroai"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-8 py-3 rounded-xl bg-[#75D6FF] text-gray-900 font-bold hover:bg-white transition-colors text-sm"
+              className="rounded-xl bg-landing-accent px-8 py-3 text-sm font-bold text-landing-accent-foreground transition-colors hover:bg-landing-accent-hover"
             >
               Download APK from APKPure
             </a>
-            <button
-              onClick={() => navigate("/register")}
-              className="px-8 py-3 rounded-xl border border-white/20 text-white font-semibold hover:border-[#75D6FF] transition-colors text-sm"
+            <Link
+              to="/register"
+              className="rounded-xl border border-landing-border-strong px-8 py-3 text-sm font-semibold text-landing-text transition-colors hover:border-landing-accent"
             >
               Sign up free on web
-            </button>
+            </Link>
           </div>
         </div>
       </article>
-
-      {/* Footer */}
-      <footer className="border-t border-white/10 bg-[#060a0d]">
-        <div className="max-w-6xl mx-auto px-6 py-12 grid grid-cols-2 md:grid-cols-4 gap-8">
-          <div className="col-span-2">
-            <p className="text-lg font-bold bg-gradient-to-r from-[#75D6FF] via-white to-[#75D6FF] bg-clip-text text-transparent mb-2">Chikoro AI</p>
-            <p className="text-xs text-white/40 leading-relaxed max-w-xs">Zimbabwe's first AI tutor — aligned to ZIMSEC & Cambridge, in English, Shona, and Ndebele.</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-4">Product</p>
-            <ul className="space-y-2">
-              {[{l:"Pricing",p:"/pricing"},{l:"About",p:"/about"},{l:"Blog",p:"/blog"}].map(({l,p})=>(
-                <li key={l}><button onClick={()=>navigate(p)} className="text-xs text-white/40 hover:text-white transition-colors">{l}</button></li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-4">Account</p>
-            <ul className="space-y-2">
-              {[{l:"Sign up free",p:"/register"},{l:"Log in",p:"/login"}].map(({l,p})=>(
-                <li key={l}><button onClick={()=>navigate(p)} className="text-xs text-white/40 hover:text-white transition-colors">{l}</button></li>
-              ))}
-            </ul>
-          </div>
-        </div>
-        <div className="border-t border-white/[0.06] px-6 py-5 max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p className="text-xs text-white/25">&copy; {new Date().getFullYear()} Chikoro AI &mdash; Zimbabwe&apos;s AI Tutor</p>
-        </div>
-      </footer>
-    </div>
+    </PublicSiteShell>
   );
 }

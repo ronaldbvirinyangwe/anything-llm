@@ -302,20 +302,19 @@ export default function LLMPreference({
   const DESCRIPTION = t("onboarding.llm.description");
 
   useEffect(() => {
-  async function fetchKeys() {
-    const _settings = await System.keys();
-    setSettings(_settings);
+    async function fetchKeys() {
+      const _settings = await System.keys();
+      setSettings(_settings);
 
-    // Force Ollama as default if nothing or different is set
-    const currentProvider = _settings?.LLMProvider;
-    if (!currentProvider || currentProvider !== "ollama") {
-      await System.updateSystem({ LLMProvider: "ollama" });
+      // Force Ollama as default if nothing or different is set
+      const currentProvider = _settings?.LLMProvider;
+      if (!currentProvider || currentProvider !== "ollama") {
+        await System.updateSystem({ LLMProvider: "ollama" });
+      }
+      setSelectedLLM("ollama");
     }
-    setSelectedLLM("ollama");
-    setLoading(false);
-  }
-  fetchKeys();
-}, []);
+    fetchKeys();
+  }, []);
 
   function handleForward() {
     if (hiddenSubmitButtonRef.current) {

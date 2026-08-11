@@ -8,6 +8,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import "./lessonplanner.css"; // Reuse your elegant theme
 import { useThemeContext } from "@/ThemeContext";
+import { API_BASE } from "@/utils/constants";
 
 const cleanMarkdown = (text) => {
   if (!text) return "";
@@ -46,7 +47,7 @@ const useResourceFinderStore = create((set, get) => ({
         Authorization: `Bearer ${localStorage.getItem("chikoroai_authToken")}`,
       };
       const response = await axios.post(
-        "https://api.chikoro-ai.com/api/system/teacher-tools/resource-finder",
+        `${API_BASE}/system/teacher-tools/resource-finder`,
         formData,
         { headers }
       );

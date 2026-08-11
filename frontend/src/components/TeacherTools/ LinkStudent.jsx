@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
 import { useThemeContext } from "@/ThemeContext";
+import { API_BASE } from "@/utils/constants";
 import {
   FiArrowLeft, FiLink, FiCopy, FiCheck, FiUsers, FiBook, FiUserPlus
 } from "react-icons/fi";
@@ -25,7 +26,7 @@ export default function LinkStudent() {
       const teacherId = storedUser?.id;
       if (!teacherId) return;
       const res = await axios.get(
-        `https://api.chikoro-ai.com/api/system/teacher/my-students/${teacherId}`,
+        `${API_BASE}/system/teacher/my-students/${teacherId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (res.data.success) setStudents(res.data.students);
@@ -37,7 +38,7 @@ export default function LinkStudent() {
   const fetchAllStudents = async () => {
     try {
       const token = localStorage.getItem("chikoroai_authToken");
-      const res = await axios.get(`https://api.chikoro-ai.com/api/system/students`, {
+      const res = await axios.get(`${API_BASE}/system/students`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.data.success) setAvailableStudents(res.data.students);
@@ -66,7 +67,7 @@ export default function LinkStudent() {
     try {
       const token = localStorage.getItem("chikoroai_authToken");
       const res = await axios.post(
-        `https://api.chikoro-ai.com/api/system/teacher/create-class-link`,
+        `${API_BASE}/system/teacher/create-class-link`,
         { subject: subjectName },
         { headers: { Authorization: `Bearer ${token}` } }
       );

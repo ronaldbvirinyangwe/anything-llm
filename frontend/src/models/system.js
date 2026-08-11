@@ -653,6 +653,25 @@ const System = {
         return { success: false, error: e.message };
       });
   },
+  getMyProfile: async () => {
+    return await fetch(`${API_BASE}/system/my-profile`, {
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((error) => ({ success: false, error: error.message }));
+  },
+  updateCurriculum: async (curriculum) => {
+    return await fetch(`${API_BASE}/system/my-profile/curriculum`, {
+      method: "POST",
+      headers: {
+        ...baseHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ curriculum }),
+    })
+      .then((res) => res.json())
+      .catch((error) => ({ success: false, error: error.message }));
+  },
   dataConnectors: DataConnector,
 
   getSlashCommandPresets: async function () {
@@ -837,7 +856,6 @@ const System = {
   promptVariables: SystemPromptVariable,
 };
 
-const API_BASE_URL = "https://api.chikoro-ai.com/api";
 System.authenticatedFetch = async function (endpoint, options = {}) {
   const token =
     localStorage.getItem("authToken") || localStorage.getItem("AUTH_TOKEN");
@@ -848,7 +866,7 @@ System.authenticatedFetch = async function (endpoint, options = {}) {
   };
 
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
       headers: { ...defaultHeaders, ...(options.headers || {}) },
     });

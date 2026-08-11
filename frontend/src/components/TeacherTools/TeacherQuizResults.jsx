@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { FiCopy, FiCheck } from "react-icons/fi";
+import { API_BASE } from "@/utils/constants";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -64,14 +65,14 @@ export default function TeacherQuizResults() {
 
         if (showQuizList) {
           const res = await axios.get(
-            `https://api.chikoro-ai.com/api/system/teacher/my-quizzes`,
+            `${API_BASE}/system/teacher/my-quizzes`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           if (res.data.success) setQuizzes(res.data.quizzes || []);
           else setError(res.data.error || "Failed to fetch quizzes");
         } else {
           const res = await axios.get(
-            `https://api.chikoro-ai.com/api/system/teacher/quiz-results/${quizId}`,
+            `${API_BASE}/system/teacher/quiz-results/${quizId}`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           if (res.data.success) setQuizData(res.data);

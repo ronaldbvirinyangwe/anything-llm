@@ -55,11 +55,14 @@ function installGracefulShutdown(server) {
 function listen(server, port, mode) {
   configureServer(server);
   installGracefulShutdown(server);
+  const host = process.env.SERVER_HOST || "0.0.0.0";
   server
-    .listen(port, async () => {
+    .listen(port, host, async () => {
       try {
         await initializeServices();
-        console.log(`Primary server in ${mode} mode listening on port ${port}`);
+        console.log(
+          `Primary server in ${mode} mode listening on ${host}:${port}`
+        );
       } catch (error) {
         console.error(`Server initialization failed: ${error.message}`);
         server.close(() => {});

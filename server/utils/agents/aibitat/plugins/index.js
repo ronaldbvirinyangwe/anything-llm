@@ -7,18 +7,18 @@ const { chatHistory } = require("./chat-history.js");
 const { memory } = require("./memory.js");
 const { rechart } = require("./rechart.js");
 const { sqlAgent } = require("./sql-agent/index.js");
-const { generateNotes } = require("./generate-notes"); 
-const {explainConcept} = require("./explain-concept");
+const { generateNotes } = require("./generate-notes");
+const { explainConcept } = require("./explain-concept");
 const { checkMyAnswer } = require("./check-my-answer.js");
-const {StudyPlanner} = require("./study-planner.js");
+const { StudyPlanner } = require("./study-planner.js");
 const { StudyPlannerElicit } = require("./studyPlannerElicit.js");
-const {StudyContext} = require("./study-context.js");
-const {StudyTracker} = require("./study-tracker.js");
-const {FollowUpQuestions} = require("./follow-up-questions.js");
-const {StudyOnboarding} = require("./study-onboarding.js")
-const {ExamDiagram} = require("./exam-diagram.js")
-const {GenerateCourse} = require("./course-generator.js")
-const { markLessonCompleteByTopic } = require("./course-progress-utils.js");
+const { StudyContext } = require("./study-context.js");
+const { StudyTracker } = require("./study-tracker.js");
+const { FollowUpQuestions } = require("./follow-up-questions.js");
+const { StudyOnboarding } = require("./study-onboarding.js");
+const { ExamDiagram } = require("./exam-diagram.js");
+const { GenerateCourse } = require("./course-generator.js");
+const { MarkLessonComplete } = require("./mark-lesson-complete.js");
 
 module.exports = {
   webScraping,
@@ -33,15 +33,15 @@ module.exports = {
   generateNotes,
   explainConcept,
   checkMyAnswer,
-    StudyPlannerElicit,
+  StudyPlannerElicit,
   StudyPlanner,
   StudyContext,
   StudyTracker,
   FollowUpQuestions,
   StudyOnboarding,
   ExamDiagram,
-    markLessonCompleteByTopic,
-     GenerateCourse,
+  MarkLessonComplete,
+  GenerateCourse,
   // Plugin name aliases so they can be pulled by slug as well.
   [webScraping.name]: webScraping,
   [webBrowsing.name]: webBrowsing,
@@ -55,13 +55,13 @@ module.exports = {
   [generateNotes.name]: generateNotes,
   [explainConcept.name]: explainConcept,
   [checkMyAnswer.name]: checkMyAnswer,
-    [StudyPlannerElicit.name]: StudyPlannerElicit,
+  [StudyPlannerElicit.name]: StudyPlannerElicit,
   [StudyPlanner.name]: StudyPlanner,
-[StudyContext.name]: StudyContext,
-[StudyTracker.name]: StudyTracker,
-[FollowUpQuestions.name]: FollowUpQuestions,
-[StudyOnboarding.name]: StudyOnboarding,
-[ExamDiagram.name]: ExamDiagram,
-[GenerateCourse.name]: GenerateCourse,
-[markLessonCompleteByTopic.name]: markLessonCompleteByTopic,
+  [StudyContext.name]: StudyContext,
+  [StudyTracker.name]: StudyTracker,
+  [FollowUpQuestions.name]: FollowUpQuestions,
+  [StudyOnboarding.name]: StudyOnboarding,
+  [ExamDiagram.name]: ExamDiagram,
+  [GenerateCourse.name]: GenerateCourse,
+  [MarkLessonComplete.name]: MarkLessonComplete,
 };

@@ -2,6 +2,17 @@ const { EventEmitter } = require("events");
 const { APIError } = require("./error.js");
 const Providers = require("./providers/index.js");
 const { Telemetry } = require("../../../models/telemetry.js");
+const {
+  validateJsonSchema,
+} = require("../../educationalSkills/schemaValidator.js");
+
+const DEFAULT_MAX_TOOL_CALLS = 20;
+const DEFAULT_MAX_TOOL_REPEATS = 5;
+const DEFAULT_MAX_UNKNOWN_TOOL_RETRIES = 2;
+
+function boundedLimit(value, fallback) {
+  return Number.isInteger(value) && value >= 0 ? value : fallback;
+}
 
 /**
  * AIbitat is a class that manages the conversation between agents.
@@ -24,12 +35,15 @@ class AIbitat {
    * @type {boolean}
    */
   skipHandleExecution = false;
-  terminateAfterReply = false; 
+  terminateAfterReply = false;
 
   provider = null;
   defaultProvider = null;
   defaultInterrupt;
   maxRounds;
+  maxToolCalls;
+  maxToolRepeats;
+  maxUnknownToolRetries;
   _chats;
 
   agents = new Map();
@@ -41,6 +55,9 @@ class AIbitat {
       chats = [],
       interrupt = "NEVER",
       maxRounds = 100,
+      maxToolCalls = DEFAULT_MAX_TOOL_CALLS,
+      maxToolRepeats = DEFAULT_MAX_TOOL_REPEATS,
+      maxUnknownToolRetries = DEFAULT_MAX_UNKNOWN_TOOL_RETRIES,
       provider = "openai",
       handlerProps = {}, // Inherited props we can spread so aibitat can access.
       ...rest
@@ -48,6 +65,15 @@ class AIbitat {
     this._chats = chats;
     this.defaultInterrupt = interrupt;
     this.maxRounds = maxRounds;
+    this.maxToolCalls = boundedLimit(maxToolCalls, DEFAULT_MAX_TOOL_CALLS);
+    this.maxToolRepeats = boundedLimit(
+      maxToolRepeats,
+      DEFAULT_MAX_TOOL_REPEATS
+    );
+    this.maxUnknownToolRetries = boundedLimit(
+      maxUnknownToolRetries,
+      DEFAULT_MAX_UNKNOWN_TOOL_RETRIES
+    );
     this.handlerProps = handlerProps;
 
     this.defaultProvider = {
@@ -322,44 +348,52 @@ class AIbitat {
    * @param route
    * @param keepAlive Whether to keep the chat alive.
    */
-async chat(route, keepAlive = true) {
-  let reply = "";
-  try {
-    reply = await this.reply(route);
-  } catch (error) {
-    if (error instanceof APIError) {
-      return this.newError({ from: route.from, to: route.to }, error);
+  async chat(route, keepAlive = true) {
+    let reply = "";
+    try {
+      reply = await this.reply(route);
+    } catch (error) {
+      if (error instanceof APIError) {
+        return this.newError({ from: route.from, to: route.to }, error);
+      }
+      throw error;
     }
-    throw error;
+
+    console.log(
+      `[chat] reply received, terminateAfterReply=${this.terminateAfterReply}, reply preview: ${String(reply).slice(0, 60)}`
+    );
+
+    const shouldStop = this.terminateAfterReply;
+    this.terminateAfterReply = false;
+
+    // ── Stop FIRST — before any further LLM rounds ──────────────────
+    if (shouldStop) {
+      this.terminate(route.to); // ← this closes the websocket
+      return;
+    }
+
+    if (
+      reply === "TERMINATE" ||
+      this.hasReachedMaximumRounds(route.from, route.to)
+    ) {
+      this.terminate(route.to);
+      return;
+    }
+
+    const newChat = { to: route.from, from: route.to };
+
+    if (
+      reply === "INTERRUPT" ||
+      (this.agents.get(route.to) && this.shouldAgentInterrupt(route.to))
+    ) {
+      this.interrupt(newChat);
+      return;
+    }
+
+    if (keepAlive) {
+      await this.chat(newChat, true);
+    }
   }
-
-  console.log(`[chat] reply received, terminateAfterReply=${this.terminateAfterReply}, reply preview: ${String(reply).slice(0, 60)}`);
-
-  const shouldStop = this.terminateAfterReply;
-  this.terminateAfterReply = false;
-
-  // ── Stop FIRST — before any further LLM rounds ──────────────────
-  if (shouldStop) {
-    this.terminate(route.to); // ← this closes the websocket
-    return;
-  }
-
-  if (reply === "TERMINATE" || this.hasReachedMaximumRounds(route.from, route.to)) {
-    this.terminate(route.to);
-    return;
-  }
-
-  const newChat = { to: route.from, from: route.to };
-
-  if (reply === "INTERRUPT" || (this.agents.get(route.to) && this.shouldAgentInterrupt(route.to))) {
-    this.interrupt(newChat);
-    return;
-  }
-
-  if (keepAlive) {
-    await this.chat(newChat, true);
-  }
-}
 
   /**
    * Check if the agent should interrupt the chat based on its configuration.
@@ -448,44 +482,46 @@ Only return the role.
   }
 
   /**
- * Automatically fires follow-up-questions after any substantive response.
- * Returns the follow-up payload appended to the original content,
- * or just the original content if the plugin isn't available or fires an error.
- */
-async #appendFollowUpQuestions(content = "", byAgent = null) {
-  if (
-    !content ||
-    content.startsWith("FOLLOW_UP") ||
-    content.startsWith("TERMINATE") ||
-    content.startsWith("INTERRUPT") ||
-      content.startsWith("STUDY_ONBOARDING::") ||   // ← add
-    content.startsWith("STUDY_PLAN_FORM::") ||     // ← add
-    content.startsWith("ONBOARDING_COMPLETE::") || 
-    content.length < 50
-  ) {
+   * Automatically fires follow-up-questions after any substantive response.
+   * Returns the follow-up payload appended to the original content,
+   * or just the original content if the plugin isn't available or fires an error.
+   */
+  async #appendFollowUpQuestions(content = "", byAgent = null) {
+    if (
+      !content ||
+      content.startsWith("FOLLOW_UP") ||
+      content.startsWith("TERMINATE") ||
+      content.startsWith("INTERRUPT") ||
+      content.startsWith("STUDY_ONBOARDING::") || // ← add
+      content.startsWith("STUDY_PLAN_FORM::") || // ← add
+      content.startsWith("ONBOARDING_COMPLETE::") ||
+      content.length < 50
+    ) {
+      return content;
+    }
+
+    const followUpFn = this.functions.get("follow-up-questions");
+    if (!followUpFn) return content;
+
+    try {
+      followUpFn.caller = byAgent || "agent";
+      const followUpResult = await followUpFn.handler({
+        topic_summary: content.slice(0, 300),
+        subject: null,
+      });
+
+      if (followUpResult?.startsWith("FOLLOW_UP_QUESTIONS::")) {
+        // Return as two messages separated by a sentinel
+        return `${content}\n__SPLIT__\n${followUpResult}`;
+      }
+    } catch (e) {
+      this.handlerProps?.log?.(
+        `[follow-up-questions] Failed silently: ${e.message}`
+      );
+    }
+
     return content;
   }
-
-  const followUpFn = this.functions.get("follow-up-questions");
-  if (!followUpFn) return content;
-
-  try {
-    followUpFn.caller = byAgent || "agent";
-    const followUpResult = await followUpFn.handler({
-      topic_summary: content.slice(0, 300),
-      subject: null,
-    });
-
-    if (followUpResult?.startsWith("FOLLOW_UP_QUESTIONS::")) {
-      // Return as two messages separated by a sentinel
-      return `${content}\n__SPLIT__\n${followUpResult}`;
-    }
-  } catch (e) {
-    this.handlerProps?.log?.(`[follow-up-questions] Failed silently: ${e.message}`);
-  }
-
-  return content;
-}
 
   /**
    *
@@ -547,46 +583,56 @@ ${this.getHistory({ to: route.to })
    * @param route.to The node that sent the chat.
    * @param route.from The node that will reply to the chat.
    */
-async reply(route) {
-  const fromConfig = this.getAgentConfig(route.from);
-  const chatHistory = this.getOrFormatNodeChatHistory(route);
-  const messages = [
-    { content: fromConfig.role, role: "system" },
-    ...chatHistory,
-  ];
+  async reply(route) {
+    const fromConfig = this.getAgentConfig(route.from);
+    const chatHistory = this.getOrFormatNodeChatHistory(route);
+    const messages = [
+      { content: fromConfig.role, role: "system" },
+      ...chatHistory,
+    ];
 
-  const functions = fromConfig.functions
-    ?.map((name) => this.functions.get(this.#parseFunctionName(name)))
-    .filter((a) => !!a);
+    const functions = fromConfig.functions
+      ?.map((name) => this.functions.get(this.#parseFunctionName(name)))
+      .filter((a) => !!a);
 
-  const provider = this.getProviderForConfig({
-    ...this.defaultProvider,
-    ...fromConfig,
-  });
+    const provider = this.getProviderForConfig({
+      ...this.defaultProvider,
+      ...fromConfig,
+    });
 
-  let content;
-  if (provider.supportsAgentStreaming) {
-    content = await this.handleAsyncExecution(provider, messages, functions, route.from);
-  } else {
-    content = await this.handleExecution(provider, messages, functions, route.from);
-  }
+    let content;
+    if (provider.supportsAgentStreaming) {
+      content = await this.handleAsyncExecution(
+        provider,
+        messages,
+        functions,
+        route.from
+      );
+    } else {
+      content = await this.handleExecution(
+        provider,
+        messages,
+        functions,
+        route.from
+      );
+    }
 
-  if (typeof content === "string" && content.includes("\n__SPLIT__\n")) {
-    const [mainContent, followUpContent] = content.split("\n__SPLIT__\n");
-    this.newMessage({ ...route, content: mainContent });
-    this.newMessage({ ...route, content: followUpContent });
-    return mainContent;
-  }
+    if (typeof content === "string" && content.includes("\n__SPLIT__\n")) {
+      const [mainContent, followUpContent] = content.split("\n__SPLIT__\n");
+      this.newMessage({ ...route, content: mainContent });
+      this.newMessage({ ...route, content: followUpContent });
+      return mainContent;
+    }
 
-  // Plugin set terminateAfterReply — emit to WebSocket but don't pollute _chats
-  if (this.terminateAfterReply) {
-    this.emitter.emit("message", { ...route, content, state: "success" });
+    // Plugin set terminateAfterReply — emit to WebSocket but don't pollute _chats
+    if (this.terminateAfterReply) {
+      this.emitter.emit("message", { ...route, content, state: "success" });
+      return content;
+    }
+
+    this.newMessage({ ...route, content });
     return content;
   }
-
-  this.newMessage({ ...route, content });
-  return content;
-}
 
   /**
    * Handle the async (streaming) execution of the provider
@@ -605,92 +651,7 @@ async reply(route) {
     functions = [],
     byAgent = null
   ) {
-    const eventHandler = (type, data) => {
-      this?.socket?.send(type, data);
-    };
-
-    /** @type {{ functionCall: { name: string, arguments: string }, textResponse: string }} */
-    const completionStream = await provider.stream(
-      messages,
-      functions,
-      eventHandler
-    );
-
-    if (completionStream.functionCall) {
-      const { name, arguments: args } = completionStream.functionCall;
-      const fn = this.functions.get(name);
-
-      // if provider hallucinated on the function name
-      // ask the provider to complete again
-      if (!fn) {
-        return await this.handleAsyncExecution(
-          provider,
-          [
-            ...messages,
-            {
-              name,
-              role: "function",
-              content: `Function "${name}" not found. Try again.`,
-              originalFunctionCall: completionStream.functionCall,
-            },
-          ],
-          functions,
-          byAgent
-        );
-      }
-
-      // Execute the function and return the result to the provider
-      fn.caller = byAgent || "agent";
-
-      // If provider is verbose, log the tool call to the frontend
-      if (provider?.verbose) {
-        this?.introspect?.(
-          `${fn.caller} is executing \`${name}\` tool ${JSON.stringify(args, null, 2)}`
-        );
-      }
-
-      // Always log the tool call to the console for debugging purposes
-      this.handlerProps?.log?.(
-        `[debug]: ${fn.caller} is attempting to call \`${name}\` tool ${JSON.stringify(args, null, 2)}`
-      );
-
-      const result = await fn.handler(args);
-      Telemetry.sendTelemetry("agent_tool_call", { tool: name }, null, true);
-
-      // If the tool call has direct output enabled, return the result directly to the chat
-      // without any further processing and no further tool calls will be run.
-      if (this.skipHandleExecution) {
-        this.skipHandleExecution = false;
-        this.handlerProps?.log?.(
-          `${fn.caller} tool call resulted in direct output! Returning raw result as string. NO MORE TOOL CALLS WILL BE EXECUTED.`
-        );
-        return result;
-      }
-
-      // ─── FIX: Remove the tool that just ran from the functions list ───
-      // This prevents weak models (e.g. small Ollama models) from calling
-      // the same tool again on the next iteration. The tool is physically
-      // absent from the schema sent to the LLM, so it cannot be invoked again.
-      const remainingFunctions = functions.filter((f) => f.name !== name);
-
-      return await this.handleAsyncExecution(
-        provider,
-        [
-          ...messages,
-          {
-            name,
-            role: "function",
-            content: result,
-            originalFunctionCall: completionStream.functionCall,
-          },
-        ],
-        remainingFunctions, // ← pass filtered list, not original
-        byAgent
-      );
-    }
-
-    const textResponse = completionStream?.textResponse;
-return await this.#appendFollowUpQuestions(textResponse, byAgent);
+    return this.#executeToolLoop(provider, messages, functions, byAgent, true);
   }
 
   /**
@@ -710,52 +671,107 @@ return await this.#appendFollowUpQuestions(textResponse, byAgent);
     functions = [],
     byAgent = null
   ) {
-    // get the chat completion
-    const completion = await provider.complete(messages, functions);
+    return this.#executeToolLoop(provider, messages, functions, byAgent, false);
+  }
 
-    if (completion.functionCall) {
-      const { name, arguments: args } = completion.functionCall;
-      const fn = this.functions.get(name);
+  async #executeToolLoop(provider, messages, functions, byAgent, streaming) {
+    const toolCalls = new Map();
+    let totalToolCalls = 0;
+    let unknownToolCalls = 0;
+    let currentMessages = messages;
 
-      // if provider hallucinated on the function name
-      // ask the provider to complete again
-      if (!fn) {
-        return await this.handleExecution(
-          provider,
-          [
-            ...messages,
-            {
-              name,
-              role: "function",
-              content: `Function "${name}" not found. Try again.`,
-              originalFunctionCall: completion.functionCall,
-            },
-          ],
-          functions,
+    while (true) {
+      const completion = streaming
+        ? await provider.stream(currentMessages, functions, (type, data) => {
+            this?.socket?.send(type, data);
+          })
+        : await provider.complete(currentMessages, functions);
+
+      if (!completion.functionCall) {
+        return await this.#appendFollowUpQuestions(
+          completion?.textResponse,
           byAgent
         );
       }
 
-      // Execute the function and return the result to the provider
-      fn.caller = byAgent || "agent";
+      totalToolCalls += 1;
+      const { name } = completion.functionCall;
+      const isAvailable = functions.some((item) => item.name === name);
+      const fn = isAvailable ? this.functions.get(name) : null;
 
-      // If provider is verbose, log the tool call to the frontend
+      if (totalToolCalls > this.maxToolCalls) {
+        return this.#toolError("TOOL_CALL_LIMIT_EXCEEDED", {
+          limit: this.maxToolCalls,
+        });
+      }
+
+      if (!fn) {
+        unknownToolCalls += 1;
+        const feedback = this.#toolError("UNKNOWN_TOOL", {
+          tool: name,
+          availableTools: functions.map((item) => item.name),
+        });
+        if (unknownToolCalls > this.maxUnknownToolRetries) return feedback;
+        currentMessages = this.#appendToolResult(
+          currentMessages,
+          completion.functionCall,
+          feedback
+        );
+        continue;
+      }
+
+      const callCount = (toolCalls.get(name) || 0) + 1;
+      toolCalls.set(name, callCount);
+      if (callCount > this.maxToolRepeats) {
+        return this.#toolError("TOOL_REPEAT_LIMIT_EXCEEDED", {
+          tool: name,
+          limit: this.maxToolRepeats,
+        });
+      }
+
+      const parsedArgs = this.#parseToolArguments(
+        completion.functionCall.arguments
+      );
+      if (!parsedArgs.valid) {
+        currentMessages = this.#appendToolResult(
+          currentMessages,
+          completion.functionCall,
+          this.#toolError("INVALID_TOOL_ARGUMENTS", {
+            tool: name,
+            errors: parsedArgs.errors,
+          })
+        );
+        continue;
+      }
+
+      const validation = fn.parameters
+        ? validateJsonSchema(parsedArgs.value, fn.parameters)
+        : { valid: true, errors: [] };
+      if (!validation.valid) {
+        currentMessages = this.#appendToolResult(
+          currentMessages,
+          completion.functionCall,
+          this.#toolError("INVALID_TOOL_ARGUMENTS", {
+            tool: name,
+            errors: validation.errors,
+          })
+        );
+        continue;
+      }
+
+      fn.caller = byAgent || "agent";
       if (provider?.verbose) {
         this?.introspect?.(
           `[debug]: ${fn.caller} is attempting to call \`${name}\` tool`
         );
       }
-
-      // Always log the tool call to the console for debugging purposes
       this.handlerProps?.log?.(
-        `[debug]: ${fn.caller} is attempting to call \`${name}\` tool`
+        `[debug]: ${fn.caller} is attempting to call \`${name}\` tool ${JSON.stringify(parsedArgs.value, null, 2)}`
       );
 
-      const result = await fn.handler(args);
+      const result = await fn.handler(parsedArgs.value);
       Telemetry.sendTelemetry("agent_tool_call", { tool: name }, null, true);
 
-      // If the tool call has direct output enabled, return the result directly to the chat
-      // without any further processing and no further tool calls will be run.
       if (this.skipHandleExecution) {
         this.skipHandleExecution = false;
         this?.introspect?.(
@@ -768,30 +784,49 @@ return await this.#appendFollowUpQuestions(textResponse, byAgent);
         return result;
       }
 
-      // ─── FIX: Remove the tool that just ran from the functions list ───
-      // This prevents weak models (e.g. small Ollama models) from calling
-      // the same tool again on the next iteration. The tool is physically
-      // absent from the schema sent to the LLM, so it cannot be invoked again.
-      const remainingFunctions = functions.filter((f) => f.name !== name);
-
-      return await this.handleExecution(
-        provider,
-        [
-          ...messages,
-          {
-            name,
-            role: "function",
-            content: result,
-            originalFunctionCall: completion.functionCall,
-          },
-        ],
-        remainingFunctions, // ← pass filtered list, not original
-        byAgent
+      currentMessages = this.#appendToolResult(
+        currentMessages,
+        completion.functionCall,
+        result
       );
     }
+  }
 
-   const textResponse = completion?.textResponse;
-return await this.#appendFollowUpQuestions(textResponse, byAgent);
+  #appendToolResult(messages, functionCall, content) {
+    return [
+      ...messages,
+      {
+        name: functionCall.name,
+        role: "function",
+        content,
+        originalFunctionCall: functionCall,
+      },
+    ];
+  }
+
+  #parseToolArguments(args) {
+    if (typeof args !== "string") return { valid: true, value: args };
+    try {
+      return { valid: true, value: JSON.parse(args) };
+    } catch (error) {
+      return {
+        valid: false,
+        errors: [
+          {
+            path: "$",
+            keyword: "parse",
+            message: `must be valid JSON: ${error.message}`,
+          },
+        ],
+      };
+    }
+  }
+
+  #toolError(code, details) {
+    return JSON.stringify({
+      ok: false,
+      error: { code, details },
+    });
   }
 
   /**

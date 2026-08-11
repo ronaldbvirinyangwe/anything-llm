@@ -15,9 +15,16 @@ Disallow: /link-student
 Disallow: /link-parent
 Disallow: /accept-invite/
 Disallow: /sso/
+Disallow: /login
+Disallow: /register
+Disallow: /enrol
+Disallow: /payment
+Disallow: /test
+Disallow: /quiz
+Disallow: /reports/
+Disallow: /delete-account
 
 Allow: /
-Allow: /register
 Allow: /about
 Allow: /pricing
 Allow: /blog

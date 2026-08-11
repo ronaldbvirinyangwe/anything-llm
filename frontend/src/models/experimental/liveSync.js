@@ -13,7 +13,6 @@ const LiveDocumentSync = {
         if (!res.ok) throw new Error("Could not update status.");
         return true;
       })
-      .then((res) => res)
       .catch((e) => {
         console.error(e);
         return false;
@@ -33,8 +32,6 @@ const LiveDocumentSync = {
         return [];
       });
   },
-
-  // Should be in Workspaces but is here for now while in preview
   setWatchStatusForDocument: async function (slug, docPath, watchStatus) {
     return fetch(`${API_BASE}/workspace/${slug}/update-watch-status`, {
       method: "POST",
@@ -42,11 +39,10 @@ const LiveDocumentSync = {
       body: JSON.stringify({ docPath, watchStatus }),
     })
       .then((res) => {
-        if (!res.ok) {
+        if (!res.ok)
           throw new Error(
             res.statusText || "Error setting watch status for document."
           );
-        }
         return true;
       })
       .catch((e) => {

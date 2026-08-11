@@ -39,12 +39,6 @@ export default {
     llmPreference: () => {
       return "/onboarding/llm-preference";
     },
-    embeddingPreference: () => {
-      return "/onboarding/embedding-preference";
-    },
-    vectorDatabase: () => {
-      return "/onboarding/vector-database";
-    },
     userSetup: () => {
       return "/onboarding/user-setup";
     },
@@ -57,9 +51,6 @@ export default {
   },
   github: () => {
     return "https://github.com/Mintplex-Labs/anything-llm";
-  },
-  discord: () => {
-    return "https://discord.com/invite/6UyHPeGZAC";
   },
   docs: () => {
     return "https://scalesai.online";
@@ -76,35 +67,10 @@ export default {
   mailToMintplex: () => {
     return "mailto:ceo@scalesai.online";
   },
-  hosting: () => {
-    return "https://my.mintplexlabs.com/aio-checkout?product=anythingllm";
-  },
   payments: {
-  manage: () => "/payments/manage",
-  history: () => "/payments/history",
-},
-roles: {
-  home: () => "/",
-  login: () => "/login",
-  teacher: {
-    dashboard: () => "/teacher-dashboard",
+    manage: () => "/payments/manage",
+    history: () => "/payments/history",
   },
-  student: {
-    dashboard: () => "/student-dashboard",
-  },
-  admin: {
-    dashboard: () => "/admin-dashboard",
-  },
-  parent: {
-    dashboard: () => "/parent-dashboard",
-  },
-  sso: {
-    login: () => "/sso-login",
-  },
-},
-links: {
-  linkparent: () => "link-parent"
-},
   workspace: {
     chat: (slug, options = {}) => {
       return applyOptions(`/workspace/${slug}`, options);
@@ -164,9 +130,6 @@ links: {
     embedder: {
       modelPreference: () => "/settings/embedding-preference",
       chunkingPreference: () => "/settings/text-splitter-preference",
-    },
-    embeddingPreference: () => {
-      return "/settings/embedding-preference";
     },
     vectorDatabase: () => {
       return "/settings/vector-database";
@@ -256,9 +219,6 @@ links: {
   documentation: {
     mobileIntroduction: () => {
       return "https://docs.anythingllm.com/mobile/overview";
-    },
-    contextWindows: () => {
-      return "https://docs.anythingllm.com/chatting-with-documents/introduction#you-exceed-the-context-window---what-now";
     },
   },
 

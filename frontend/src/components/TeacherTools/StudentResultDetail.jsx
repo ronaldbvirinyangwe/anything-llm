@@ -7,6 +7,7 @@ import rehypeKatex from "rehype-katex";
 import axios from "axios";
 import "katex/dist/katex.min.css";
 import "./student-result-detail.css";
+import { API_BASE } from "@/utils/constants";
 
 // Helper to render text with inline LaTeX (same as quiz page)
 function MathText({ text }) {
@@ -132,7 +133,7 @@ export default function StudentResultDetail() {
         const token = localStorage.getItem("chikoroai_authToken");
 
         const res = await axios.get(
-          `https://api.chikoro-ai.com/api/system/student/result-detail/${resultId}`,
+          `${API_BASE}/system/student/result-detail/${resultId}`,
           {
             headers: { Authorization: `Bearer ${token}` },
           }

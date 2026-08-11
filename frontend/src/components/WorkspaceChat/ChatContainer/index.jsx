@@ -1,5 +1,5 @@
 import { useState, useEffect, useContext, useRef, useCallback } from "react";
-import { CURRICULUM_KEY } from "@/utils/constants";
+import { API_BASE } from "@/utils/constants";
 import ChatHistory from "./ChatHistory";
 import { CLEAR_ATTACHMENTS_EVENT, DndUploaderContext } from "./DnDWrapper";
 import PromptInput, {
@@ -25,13 +25,17 @@ import { ChatTooltips } from "./ChatTooltips";
 import { MetricsProvider } from "./ChatHistory/HistoricalMessage/Actions/RenderMetrics";
 import useUser from "@/hooks/useUser";
 import SubjectSelector from "./SubjectSelector";
-import Test from "../../../pages/QuizPage/Test";
 import "./chatLayout.css";
 import Flashcards from "../../../pages/Flashcards/Flashcards";
 import { useSubscriptionGuard } from "@/hooks/useSubscriptionGuard";
 import { NotificationMessage } from "./ChatHistory";
-import { MASCOT_EXPRESSIONS, ChikoroMascot, MascotWithBubble, TOOL_MASCOT_STATE } from "@/components/ChikoroMascot";
+import {
+  MASCOT_EXPRESSIONS,
+  TOOL_MASCOT_STATE,
+} from "@/components/ChikoroMascot";
+import notificationIcon from "@/media/logo/logo.jpg";
 import ExamPanel from "@/pages/QuizPage/ExamPanel";
+import useCurriculum from "@/hooks/useCurriculum";
 
 // Chart types recognised by Chartable / recharts — keep in sync with agent.js
 const CHART_TYPES = ["bar", "line", "pie", "area", "scatter", "radar"];
@@ -43,11 +47,10 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
   const [chatHistory, setChatHistory] = useState(knownHistory);
   const [socketId, setSocketId] = useState(null);
   const [agentWebsocket, setAgentWebsocket] = useState(null);
-  const [notificationWebsocket, setNotificationWebsocket] = useState(null);
   const { files, parseAttachments } = useContext(DndUploaderContext);
 
   const [subject, setSubject] = useState("");
-  const [curriculum, setCurriculum] = useState("");
+  const { curriculum, setCurriculum } = useCurriculum();
   const [academicLevel, setAcademicLevel] = useState("");
   const [age, setAge] = useState("");
   const [grade, setGrade] = useState("");
@@ -57,14 +60,15 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
   const [quizData, setQuizData] = useState(null);
   const [showFlashcards, setShowFlashcards] = useState(false);
   const [flashcardData, setFlashcardData] = useState(null);
-  const { isLoading, hasAccess, subscriptionStatus, subscriptionExpiry } =
+  const { isLoading, hasAccess, subscriptionExpiry } =
     useSubscriptionGuard(true);
 
   // ═══════════════════════════════════════════════════════════
   // 🤖 MASCOT STATE
   // ═══════════════════════════════════════════════════════════
-  const [mascotExpression, setMascotExpression] = useState(MASCOT_EXPRESSIONS.waving);
-  const [mascotMessage, setMascotMessage] = useState(null);
+  const [mascotExpression, setMascotExpression] = useState(
+    MASCOT_EXPRESSIONS.waving
+  );
 
   // FIX: removeStudyPlanForm filter was logically inverted — the || caused
   // STUDY_ONBOARDING messages to always survive the filter regardless of the
@@ -89,7 +93,9 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
       setMascotExpression(MASCOT_EXPRESSIONS.quizzing);
     } else if (showFlashcards) {
       setMascotExpression(MASCOT_EXPRESSIONS.studying);
-    } else if (chatHistory.filter((m) => m.role !== "notification").length === 0) {
+    } else if (
+      chatHistory.filter((m) => m.role !== "notification").length === 0
+    ) {
       setMascotExpression(MASCOT_EXPRESSIONS.waving);
     } else {
       setMascotExpression(MASCOT_EXPRESSIONS.happy);
@@ -115,8 +121,6 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
 
   // ═══════════════════════════════════════════════════════════
 
-  const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
-
   const chatAreaRef = useRef(null);
   const chatHistoryRef = useRef(chatHistory);
   useEffect(() => {
@@ -128,11 +132,21 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
   const academicLevelRef = useRef(academicLevel);
   const gradeRef = useRef(grade);
   const ageRef = useRef(age);
-  useEffect(() => { subjectRef.current = subject; }, [subject]);
-  useEffect(() => { curriculumRef.current = curriculum; }, [curriculum]);
-  useEffect(() => { academicLevelRef.current = academicLevel; }, [academicLevel]);
-  useEffect(() => { gradeRef.current = grade; }, [grade]);
-  useEffect(() => { ageRef.current = age; }, [age]);
+  useEffect(() => {
+    subjectRef.current = subject;
+  }, [subject]);
+  useEffect(() => {
+    curriculumRef.current = curriculum;
+  }, [curriculum]);
+  useEffect(() => {
+    academicLevelRef.current = academicLevel;
+  }, [academicLevel]);
+  useEffect(() => {
+    gradeRef.current = grade;
+  }, [grade]);
+  useEffect(() => {
+    ageRef.current = age;
+  }, [age]);
 
   // 🧠 Fetch user profile info
   useEffect(() => {
@@ -167,7 +181,6 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
         if (success && profile) {
           setAge(profile.age || "");
           setGrade(profile.grade || "");
-          setCurriculum(localStorage.getItem(CURRICULUM_KEY) || profile.curriculum || "");
           setAcademicLevel(profile.academicLevel || "");
         }
       } catch (e) {
@@ -199,7 +212,8 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
       }
     };
     window.addEventListener("FLASHCARD_CREATED", handleFlashcardCreated);
-    return () => window.removeEventListener("FLASHCARD_CREATED", handleFlashcardCreated);
+    return () =>
+      window.removeEventListener("FLASHCARD_CREATED", handleFlashcardCreated);
   }, []);
 
   const { listening, resetTranscript } = useSpeechRecognition({
@@ -229,7 +243,8 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
     return [
       subjectRef.current && `[Subject: ${subjectRef.current}]`,
       curriculumRef.current && `[Curriculum: ${curriculumRef.current}]`,
-      academicLevelRef.current && `[Academic Level: ${academicLevelRef.current}]`,
+      academicLevelRef.current &&
+        `[Academic Level: ${academicLevelRef.current}]`,
       gradeRef.current && `[Grade: ${gradeRef.current}]`,
       ageRef.current && `[Age: ${ageRef.current}]`,
     ]
@@ -242,9 +257,12 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
 
     if (message.savedQuizId) {
       try {
-        const res = await fetch(`${API_BASE}/agent-flows/quiz/${message.savedQuizId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(
+          `${API_BASE}/agent-flows/quiz/${message.savedQuizId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
         const { success, quiz } = await res.json();
         if (success) {
           setQuizData({ ...quiz, questions: quiz.questions });
@@ -257,9 +275,12 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
 
     if (message.savedFlashcardSetId) {
       try {
-        const res = await fetch(`${API_BASE}/agent-flows/flashcard/${message.savedFlashcardSetId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(
+          `${API_BASE}/agent-flows/flashcard/${message.savedFlashcardSetId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
         const { success, flashcardSet } = await res.json();
         if (success) {
           setFlashcardData({ ...flashcardSet, cards: flashcardSet.cards });
@@ -309,71 +330,77 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
     resetTranscript();
   }
 
-  const regenerateAssistantMessage = useCallback((chatId) => {
-    const currentHistory = chatHistoryRef.current;
-    const updatedHistory = currentHistory.slice(0, -1);
-    const lastUserMessage = updatedHistory.slice(-1)[0];
-    Workspace.deleteChats(workspace.slug, [chatId])
-      .then(() =>
-        sendCommand({
-          text: lastUserMessage.content,
-          autoSubmit: true,
-          history: updatedHistory,
-          attachments: lastUserMessage?.attachments,
-        })
-      )
-      .catch((e) => console.error(e));
-  }, [workspace.slug]); // eslint-disable-line react-hooks/exhaustive-deps
+  const regenerateAssistantMessage = useCallback(
+    (chatId) => {
+      const currentHistory = chatHistoryRef.current;
+      const updatedHistory = currentHistory.slice(0, -1);
+      const lastUserMessage = updatedHistory.slice(-1)[0];
+      Workspace.deleteChats(workspace.slug, [chatId])
+        .then(() =>
+          sendCommand({
+            text: lastUserMessage.content,
+            autoSubmit: true,
+            history: updatedHistory,
+            attachments: lastUserMessage?.attachments,
+          })
+        )
+        .catch((e) => console.error(e));
+    },
+    [workspace.slug]
+  ); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const sendCommand = useCallback(async ({
-    text = "",
-    autoSubmit = false,
-    history = [],
-    attachments = [],
-    writeMode = "replace",
-  } = {}) => {
-    if (!autoSubmit) {
-      setMessageEmit(text, writeMode);
-      return;
-    }
+  const sendCommand = useCallback(
+    async ({
+      text = "",
+      autoSubmit = false,
+      history = [],
+      attachments = [],
+      writeMode = "replace",
+    } = {}) => {
+      if (!autoSubmit) {
+        setMessageEmit(text, writeMode);
+        return;
+      }
 
-    if (writeMode === "append") {
-      const currentText = document.getElementById(PROMPT_INPUT_ID)?.value;
-      text = currentText + text;
-    }
+      if (writeMode === "append") {
+        const currentText = document.getElementById(PROMPT_INPUT_ID)?.value;
+        text = currentText + text;
+      }
 
-    if (!text || text === "") return false;
+      if (!text || text === "") return false;
 
-    const contextPrefix = buildContextPrefix();
-    const contextualText = `${contextPrefix} ${text}`.trim();
-    const displayText = text;
+      const contextPrefix = buildContextPrefix();
+      const contextualText = `${contextPrefix} ${text}`.trim();
+      const displayText = text;
 
-    const baseHistory = history.length > 0 ? history : chatHistoryRef.current;
+      const baseHistory = history.length > 0 ? history : chatHistoryRef.current;
 
-    const prevChatHistory = [
-      ...baseHistory,
-      {
-        uuid: v4(),
-        content: displayText,
-        userMessage: contextualText,
-        role: "user",
-        attachments,
-      },
-      {
-        uuid: v4(),
-        content: "",
-        role: "assistant",
-        pending: true,
-        userMessage: contextualText,
-        attachments,
-        animate: true,
-      },
-    ];
+      const prevChatHistory = [
+        ...baseHistory,
+        {
+          uuid: v4(),
+          content: displayText,
+          userMessage: contextualText,
+          role: "user",
+          attachments,
+        },
+        {
+          uuid: v4(),
+          content: "",
+          role: "assistant",
+          pending: true,
+          userMessage: contextualText,
+          attachments,
+          animate: true,
+        },
+      ];
 
-    setChatHistory(prevChatHistory);
-    setMessageEmit("");
-    setLoadingResponse(true);
-  }, [buildContextPrefix]);
+      setChatHistory(prevChatHistory);
+      setMessageEmit("");
+      setLoadingResponse(true);
+    },
+    [buildContextPrefix]
+  );
 
   // 🎓 Study planner form submit
   // FIX: was registered twice — second identical useEffect at the bottom of
@@ -423,8 +450,11 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
     async function fetchReply() {
       const currentHistory = chatHistoryRef.current;
       const promptMessage =
-        currentHistory.length > 0 ? currentHistory[currentHistory.length - 1] : null;
-      const remHistory = currentHistory.length > 0 ? currentHistory.slice(0, -1) : [];
+        currentHistory.length > 0
+          ? currentHistory[currentHistory.length - 1]
+          : null;
+      const remHistory =
+        currentHistory.length > 0 ? currentHistory.slice(0, -1) : [];
       var _chatHistory = [...remHistory];
 
       if (!!agentWebsocket) {
@@ -443,7 +473,8 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
       const attachments = promptMessage?.attachments ?? parseAttachments();
       window.dispatchEvent(new CustomEvent(CLEAR_ATTACHMENTS_EVENT));
 
-      const promptToSend = promptMessage?.userMessage || promptMessage?.content || "";
+      const promptToSend =
+        promptMessage?.userMessage || promptMessage?.content || "";
       await Workspace.multiplexStream({
         workspaceSlug: workspace.slug,
         threadSlug,
@@ -498,13 +529,16 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
             return;
           }
 
-          if (typeof parsed?.content === "string" && (
-            parsed.content.startsWith("STUDY_ONBOARDING::") ||
-            parsed.content.startsWith("STUDY_PLAN_FORM::") ||
-            parsed.content.startsWith("FOLLOW_UP_QUESTIONS::")
-          )) {
+          if (
+            typeof parsed?.content === "string" &&
+            (parsed.content.startsWith("STUDY_ONBOARDING::") ||
+              parsed.content.startsWith("STUDY_PLAN_FORM::") ||
+              parsed.content.startsWith("FOLLOW_UP_QUESTIONS::"))
+          ) {
             agentSafeChatHistory((prev) => [
-              ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
+              ...prev.filter(
+                (msg) => !!msg.content || msg.type === "rechartVisualize"
+              ),
               {
                 uuid: v4(),
                 role: "assistant",
@@ -520,10 +554,18 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
           }
 
           // ── LOG 1: Raw message arriving from agent ──────────────────────
-          console.log("🟡 [WS RAW] type:", parsed?.type, "| keys:", Object.keys(parsed));
+          console.log(
+            "🟡 [WS RAW] type:",
+            parsed?.type,
+            "| keys:",
+            Object.keys(parsed)
+          );
           if (parsed?.content) {
-            console.log("🟡 [WS RAW] content type:", typeof parsed.content,
-              "| content preview:", typeof parsed.content === "object"
+            console.log(
+              "🟡 [WS RAW] content type:",
+              typeof parsed.content,
+              "| content preview:",
+              typeof parsed.content === "object"
                 ? JSON.stringify(parsed.content)?.substring(0, 200)
                 : parsed.content?.substring?.(0, 200)
             );
@@ -533,27 +575,35 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
           if (parsed?.type === "reportStreamEvent") {
             const inner = parsed.content;
 
-            if (inner?.type === "statusResponse" && inner?.content?.includes("Agent is thinking")) {
+            if (
+              inner?.type === "statusResponse" &&
+              inner?.content?.includes("Agent is thinking")
+            ) {
               setMascotExpression(MASCOT_EXPRESSIONS.thinking);
             }
 
             if (inner?.type === "toolCallInvocation") {
-              const toolName = inner?.content?.match(/^Parsed Tool Call:\s*([\w-]+)/)?.[1];
+              const toolName = inner?.content?.match(
+                /^Parsed Tool Call:\s*([\w-]+)/
+              )?.[1];
               const state = TOOL_MASCOT_STATE[toolName];
               if (state) {
                 setMascotExpression(state.expression);
-                setMascotMessage(state.message);
               } else {
                 setMascotExpression(MASCOT_EXPRESSIONS.thinking);
-                setMascotMessage("Working on it... 🧠");
               }
             }
 
-            if (inner?.type === "fullTextResponse" || inner?.type === "textResponseChunk") {
-              setMascotMessage(null);
+            if (
+              inner?.type === "fullTextResponse" ||
+              inner?.type === "textResponseChunk"
+            ) {
             }
 
-            if (inner?.type === "textResponseChunk" || inner?.type === "fullTextResponse") {
+            if (
+              inner?.type === "textResponseChunk" ||
+              inner?.type === "fullTextResponse"
+            ) {
               setMascotExpression(MASCOT_EXPRESSIONS.explaining);
             }
           }
@@ -564,32 +614,59 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
               const inner = JSON.parse(parsed.content);
               if (inner?.tool_call) {
                 Object.assign(parsed, inner);
-                console.log("🔵 [WS UNWRAP string] merged tool_call:", inner?.tool_call);
+                console.log(
+                  "🔵 [WS UNWRAP string] merged tool_call:",
+                  inner?.tool_call
+                );
               }
             } catch (_) {
-              console.log("🔵 [WS UNWRAP string] content was string but not valid JSON");
+              console.log(
+                "🔵 [WS UNWRAP string] content was string but not valid JSON"
+              );
             }
           }
 
           // ── Unwrap to/from/content/state envelope ───────────────────────
-          if (!parsed?.type && parsed?.from && parsed?.to && typeof parsed?.content === "string") {
-            console.log("🟠 [WS FLOW ENVELOPE] detected to/from shape — parsing content");
+          if (
+            !parsed?.type &&
+            parsed?.from &&
+            parsed?.to &&
+            typeof parsed?.content === "string"
+          ) {
+            console.log(
+              "🟠 [WS FLOW ENVELOPE] detected to/from shape — parsing content"
+            );
             try {
               const inner = JSON.parse(parsed.content);
-              console.log("🟠 [WS FLOW ENVELOPE] inner keys:", Object.keys(inner), "| tool:", inner?.tool, "| tool_call:", inner?.tool_call);
+              console.log(
+                "🟠 [WS FLOW ENVELOPE] inner keys:",
+                Object.keys(inner),
+                "| tool:",
+                inner?.tool,
+                "| tool_call:",
+                inner?.tool_call
+              );
 
               if (inner?.tool && !inner?.tool_call) {
                 inner.tool_call = inner.tool;
               }
 
               Object.assign(parsed, inner);
-              console.log("🟠 [WS FLOW ENVELOPE] after merge — tool_call:", parsed?.tool_call,
-                "| hasFlashcards:", !!parsed?.flashcards,
-                "| cardsLength:", parsed?.flashcards?.cards?.length,
-                "| hasQuiz:", !!parsed?.quiz
+              console.log(
+                "🟠 [WS FLOW ENVELOPE] after merge — tool_call:",
+                parsed?.tool_call,
+                "| hasFlashcards:",
+                !!parsed?.flashcards,
+                "| cardsLength:",
+                parsed?.flashcards?.cards?.length,
+                "| hasQuiz:",
+                !!parsed?.quiz
               );
             } catch (e) {
-              console.warn("🟠 [WS FLOW ENVELOPE] failed to parse content:", e.message);
+              console.warn(
+                "🟠 [WS FLOW ENVELOPE] failed to parse content:",
+                e.message
+              );
             }
           }
 
@@ -602,7 +679,9 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
             hasFlashcards: !!parsed?.flashcards,
             cardsLength: parsed?.flashcards?.cards?.length,
             contentType: parsed?.content?.type,
-            savedFlashcardSetId: parsed?.savedFlashcardSetId ?? parsed?.content?.savedFlashcardSetId,
+            savedFlashcardSetId:
+              parsed?.savedFlashcardSetId ??
+              parsed?.content?.savedFlashcardSetId,
             savedQuizId: parsed?.savedQuizId ?? parsed?.content?.savedQuizId,
           });
 
@@ -611,7 +690,9 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
             tool_call: parsed?.tool_call,
             hasFlashcards: !!parsed?.flashcards,
             cardsLength: parsed?.flashcards?.cards?.length,
-            wouldTrigger: parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0,
+            wouldTrigger:
+              parsed?.tool_call === "flashcard_create" &&
+              parsed?.flashcards?.cards?.length > 0,
           });
 
           // ── LOG 5: Quiz trigger check ─────────────────────────────────────
@@ -619,11 +700,14 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
             tool_call: parsed?.tool_call,
             hasQuiz: !!parsed?.quiz,
             questionsLength: parsed?.quiz?.questions?.length,
-            wouldTrigger: parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0,
+            wouldTrigger:
+              parsed?.tool_call === "quiz_create" &&
+              parsed?.quiz?.questions?.length > 0,
           });
 
           try {
-            const rawContent = parsed?.content ?? parsed?.text ?? parsed?.message ?? "";
+            const rawContent =
+              parsed?.content ?? parsed?.text ?? parsed?.message ?? "";
             const content = typeof rawContent === "string" ? rawContent : "";
             const nestedContent =
               typeof parsed?.content?.content === "string"
@@ -672,13 +756,21 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
               parsed?.type === "toolCall";
 
             if (isInternalAgentLog) {
-              console.log("🚫 [WS FILTERED] message blocked as internal agent log");
+              console.log(
+                "🚫 [WS FILTERED] message blocked as internal agent log"
+              );
               return;
             }
 
             // ── Flashcard handler ─────────────────────────────────────────
-            if (parsed?.tool_call === "flashcard_create" && parsed?.flashcards?.cards?.length > 0) {
-              console.log("✅ [WS FLASHCARD TRIGGERED] cards:", parsed.flashcards.cards.length);
+            if (
+              parsed?.tool_call === "flashcard_create" &&
+              parsed?.flashcards?.cards?.length > 0
+            ) {
+              console.log(
+                "✅ [WS FLASHCARD TRIGGERED] cards:",
+                parsed.flashcards.cards.length
+              );
               setFlashcardData(parsed.flashcards);
               setShowFlashcards(true);
               setMascotExpression(MASCOT_EXPRESSIONS.studying);
@@ -686,8 +778,14 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
             }
 
             // ── Quiz handler ──────────────────────────────────────────────
-            if (parsed?.tool_call === "quiz_create" && parsed?.quiz?.questions?.length > 0) {
-              console.log("✅ [WS QUIZ TRIGGERED] questions:", parsed.quiz.questions.length);
+            if (
+              parsed?.tool_call === "quiz_create" &&
+              parsed?.quiz?.questions?.length > 0
+            ) {
+              console.log(
+                "✅ [WS QUIZ TRIGGERED] questions:",
+                parsed.quiz.questions.length
+              );
               openQuizPanel(parsed.quiz);
               setMascotExpression(MASCOT_EXPRESSIONS.quizzing);
               parsed.display_message = `✅ Quiz generated on **${parsed.parameters?.subject || "a subject"}** (${parsed.quiz.questions.length} questions). Click to reopen.`;
@@ -696,7 +794,9 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
             // ── Study planner elicit handler ──────────────────────────────
             if (parsed?.tool_call === "study_planner_elicit") {
               agentSafeChatHistory((prev) => [
-                ...prev.filter((msg) => !!msg.content || msg.type === "rechartVisualize"),
+                ...prev.filter(
+                  (msg) => !!msg.content || msg.type === "rechartVisualize"
+                ),
                 {
                   uuid: v4(),
                   role: "assistant",
@@ -712,17 +812,26 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
             }
 
             if (parsed?.tool_call === "lesson_completed" && parsed?.lesson) {
-  console.log("✅ [WS LESSON COMPLETE]", parsed.lesson);
-  setMascotExpression(MASCOT_EXPRESSIONS.encouraging);
-  setTimeout(() => setMascotExpression(MASCOT_EXPRESSIONS.happy), 4000);
-  parsed.display_message = parsed.display_message || `🎉 "${parsed.lesson.title}" marked complete!`;
-}
+              console.log("✅ [WS LESSON COMPLETE]", parsed.lesson);
+              setMascotExpression(MASCOT_EXPRESSIONS.encouraging);
+              setTimeout(
+                () => setMascotExpression(MASCOT_EXPRESSIONS.happy),
+                4000
+              );
+              parsed.display_message =
+                parsed.display_message ||
+                `🎉 "${parsed.lesson.title}" marked complete!`;
+            }
 
             // ── Chart handler ─────────────────────────────────────────────
             const inlineChartCandidate =
-              parsed?.tool_call === "create_chart" ? parsed?.chart :
-              parsed?.tool_call === "create-chart" ? parsed?.chart :
-              (parsed?.dataset && CHART_TYPES.includes(parsed?.type)) ? parsed : null;
+              parsed?.tool_call === "create_chart"
+                ? parsed?.chart
+                : parsed?.tool_call === "create-chart"
+                  ? parsed?.chart
+                  : parsed?.dataset && CHART_TYPES.includes(parsed?.type)
+                    ? parsed
+                    : null;
 
             if (inlineChartCandidate) {
               console.log("✅ [WS CHART TRIGGERED]", inlineChartCandidate);
@@ -831,7 +940,6 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
     let ws;
     try {
       ws = new WebSocket(wsUrl);
-      setNotificationWebsocket(ws);
     } catch (error) {
       console.error("❌ Failed to create notification WebSocket:", error);
       return;
@@ -858,10 +966,13 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
           setMascotExpression(MASCOT_EXPRESSIONS.encouraging);
           setTimeout(() => setMascotExpression(MASCOT_EXPRESSIONS.happy), 4000);
 
-          if ("Notification" in window && Notification.permission === "granted") {
+          if (
+            "Notification" in window &&
+            Notification.permission === "granted"
+          ) {
             const browserNotif = new Notification("New Quiz Assigned", {
               body: data.message,
-              icon: "/logo.png",
+              icon: notificationIcon,
               tag: "quiz-notification",
             });
             browserNotif.onclick = () => {
@@ -889,10 +1000,13 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
 
           if (data.redirect) window.location.href = data.redirect;
 
-          if ("Notification" in window && Notification.permission === "granted") {
+          if (
+            "Notification" in window &&
+            Notification.permission === "granted"
+          ) {
             const notif = new Notification("Subscription Update", {
               body: data.message,
-              icon: "/logo.png",
+              icon: notificationIcon,
               tag: `subscription-${data.status}`,
             });
             notif.onclick = () => {
@@ -906,8 +1020,10 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
       }
     };
 
-    ws.onerror = (error) => console.error("❌ Notification WebSocket error:", error);
-    ws.onclose = (event) => console.log("🔌 Notification WebSocket closed", event.code, event.reason);
+    ws.onerror = (error) =>
+      console.error("❌ Notification WebSocket error:", error);
+    ws.onclose = (event) =>
+      console.log("🔌 Notification WebSocket closed", event.code, event.reason);
 
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
@@ -1009,12 +1125,18 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
   const chatMessages = chatHistory.filter((m) => m.role !== "notification");
 
   return (
-    <div className={`chat-layout ${showQuiz ? "with-quiz" : ""} ${showFlashcards ? "with-flashcards" : ""}`}>
+    <div
+      className={`chat-layout ${showQuiz ? "with-quiz" : ""} ${showFlashcards ? "with-flashcards" : ""}`}
+    >
       {subscriptionExpiry &&
-        new Date(subscriptionExpiry.getTime() - 3 * 24 * 60 * 60 * 1000) < new Date() && (
+        new Date(subscriptionExpiry.getTime() - 3 * 24 * 60 * 60 * 1000) <
+          new Date() && (
           <div className="bg-yellow-500/20 text-yellow-300 px-4 py-2 text-sm border-b border-yellow-500/30">
-            ⚠️ Your subscription expires on {subscriptionExpiry.toLocaleDateString()}.
-            <a href="/payment" className="underline ml-2">Renew now</a>
+            ⚠️ Your subscription expires on{" "}
+            {subscriptionExpiry.toLocaleDateString()}.
+            <a href="/payment" className="underline ml-2">
+              Renew now
+            </a>
           </div>
         )}
 
@@ -1029,10 +1151,7 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
           subject={subject}
           setSubject={setSubject}
           curriculum={curriculum}
-          setCurriculum={(val) => {
-            localStorage.setItem(CURRICULUM_KEY, val);
-            setCurriculum(val);
-          }}
+          setCurriculum={setCurriculum}
           grade={grade}
         />
 
@@ -1072,7 +1191,12 @@ export default function ChatContainer({ workspace, knownHistory = [] }) {
 
       {showQuiz && (
         <aside className="quiz-panel">
-          <ExamPanel externalTest={quizData} onClose={() => { setShowQuiz(false); }} />
+          <ExamPanel
+            externalTest={quizData}
+            onClose={() => {
+              setShowQuiz(false);
+            }}
+          />
         </aside>
       )}
 

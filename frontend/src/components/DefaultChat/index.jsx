@@ -1,20 +1,16 @@
 import React, { useEffect, useState } from "react";
 import paths from "@/utils/paths";
 import { isMobile } from "react-device-detect";
-import useUser from "@/hooks/useUser";
 import Appearance from "@/models/appearance";
 import useLogo from "@/hooks/useLogo";
 import Workspace from "@/models/workspace";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { LAST_VISITED_WORKSPACE } from "@/utils/constants";
-import { useTranslation } from "react-i18next";
 import { safeJsonParse } from "@/utils/request";
-import CurriculumSwitcher from "@/pages/Main/Home/CurriculumSwitcher";
 
 export default function DefaultChatContainer() {
-  const { t } = useTranslation();
-  const { user } = useUser();
   const { logo } = useLogo();
+  const navigate = useNavigate();
   const [lastVisitedWorkspace, setLastVisitedWorkspace] = useState(null);
   const [{ workspaces, loading }, setWorkspaces] = useState({
     workspaces: [],
@@ -53,7 +49,13 @@ export default function DefaultChatContainer() {
     fetchWorkspaces();
   }, []);
 
-  if (loading) {
+  useEffect(() => {
+    if (loading || workspaces.length === 0) return;
+    const workspace = lastVisitedWorkspace || workspaces[0];
+    navigate(paths.workspace.chat(workspace.slug), { replace: true });
+  }, [lastVisitedWorkspace, loading, navigate, workspaces]);
+
+  if (loading || workspaces.length > 0) {
     return (
       <Layout>
         <div className="w-full h-full flex flex-col items-center justify-center overflow-y-auto no-scroll">
@@ -71,7 +73,6 @@ export default function DefaultChatContainer() {
     );
   }
 
-  const hasWorkspaces = workspaces.length > 0;
   return (
     <Layout>
       <div className="w-full h-full flex flex-col items-center justify-center overflow-y-auto no-scroll">
@@ -80,52 +81,18 @@ export default function DefaultChatContainer() {
           alt="Custom Logo"
           className=" w-[200px] h-fit mb-5 rounded-lg"
         />
-        <div className="mb-6">
-          <CurriculumSwitcher />
-        </div>
         <h1 className="text-theme-home-text text-2xl font-semibold">
-          {t("home.welcome")}, {user.username}!
+          Create your learning space
         </h1>
-        <p className="text-theme-home-text-secondary text-base text-center whitespace-pre-line">
-         {hasWorkspaces ? (
-  <NavLink
-    to={paths.workspace.chat(
-      lastVisitedWorkspace?.slug || workspaces[0].slug
-    )}
-    className="text-sm font-medium mt-[10px] w-fit px-4 h-[34px] flex items-center justify-center rounded-lg cursor-pointer bg-theme-home-button-secondary hover:bg-theme-home-button-secondary-hover text-theme-home-button-secondary-text hover:text-theme-home-button-secondary-hover-text transition-all duration-200"
-  >
-    {t("home.goToWorkspace", {
-      workspace: lastVisitedWorkspace?.name || workspaces[0].name,
-    })}{" "}
-    &rarr;
-  </NavLink>
-) : (
-  <div className="mt-6 flex flex-col items-center">
-    <NavLink
-      to={paths.enrol()}
-      className="text-sm font-medium w-fit px-4 h-[40px] flex items-center justify-center rounded-lg cursor-pointer bg-primary-button hover:bg-primary-button/80 text-dark-text transition-all duration-200"
-    >
-      Enrol Now →
-    </NavLink>
-    <p className="text-theme-home-text-secondary text-sm mt-3 italic text-center">
-      Once you enrol, your workspace will be created automatically.
-    </p>
-  </div>
-)}
+        <p className="mt-2 max-w-md text-theme-home-text-secondary text-base text-center">
+          Enrol to choose your curriculum and start learning with Chikoro AI.
         </p>
-        {hasWorkspaces && (
-          <NavLink
-            to={paths.workspace.chat(
-              lastVisitedWorkspace?.slug || workspaces[0].slug
-            )}
-            className="text-sm font-medium mt-[10px] w-fit px-4 h-[34px] flex items-center justify-center rounded-lg cursor-pointer bg-theme-home-button-secondary hover:bg-theme-home-button-secondary-hover text-theme-home-button-secondary-text hover:text-theme-home-button-secondary-hover-text transition-all duration-200"
-          >
-            {t("home.goToWorkspace", {
-              workspace: lastVisitedWorkspace?.name || workspaces[0].name,
-            })}{" "}
-            &rarr;
-          </NavLink>
-        )}
+        <NavLink
+          to={paths.enrol()}
+          className="mt-6 flex h-10 w-fit items-center justify-center rounded-lg bg-primary-button px-4 text-sm font-medium text-dark-text transition-colors hover:bg-primary-button/80"
+        >
+          Enrol now
+        </NavLink>
       </div>
     </Layout>
   );

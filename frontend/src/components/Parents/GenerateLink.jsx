@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import useUser from "@/hooks/useUser";
 import Sidebar from "../Sidebar";
 import "./GenerateLinkCode.css"; // 👈 Import your page-specific styles
+import { API_BASE } from "@/utils/constants";
 
 export default function GenerateLinkCode() {
   const [linkCode, setLinkCode] = useState(null);
@@ -12,8 +13,6 @@ export default function GenerateLinkCode() {
   const [studentId, setStudentId] = useState(null);
 
   const { user } = useUser();
-  const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
-
   useEffect(() => {
     async function fetchStudentProfile() {
       try {

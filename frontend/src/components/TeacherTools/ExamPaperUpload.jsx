@@ -10,6 +10,7 @@ import {
   FiLink, FiEdit2, FiCheck, FiX, FiAlertCircle
 } from "react-icons/fi";
 import ClassSelectorModal from "./ClassSelectorModal";
+import { API_BASE } from "@/utils/constants";
 
 // ─── Shared input style (mirrors scheme of work / lesson planner) ─────────────
 
@@ -403,7 +404,7 @@ export default function ExamPaperUpload() {
       const token = localStorage.getItem("chikoroai_authToken");
       const user  = JSON.parse(localStorage.getItem("chikoroai_user"));
       const res   = await axios.get(
-        `https://api.chikoro-ai.com/api/system/teacher/my-students/${user.id}`,
+        `${API_BASE}/system/teacher/my-students/${user.id}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (res.data.success) {
@@ -443,7 +444,7 @@ export default function ExamPaperUpload() {
       if (markSchemeFile) formData.append("markScheme", markSchemeFile);
       formData.append("metadata", JSON.stringify(metadata));
       const res = await axios.post(
-        "https://api.chikoro-ai.com/api/teacher/extract-exam-paper",
+        `${API_BASE}/teacher/extract-exam-paper`,
         formData,
         { headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" } }
       );
@@ -664,7 +665,7 @@ export default function ExamPaperUpload() {
     try {
       const token = localStorage.getItem("chikoroai_authToken");
       const res = await axios.post(
-        "https://api.chikoro-ai.com/api/system/teacher/share-quiz-with-class",
+        `${API_BASE}/system/teacher/share-quiz-with-class`,
         { quiz: extractedQuiz.content, subject: metadata.subject, topic: metadata.topic, difficulty: metadata.difficulty, studentIds: cls.students.map(s => s.id) },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -683,7 +684,7 @@ export default function ExamPaperUpload() {
     try {
       const token = localStorage.getItem("chikoroai_authToken");
       const res = await axios.post(
-        "https://api.chikoro-ai.com/api/system/teacher/create-quiz-link",
+        `${API_BASE}/system/teacher/create-quiz-link`,
         { quiz: extractedQuiz.content, subject: metadata.subject, topic: metadata.topic },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -953,4 +954,4 @@ export default function ExamPaperUpload() {
       )}
     </div>
   );
-} 
+}

@@ -875,6 +875,9 @@
               }
             }
           },
+          "400": {
+            "description": "Bad Request"
+          },
           "403": {
             "description": "Forbidden",
             "content": {
@@ -889,6 +892,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "Payload Too Large"
           },
           "500": {
             "description": "Internal Server Error"
@@ -979,6 +985,9 @@
               }
             }
           },
+          "400": {
+            "description": "Bad Request"
+          },
           "403": {
             "description": "Forbidden",
             "content": {
@@ -993,6 +1002,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "Payload Too Large"
           },
           "500": {
             "description": "Internal Server Error",

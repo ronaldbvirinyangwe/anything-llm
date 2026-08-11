@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
+import PublicSiteShell from "../../components/PublicSiteShell";
 
 const SCHOOL_EMAIL = "support@chikoro-ai.com";
 
@@ -711,56 +712,8 @@ function FaqItem({ q, a }) {
 
 /* ─── landing page ───────────────────────────────────────────────────────── */
 export default function Landing() {
-  const navigate = useNavigate();
-
   return (
-    <div className="min-h-screen bg-landing-bg text-landing-text antialiased">
-      {/* ── NAV ─────────────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-50 border-b border-landing-border bg-landing-nav backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
-          <button
-            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-            className="text-xl font-bold bg-gradient-to-r from-landing-accent via-landing-text to-landing-accent bg-clip-text text-transparent"
-          >
-            Chikoro AI
-          </button>
-          <div className="hidden md:flex items-center gap-6">
-            <button
-              onClick={() => navigate("/about")}
-              className="text-sm text-landing-text-subtle hover:text-landing-text transition-colors"
-            >
-              About
-            </button>
-            <button
-              onClick={() => navigate("/pricing")}
-              className="text-sm text-landing-text-subtle hover:text-landing-text transition-colors"
-            >
-              Pricing
-            </button>
-            <button
-              onClick={() => navigate("/blog")}
-              className="text-sm text-landing-text-subtle hover:text-landing-text transition-colors"
-            >
-              Blog
-            </button>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/login")}
-              className="text-sm text-landing-text-muted hover:text-landing-text transition-colors hidden sm:block"
-            >
-              Log in
-            </button>
-            <button
-              onClick={() => navigate("/register")}
-              className="text-sm font-semibold px-4 py-2 rounded-lg bg-landing-accent text-landing-accent-foreground hover:bg-landing-accent-hover transition-colors"
-            >
-              Get started free
-            </button>
-          </div>
-        </div>
-      </nav>
-
+    <PublicSiteShell>
       {/* ── HERO ────────────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden">
         <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-landing-glow blur-[130px] pointer-events-none" />
@@ -772,15 +725,13 @@ export default function Landing() {
             <div className="inline-flex items-center gap-2 bg-landing-accent-soft border border-landing-accent-border rounded-full px-4 py-1.5 mb-7">
               <span className="w-1.5 h-1.5 rounded-full bg-landing-accent animate-pulse" />
               <span className="text-xs font-semibold text-landing-accent tracking-wide uppercase">
-                Zimbabwe's #1 AI Tutor
+                Built for Zimbabwean learners
               </span>
             </div>
 
             <h1 className="text-4xl sm:text-5xl lg:text-[52px] font-extrabold leading-[1.1] tracking-tight mb-6">
               Ace your{" "}
-              <span className="bg-gradient-to-r from-landing-gradient-start via-landing-gradient-middle to-landing-gradient-end bg-clip-text text-transparent">
-                ZIMSEC & Cambridge
-              </span>{" "}
+              <span className="text-landing-accent">ZIMSEC & Cambridge</span>{" "}
               exams with your own AI tutor
             </h1>
 
@@ -792,18 +743,18 @@ export default function Landing() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 mb-7">
-              <button
-                onClick={() => navigate("/register")}
+              <Link
+                to="/register"
                 className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl bg-landing-accent text-landing-accent-foreground font-bold text-sm hover:bg-landing-accent-hover transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-landing-accent-shadow"
               >
                 Start for free <ArrowRight />
-              </button>
-              <button
-                onClick={() => navigate("/pricing")}
+              </Link>
+              <Link
+                to="/pricing"
                 className="inline-flex items-center justify-center px-7 py-3.5 rounded-xl border border-landing-border-strong text-landing-text font-semibold text-sm hover:border-landing-accent-border-strong hover:bg-landing-surface-subtle transition-all"
               >
                 See pricing
-              </button>
+              </Link>
             </div>
 
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-landing-text-subtle">
@@ -831,7 +782,7 @@ export default function Landing() {
         <div className="max-w-5xl mx-auto px-6 py-8 grid grid-cols-2 md:grid-cols-4 gap-8">
           {stats.map(({ value, label }) => (
             <div key={label} className="text-center">
-              <p className="text-2xl sm:text-3xl font-extrabold bg-gradient-to-r from-landing-gradient-start via-landing-gradient-middle to-landing-gradient-end bg-clip-text text-transparent">
+              <p className="text-2xl sm:text-3xl font-extrabold text-landing-accent">
                 {value}
               </p>
               <p className="text-xs text-landing-text-subtle mt-1">{label}</p>
@@ -1026,149 +977,31 @@ export default function Landing() {
           </div>
           <h2 className="text-4xl sm:text-5xl font-extrabold leading-tight mb-5">
             Start learning{" "}
-            <span className="bg-gradient-to-r from-landing-gradient-start via-landing-gradient-middle to-landing-gradient-end bg-clip-text text-transparent">
-              smarter today
-            </span>
+            <span className="text-landing-accent">smarter today</span>
           </h2>
           <p className="text-landing-text-muted text-lg mb-10 leading-relaxed">
             Join students across Zimbabwe using Chikoro AI to understand their
             subjects and pass their ZIMSEC exams.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button
-              onClick={() => navigate("/register")}
+            <Link
+              to="/register"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-landing-accent text-landing-accent-foreground font-bold text-sm hover:bg-landing-accent-hover transition-all hover:scale-[1.02] active:scale-[0.98] shadow-xl shadow-landing-accent-shadow"
             >
               Create your free account <ArrowRight />
-            </button>
-            <button
-              onClick={() => navigate("/pricing")}
+            </Link>
+            <Link
+              to="/pricing"
               className="inline-flex items-center justify-center px-8 py-4 rounded-xl border border-landing-border-strong text-landing-text font-semibold text-sm hover:border-landing-accent-border-strong hover:bg-landing-surface-subtle transition-all"
             >
               View pricing
-            </button>
+            </Link>
           </div>
           <p className="text-xs text-landing-text-faint mt-6">
             No card needed · Ecocash accepted · Cancel anytime
           </p>
         </div>
       </section>
-
-      {/* ── FOOTER ──────────────────────────────────────────────────────── */}
-      <footer className="border-t border-landing-border bg-landing-surface-muted">
-        <div className="max-w-6xl mx-auto px-6 py-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
-          <div className="lg:col-span-2">
-            <p className="text-xl font-bold bg-gradient-to-r from-landing-accent via-landing-text to-landing-accent bg-clip-text text-transparent mb-3">
-              Chikoro AI
-            </p>
-            <p className="text-sm text-landing-text-subtle leading-relaxed max-w-xs">
-              Zimbabwe's first AI tutor — aligned to ZIMSEC & Cambridge, in
-              English, Shona, and Ndebele.
-            </p>
-            <p className="text-xs text-landing-text-faint mt-4">
-              <em>Chikoro</em> means "school" in Shona.
-            </p>
-            <p className="text-xs text-landing-text-faint mt-4">
-              <em>It</em> means "isikolo" in Ndebele.
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-landing-text-muted uppercase tracking-widest mb-4">
-              Product
-            </p>
-            <ul className="space-y-3">
-              {[
-                { l: "Pricing", p: "/pricing" },
-                { l: "About", p: "/about" },
-                { l: "Blog", p: "/blog" },
-              ].map(({ l, p }) => (
-                <li key={l}>
-                  <button
-                    onClick={() => navigate(p)}
-                    className="text-sm text-landing-text-subtle hover:text-landing-text transition-colors"
-                  >
-                    {l}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-landing-text-muted uppercase tracking-widest mb-4">
-              Account
-            </p>
-            <ul className="space-y-3">
-              {[
-                { l: "Sign up free", p: "/register" },
-                { l: "Log in", p: "/login" },
-                { l: "Schools & teachers", p: "/about" },
-              ].map(({ l, p }) => (
-                <li key={l}>
-                  <button
-                    onClick={() => navigate(p)}
-                    className="text-sm text-landing-text-subtle hover:text-landing-text transition-colors"
-                  >
-                    {l}
-                  </button>
-                </li>
-              ))}
-              <li>
-                <a
-                  href={`mailto:${SCHOOL_EMAIL}`}
-                  className="text-sm text-landing-text-subtle hover:text-landing-text transition-colors"
-                >
-                  Contact us
-                </a>
-              </li>
-            </ul>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-landing-text-muted uppercase tracking-widest mb-4">
-              Legal
-            </p>
-            <ul className="space-y-2">
-              <li>
-                <button
-                  onClick={() => navigate("/privacy-policy")}
-                  className="text-xs text-landing-text-subtle hover:text-landing-text transition-colors"
-                >
-                  Privacy Policy
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => navigate("/terms-of-service")}
-                  className="text-xs text-landing-text-subtle hover:text-landing-text transition-colors"
-                >
-                  Terms of Service
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => navigate("/delete-account")}
-                  className="text-xs text-landing-text-subtle hover:text-landing-text transition-colors"
-                >
-                  Delete Account
-                </button>
-              </li>
-            </ul>
-          </div>
-        </div>
-        <div className="border-t border-landing-border px-6 py-6">
-          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-xs text-landing-text-faint">
-              &copy; {new Date().getFullYear()} Chikoro AI &mdash;
-              Zimbabwe&apos;s AI Tutor
-            </p>
-            <a
-              href={`mailto:${SCHOOL_EMAIL}`}
-              className="text-xs text-landing-text-faint hover:text-landing-text-muted transition-colors"
-            >
-              {SCHOOL_EMAIL}
-            </a>
-          </div>
-        </div>
-      </footer>
-    </div>
+    </PublicSiteShell>
   );
 }

@@ -192,6 +192,37 @@ export default {
             "delete-hover-text": "var(--theme-button-delete-hover-text)",
             "delete-hover-bg": "var(--theme-button-delete-hover-bg)"
           }
+        },
+        landing: {
+          bg: "var(--theme-landing-bg)",
+          nav: "var(--theme-landing-nav)",
+          surface: "var(--theme-landing-surface)",
+          "surface-muted": "var(--theme-landing-surface-muted)",
+          "surface-subtle": "var(--theme-landing-surface-subtle)",
+          "surface-hover": "var(--theme-landing-surface-hover)",
+          text: "var(--theme-landing-text)",
+          "text-muted": "var(--theme-landing-text-muted)",
+          "text-subtle": "var(--theme-landing-text-subtle)",
+          "text-faint": "var(--theme-landing-text-faint)",
+          border: "var(--theme-landing-border)",
+          "border-strong": "var(--theme-landing-border-strong)",
+          accent: "var(--theme-landing-accent)",
+          "gradient-start": "var(--theme-landing-gradient-start)",
+          "gradient-middle": "var(--theme-landing-gradient-middle)",
+          "gradient-end": "var(--theme-landing-gradient-end)",
+          "accent-hover": "var(--theme-landing-accent-hover)",
+          "accent-secondary": "var(--theme-landing-accent-secondary)",
+          "accent-foreground": "var(--theme-landing-accent-foreground)",
+          "accent-soft": "var(--theme-landing-accent-soft)",
+          "accent-soft-hover": "var(--theme-landing-accent-soft-hover)",
+          "accent-border": "var(--theme-landing-accent-border)",
+          "accent-border-strong": "var(--theme-landing-accent-border-strong)",
+          glow: "var(--theme-landing-glow)",
+          "accent-shadow": "var(--theme-landing-accent-shadow)",
+          positive: "var(--theme-landing-positive)",
+          "positive-soft": "var(--theme-landing-positive-soft)",
+          "positive-border": "var(--theme-landing-positive-border)",
+          avatar: "var(--theme-landing-avatar)"
         }
       },
       backgroundImage: {

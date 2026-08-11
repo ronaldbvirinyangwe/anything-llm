@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { AUTH_TOKEN, AUTH_USER } from "../../utils/constants";
+import { API_BASE, AUTH_TOKEN, AUTH_USER } from "../../utils/constants";
 
 export default function Enrol() {
   const navigate = useNavigate();
@@ -8,9 +8,6 @@ export default function Enrol() {
   // Local auth state
   const storedUser = JSON.parse(localStorage.getItem(AUTH_USER) || "null");
   const chikoroai_authToken = localStorage.getItem(AUTH_TOKEN);
-
-  // Point directly at your API (same as you did in ChatContainer)
-  const API_BASE = import.meta.env.VITE_PUBLIC_API_BASE || "https://api.chikoro-ai.com/api";
 
   const [role, setRole] = useState("student");
   const [loading, setLoading] = useState(true);
@@ -56,14 +53,14 @@ export default function Enrol() {
           return;
         }
 
-        const { success, profile } = await res.json();
+        const { success, profile, user: profileUser } = await res.json();
         if (success && profile) {
           // If profile exists, redirect by role
-          const roleFromProfile = profile.role; // merged `{ id, username, role, ...profileFields }`
+          const roleFromProfile = profileUser?.role;
           if (roleFromProfile === "student") navigate("/payment");
           else if (roleFromProfile === "teacher") navigate("/teacher-dashboard");
           else if (roleFromProfile === "parent") navigate("/parent/dashboard");
-          else if (roleFromProfile === "admin") navigate("/admin");
+          else if (roleFromProfile === "admin") navigate("/");
           else navigate("/");
 
           return;

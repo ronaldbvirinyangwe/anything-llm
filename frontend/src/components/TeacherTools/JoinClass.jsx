@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_BASE } from "@/utils/constants";
 
 export default function JoinClass() {
   const { classCode } = useParams();
@@ -22,7 +23,7 @@ export default function JoinClass() {
         }
 
         const res = await axios.post(
-          `https://api.chikoro-ai.com/api/system/student/join-class/${classCode}`,
+          `${API_BASE}/system/student/join-class/${classCode}`,
           {},
           { headers: { Authorization: `Bearer ${token}` } }
         );

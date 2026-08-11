@@ -1,35 +1,18 @@
 const prisma = require("../utils/prisma");
+const { EventLogs } = require("../models/eventLogs");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
-
-const ORGANIZATION_TYPES = new Set([
-  "ministry",
-  "department",
-  "province",
-  "district",
-  "school",
-]);
-const MEMBERSHIP_ROLES = new Set([
-  "ministry_admin",
-  "ministry_analyst",
-  "department_admin",
-  "department_analyst",
-  "province_admin",
-  "district_admin",
-  "school_admin",
-  "teacher",
-  "viewer",
-]);
-const ROLE_SCOPE_TYPES = {
-  ministry_admin: ["ministry"],
-  ministry_analyst: ["ministry"],
-  department_admin: ["department"],
-  department_analyst: ["department"],
-  province_admin: ["province"],
-  district_admin: ["district"],
-  school_admin: ["school"],
-  teacher: ["school"],
-  viewer: ["ministry", "department", "province", "district", "school"],
-};
+const {
+  ORGANIZATION_TYPES,
+  accessCapabilities,
+  buildEducationAccess,
+  canListOrganizationChildren,
+  canViewClass,
+  canViewOrganization,
+  descendantIds,
+  validateClassDepartment,
+  validateMembershipRole,
+  validateOrganizationParent,
+} = require("../utils/educationAccess");
 const SCHOOL_LEVELS = new Set([
   "ecd",
   "infant",
@@ -48,6 +31,7 @@ const RESPONSIBLE_AUTHORITIES = new Set([
   "other",
   "unknown",
 ]);
+const SCHOOL_VERIFICATION_ROLES = ["school_admin", "headmaster", "deputy_head"];
 
 function numericId(value) {
   const id = Number(value);
@@ -70,33 +54,14 @@ async function organizationGraph() {
   });
 }
 
-function descendantIds(organizations, rootId) {
-  const ids = new Set([rootId]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const organization of organizations) {
-      if (
-        organization.parentId &&
-        ids.has(organization.parentId) &&
-        !ids.has(organization.id)
-      ) {
-        ids.add(organization.id);
-        changed = true;
-      }
-    }
-  }
-  return [...ids];
-}
-
 async function accessContext(user) {
   const organizations = await organizationGraph();
   if (user.role === "admin") {
-    return {
+    return buildEducationAccess({
+      user,
       organizations,
-      allowedIds: new Set(organizations.map(({ id }) => id)),
       memberships: [],
-    };
+    });
   }
 
   const now = new Date();
@@ -108,16 +73,21 @@ async function accessContext(user) {
     },
     include: { organization: true },
   });
-  const allowedIds = new Set();
-  for (const membership of memberships) {
-    for (const id of descendantIds(organizations, membership.organizationId))
-      allowedIds.add(id);
-  }
-  return { organizations, allowedIds, memberships };
-}
-
-function canViewOrganization(context, organizationId) {
-  return context.allowedIds.has(organizationId);
+  const teacherClassIds = memberships.some(({ role }) => role === "teacher")
+    ? (
+        await prisma.class_teachers.findMany({
+          where: { teacher: { user_id: user.id } },
+          select: { classId: true },
+        })
+      ).map(({ classId }) => classId)
+    : [];
+  return buildEducationAccess({
+    user,
+    organizations,
+    memberships,
+    teacherClassIds,
+    now,
+  });
 }
 
 async function classRoster(classIds, grade) {
@@ -247,9 +217,29 @@ async function summarizeClasses(classIds, filters = {}) {
 }
 
 async function organizationClassIds(organizations, organizationId) {
+  const organization = organizations.find(({ id }) => id === organizationId);
+  if (!organization) return [];
+  if (organization.type === "school_department") {
+    const classes = await prisma.education_classes.findMany({
+      where: {
+        departmentId: organizationId,
+        schoolId: organization.parentId,
+        active: true,
+      },
+      select: { id: true },
+    });
+    return classes.map(({ id }) => id);
+  }
   const scopeIds = descendantIds(organizations, organizationId);
+  const schoolIds = organizations
+    .filter(
+      ({ id, type }) =>
+        type === "school" && (id === organizationId || scopeIds.includes(id))
+    )
+    .map(({ id }) => id);
+  if (!schoolIds.length) return [];
   const classes = await prisma.education_classes.findMany({
-    where: { schoolId: { in: scopeIds }, active: true },
+    where: { schoolId: { in: schoolIds }, active: true },
     select: { id: true },
   });
   return classes.map(({ id }) => id);
@@ -265,11 +255,25 @@ function educationEndpoints(app) {
         if (user?.role !== "admin")
           return response.status(403).json({ error: "Admin access required" });
         const now = new Date();
-        const [organizations, memberships, schoolVerifications] =
+        const [organizations, classes, memberships, schoolVerifications] =
           await Promise.all([
             prisma.organizations.findMany({
               where: { active: true },
               orderBy: [{ type: "asc" }, { name: "asc" }],
+            }),
+            prisma.education_classes.findMany({
+              where: { active: true },
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                grade: true,
+                schoolId: true,
+                departmentId: true,
+                school: { select: { id: true, name: true } },
+                department: { select: { id: true, name: true } },
+              },
+              orderBy: [{ schoolId: "asc" }, { name: "asc" }],
             }),
             prisma.organization_memberships.findMany({
               where: { OR: [{ validTo: null }, { validTo: { gt: now } }] },
@@ -291,6 +295,7 @@ function educationEndpoints(app) {
         return response.json({
           success: true,
           organizations,
+          classes,
           memberships,
           schoolVerifications,
         });
@@ -323,6 +328,16 @@ function educationEndpoints(app) {
           where: { id: membershipId },
           data: { validTo: new Date() },
         });
+        await EventLogs.logEvent(
+          "education_membership_revoked",
+          {
+            membershipId,
+            organizationId: existing.organizationId,
+            targetUserId: existing.userId,
+            role: existing.role,
+          },
+          user.id
+        );
         return response.json({ success: true });
       } catch (error) {
         console.error("Revoke education membership error:", error);
@@ -343,17 +358,33 @@ function educationEndpoints(app) {
           return response.status(401).json({ error: "Unauthorized" });
         const context = await accessContext(user);
         const roots = context.organizations.filter(
-          ({ parentId, id }) => !parentId && context.allowedIds.has(id)
+          ({ parentId, id }) => !parentId && context.organizationIds.has(id)
         );
         const membershipOrganizations = context.memberships
           .map(({ organization }) => organization)
-          .filter(Boolean);
+          .filter(
+            (organization) =>
+              organization && context.organizationIds.has(organization.id)
+          );
         const defaultOrganization =
           roots[0] || membershipOrganizations[0] || null;
+        const defaultClassId =
+          context.teacherClassIds.values().next().value || null;
+        const capabilities = accessCapabilities(context);
         return response.json({
           success: true,
-          enabled: user.role === "admin" || context.allowedIds.size > 0,
+          enabled:
+            context.isGlobalAdmin ||
+            context.organizationIds.size > 0 ||
+            context.teacherClassIds.size > 0,
           defaultOrganization,
+          defaultClassId,
+          defaultScope: defaultOrganization
+            ? { type: "organization", id: defaultOrganization.id }
+            : defaultClassId
+              ? { type: "class", id: defaultClassId }
+              : null,
+          capabilities,
           memberships: context.memberships.map(
             ({ organization, ...membership }) => ({
               ...membership,
@@ -384,6 +415,7 @@ function educationEndpoints(app) {
             userId: user.id,
             validFrom: { lte: now },
             OR: [{ validTo: null }, { validTo: { gt: now } }],
+            role: { in: SCHOOL_VERIFICATION_ROLES },
             organization: { type: "school", active: true },
           },
           include: {
@@ -482,6 +514,7 @@ function educationEndpoints(app) {
             userId: user.id,
             validFrom: { lte: new Date() },
             OR: [{ validTo: null }, { validTo: { gt: new Date() } }],
+            role: { in: SCHOOL_VERIFICATION_ROLES },
             organization: { type: "school", active: true },
           },
         });
@@ -522,6 +555,16 @@ function educationEndpoints(app) {
             notes: notes || null,
           },
         });
+        await EventLogs.logEvent(
+          "education_school_verification_submitted",
+          {
+            submissionId: submission.id,
+            schoolId,
+            provinceId,
+            districtId,
+          },
+          user.id
+        );
         return response.status(201).json({ success: true, submission });
       } catch (error) {
         console.error("School verification submission error:", error);
@@ -587,6 +630,15 @@ function educationEndpoints(app) {
             },
           });
         });
+        await EventLogs.logEvent(
+          "education_school_verification_reviewed",
+          {
+            submissionId: submission.id,
+            schoolId: submission.schoolId,
+            decision,
+          },
+          user.id
+        );
         return response.json({ success: true, decision });
       } catch (error) {
         console.error("School verification review error:", error);
@@ -615,33 +667,51 @@ function educationEndpoints(app) {
         if (!organization)
           return response.status(404).json({ error: "Organization not found" });
         const parent =
-          organization.parentId && context.allowedIds.has(organization.parentId)
+          organization.parentId &&
+          context.organizationIds.has(organization.parentId)
             ? context.organizations.find(
                 ({ id }) => id === organization.parentId
               ) || null
             : null;
         const filters = request.query;
-        const reportingOrganizationId =
-          organization.type === "department"
-            ? organization.parentId
-            : organizationId;
-        const classIds = reportingOrganizationId
-          ? await organizationClassIds(
-              context.organizations,
-              reportingOrganizationId
-            )
-          : [];
+        const classIds = await organizationClassIds(
+          context.organizations,
+          organizationId
+        );
         const metrics = await summarizeClasses(classIds, filters);
         let children = [];
 
         if (organization.type === "department") {
           children = [];
-        } else if (organization.type === "school") {
+        } else if (
+          organization.type === "school" &&
+          canListOrganizationChildren(context, organization)
+        ) {
           const classes = await prisma.education_classes.findMany({
-            where: { schoolId: organization.id, active: true },
+            where: {
+              schoolId: organization.id,
+              departmentId: null,
+              active: true,
+            },
             orderBy: { name: "asc" },
           });
-          children = await Promise.all(
+          const departments = context.organizations.filter(
+            ({ parentId, type }) =>
+              parentId === organization.id && type === "school_department"
+          );
+          const departmentChildren = await Promise.all(
+            departments.map(async (department) => ({
+              ...department,
+              metrics: await summarizeClasses(
+                await organizationClassIds(
+                  context.organizations,
+                  department.id
+                ),
+                filters
+              ),
+            }))
+          );
+          const classChildren = await Promise.all(
             classes.map(async (educationClass) => ({
               id: educationClass.id,
               code: educationClass.code,
@@ -650,10 +720,32 @@ function educationEndpoints(app) {
               metrics: await summarizeClasses([educationClass.id], filters),
             }))
           );
-        } else {
+          children = [...departmentChildren, ...classChildren];
+        } else if (organization.type === "school_department") {
+          const classes = await prisma.education_classes.findMany({
+            where: {
+              departmentId: organization.id,
+              schoolId: organization.parentId,
+              active: true,
+            },
+            orderBy: { name: "asc" },
+          });
+          children = await Promise.all(
+            classes
+              .filter((educationClass) => canViewClass(context, educationClass))
+              .map(async (educationClass) => ({
+                id: educationClass.id,
+                code: educationClass.code,
+                name: educationClass.name,
+                type: "class",
+                metrics: await summarizeClasses([educationClass.id], filters),
+              }))
+          );
+        } else if (canListOrganizationChildren(context, organization)) {
           const directChildren = context.organizations.filter(
-            ({ parentId, type }) =>
+            ({ id, parentId, type }) =>
               parentId === organization.id &&
+              context.organizationIds.has(id) &&
               (organization.type !== "ministry" || type === "province")
           );
           if (directChildren.every(({ type }) => type === "school")) {
@@ -699,6 +791,15 @@ function educationEndpoints(app) {
           }
         }
 
+        await EventLogs.logEvent(
+          "education_dashboard_read",
+          {
+            scopeType: "organization",
+            organizationType: organization.type,
+            scopeId: organizationId,
+          },
+          user.id
+        );
         return response.json({
           success: true,
           scope: organization,
@@ -707,6 +808,7 @@ function educationEndpoints(app) {
           subjects: metrics.subjects,
           trend: metrics.trend,
           children,
+          access: accessCapabilities(context),
           dataFreshness: new Date().toISOString(),
         });
       } catch (error) {
@@ -729,22 +831,40 @@ function educationEndpoints(app) {
           return response.status(400).json({ error: "Invalid class" });
         const educationClass = await prisma.education_classes.findUnique({
           where: { id: classId },
-          include: { school: true, academicPeriod: true },
+          include: {
+            school: true,
+            department: true,
+            academicPeriod: true,
+          },
         });
         if (!educationClass)
           return response.status(404).json({ error: "Class not found" });
         const context = await accessContext(user);
-        if (!canViewOrganization(context, educationClass.schoolId))
+        if (!canViewClass(context, educationClass))
           return response.status(403).json({ error: "Forbidden" });
         const metrics = await summarizeClasses([classId], request.query);
+        const parent =
+          educationClass.department &&
+          canViewOrganization(context, educationClass.department.id)
+            ? educationClass.department
+            : canViewOrganization(context, educationClass.school.id)
+              ? educationClass.school
+              : null;
+        await EventLogs.logEvent(
+          "education_dashboard_read",
+          { scopeType: "class", scopeId: classId },
+          user.id
+        );
         return response.json({
           success: true,
           scope: { ...educationClass, type: "class" },
-          parent: educationClass.school,
+          parent,
+          department: educationClass.department,
           metrics,
           subjects: metrics.subjects,
           trend: metrics.trend,
           children: [],
+          access: accessCapabilities(context),
           dataFreshness: new Date().toISOString(),
         });
       } catch (error) {
@@ -752,6 +872,73 @@ function educationEndpoints(app) {
         return response
           .status(500)
           .json({ error: "Failed to load class dashboard" });
+      }
+    }
+  );
+
+  app.patch(
+    "/education/classes/:id/department",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const user = response.locals.user;
+        if (user?.role !== "admin")
+          return response.status(403).json({ error: "Admin access required" });
+        const classId = numericId(request.params.id);
+        const requestedDepartmentId = request.body?.departmentId;
+        const departmentId =
+          requestedDepartmentId == null || requestedDepartmentId === ""
+            ? null
+            : numericId(requestedDepartmentId);
+        if (
+          !classId ||
+          (requestedDepartmentId != null &&
+            requestedDepartmentId !== "" &&
+            !departmentId)
+        ) {
+          return response
+            .status(400)
+            .json({ error: "Invalid class or department" });
+        }
+        const educationClass = await prisma.education_classes.findUnique({
+          where: { id: classId },
+        });
+        if (!educationClass)
+          return response.status(404).json({ error: "Class not found" });
+        const department = departmentId
+          ? await prisma.organizations.findUnique({
+              where: { id: departmentId },
+            })
+          : null;
+        if (departmentId && !department)
+          return response.status(404).json({ error: "Department not found" });
+        const departmentError = validateClassDepartment(
+          educationClass.schoolId,
+          department
+        );
+        if (departmentError)
+          return response.status(400).json({ error: departmentError });
+        const updatedClass = await prisma.education_classes.update({
+          where: { id: classId },
+          data: { departmentId },
+          include: { department: true },
+        });
+        await EventLogs.logEvent(
+          "education_class_department_changed",
+          {
+            classId,
+            schoolId: educationClass.schoolId,
+            previousDepartmentId: educationClass.departmentId,
+            departmentId,
+          },
+          user.id
+        );
+        return response.json({ success: true, class: updatedClass });
+      } catch (error) {
+        console.error("Assign class department error:", error);
+        return response
+          .status(500)
+          .json({ error: "Failed to assign class department" });
       }
     }
   );
@@ -765,28 +952,55 @@ function educationEndpoints(app) {
         if (user?.role !== "admin")
           return response.status(403).json({ error: "Admin access required" });
         const {
-          code,
-          name,
+          code: requestedCode,
+          name: requestedName,
           type,
-          parentId = null,
+          parentId: requestedParentId = null,
           metadata = null,
         } = request.body || {};
-        if (!code?.trim() || !name?.trim() || !ORGANIZATION_TYPES.has(type)) {
+        const code =
+          typeof requestedCode === "string" ? requestedCode.trim() : "";
+        const name =
+          typeof requestedName === "string" ? requestedName.trim() : "";
+        const hasParent =
+          requestedParentId !== null && requestedParentId !== "";
+        const parentId = hasParent ? numericId(requestedParentId) : null;
+        if (!code || !name || !ORGANIZATION_TYPES.has(type)) {
           return response
             .status(400)
             .json({ error: "code, name and a valid type are required" });
         }
-        if (parentId && !numericId(parentId))
+        if (hasParent && !parentId)
           return response.status(400).json({ error: "Invalid parent" });
+        const parent = parentId
+          ? await prisma.organizations.findUnique({
+              where: { id: parentId },
+              select: { id: true, type: true, active: true },
+            })
+          : null;
+        if (parentId && !parent)
+          return response.status(400).json({ error: "Parent not found" });
+        const parentError = validateOrganizationParent(type, parent);
+        if (parentError)
+          return response.status(400).json({ error: parentError });
         const organization = await prisma.organizations.create({
           data: {
             code: code.trim(),
-            name: name.trim(),
+            name,
             type,
-            parentId: parentId ? Number(parentId) : null,
+            parentId,
             metadata,
           },
         });
+        await EventLogs.logEvent(
+          "education_organization_created",
+          {
+            organizationId: organization.id,
+            organizationType: organization.type,
+            parentId: organization.parentId,
+          },
+          user.id
+        );
         return response.status(201).json({ success: true, organization });
       } catch (error) {
         if (error?.code === "P2002")
@@ -812,7 +1026,7 @@ function educationEndpoints(app) {
         const organizationId = numericId(request.params.id);
         const userId = numericId(request.body?.userId);
         const { role, canViewPii = false } = request.body || {};
-        if (!organizationId || !userId || !MEMBERSHIP_ROLES.has(role)) {
+        if (!organizationId || !userId || !role) {
           return response
             .status(400)
             .json({ error: "Valid organization, user and role are required" });
@@ -823,11 +1037,8 @@ function educationEndpoints(app) {
         });
         if (!organization)
           return response.status(404).json({ error: "Organization not found" });
-        if (!ROLE_SCOPE_TYPES[role]?.includes(organization.type)) {
-          return response.status(400).json({
-            error: `${role} cannot be assigned at ${organization.type} level`,
-          });
-        }
+        const roleError = validateMembershipRole(role, organization.type);
+        if (roleError) return response.status(400).json({ error: roleError });
         const membership = await prisma.organization_memberships.upsert({
           where: {
             organizationId_userId_role: { organizationId, userId, role },
@@ -840,6 +1051,17 @@ function educationEndpoints(app) {
             canViewPii: Boolean(canViewPii),
           },
         });
+        await EventLogs.logEvent(
+          "education_membership_granted",
+          {
+            membershipId: membership.id,
+            organizationId,
+            targetUserId: userId,
+            role,
+            canViewPii: membership.canViewPii,
+          },
+          user.id
+        );
         return response.status(201).json({ success: true, membership });
       } catch (error) {
         console.error("Create membership error:", error);

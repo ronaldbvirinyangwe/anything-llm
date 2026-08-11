@@ -17,9 +17,9 @@ const handledEvents = [
 ];
 
 export function websocketURI() {
-  const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  if (API_BASE === "/api") return `${wsProtocol}//${window.location.host}`;
-  return `${wsProtocol}//${new URL(import.meta.env.VITE_API_BASE).host}`;
+  const apiUrl = new URL(API_BASE, window.location.origin);
+  const wsProtocol = apiUrl.protocol === "https:" ? "wss:" : "ws:";
+  return `${wsProtocol}//${apiUrl.host}`;
 }
 
 export default function handleSocketResponse(socket, event, setChatHistory, parsedOverride = null) {

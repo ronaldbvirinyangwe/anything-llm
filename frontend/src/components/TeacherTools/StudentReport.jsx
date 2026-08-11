@@ -8,6 +8,7 @@ import {
   Chart as ChartJS, LineElement, BarElement, RadialLinearScale, ArcElement,
   CategoryScale, LinearScale, PointElement, Tooltip, Legend, Filler,
 } from "chart.js";
+import { API_BASE } from "@/utils/constants";
 
 ChartJS.register(
   LineElement, BarElement, RadialLinearScale, ArcElement,
@@ -129,7 +130,7 @@ export default function TeacherStudentReport() {
       try {
         const token = localStorage.getItem("chikoroai_authToken");
         const res = await axios.get(
-          `https://api.chikoro-ai.com/api/system/reports/student/${id}`,
+          `${API_BASE}/system/reports/student/${id}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (res.data.success) setReport(res.data);

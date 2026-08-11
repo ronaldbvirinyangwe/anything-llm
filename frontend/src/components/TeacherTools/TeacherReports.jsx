@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_BASE } from "@/utils/constants";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -194,7 +195,7 @@ export default function TeacherReports() {
         if (!teacherId) { navigate("/login"); return; }
 
         const res = await axios.get(
-          `https://api.chikoro-ai.com/api/system/teacher/my-students/${teacherId}`,
+          `${API_BASE}/system/teacher/my-students/${teacherId}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
@@ -220,7 +221,7 @@ export default function TeacherReports() {
         const results = await Promise.allSettled(
           unique.map((s) =>
             axios.get(
-              `https://api.chikoro-ai.com/api/system/reports/student/${s.id}`,
+              `${API_BASE}/system/reports/student/${s.id}`,
               { headers: { Authorization: `Bearer ${token2}` } }
             )
           )

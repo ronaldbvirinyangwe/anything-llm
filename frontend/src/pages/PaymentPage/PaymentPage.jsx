@@ -3,9 +3,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import "./PaymentPage.css";
-import { AUTH_USER } from "@/utils/constants";
+import { API_BASE, AUTH_USER } from "@/utils/constants";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 const api = axios.create({ baseURL: API_BASE });
 
 const MOBILE_METHOD = "ecocash";

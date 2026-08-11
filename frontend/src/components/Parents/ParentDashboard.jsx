@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import useUser from "@/hooks/useUser";
 import LinkChildForm from "./LinkParent";
+import { API_BASE } from "@/utils/constants";
 
 // ─── Theme tokens (matches QuizGenerator) ────────────────────────────────────
 const T = {
@@ -30,8 +31,6 @@ export default function ParentDashboard() {
   const [showLinkForm,   setShowLinkForm]   = useState(false);
 
   const accessToken = localStorage.getItem("chikoroai_authToken");
-  const API_BASE    = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
-
   useEffect(() => {
     if (!accessToken || !user?.id) { navigate("/login"); return; }
 
@@ -43,7 +42,7 @@ export default function ParentDashboard() {
         const data = await res.json();
         if (data.success && data.profile) {
           setParentProfile(data.profile);
-          fetchChildren(data.profile.id);
+          fetchChildren();
         } else {
           setError("Could not load parent profile");
           setLoading(false);
@@ -57,9 +56,9 @@ export default function ParentDashboard() {
     fetchParentProfile();
   }, [accessToken, user]);
 
-  const fetchChildren = async (parentUserId) => {
+  const fetchChildren = async () => {
     try {
-      const res  = await fetch(`${API_BASE}/system/parent/my-children/${parentUserId}`, {
+      const res  = await fetch(`${API_BASE}/system/parent/my-children`, {
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       });
       const data = await res.json();
@@ -103,27 +102,16 @@ export default function ParentDashboard() {
     </div>
   );
 
-  const initials = parentProfile?.name?.charAt(0)?.toUpperCase() || "P";
-
   // ─── Main ──────────────────────────────────────────────────────────────────
   return (
     <div style={s.root}>
-
-      {/* Nav */}
-      <nav style={s.nav}>
-        <button style={s.backBtn} onClick={() => navigate(-1)}>
-          ← Back
-        </button>
-        <div style={s.avatar}>{initials}</div>
-      </nav>
-
       <main style={s.main}>
 
         {/* Hero banner */}
         <div style={s.heroBanner}>
-          <h1 style={s.heroTitle}>👨‍👩‍👧 Parent Dashboard</h1>
+          <h1 style={s.heroTitle}>Family progress</h1>
           <p style={s.heroSub}>
-            Welcome back, {parentProfile?.name || "Parent"}! Track your children's progress.
+            Track your children's learning, results, and recent activity.
           </p>
         </div>
 
@@ -220,42 +208,6 @@ const s = {
   errorCard:    { backgroundColor: T.bgSecondary, border: `1px solid ${T.sidebarBorder}`, borderRadius: 16, padding: 40, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 },
   errorText:    { color: T.error, fontSize: 15 },
   retryBtn:     { backgroundColor: T.buttonPrimary, color: "#fff", border: "none", borderRadius: 10, padding: "10px 24px", fontWeight: 700, fontSize: 14, cursor: "pointer" },
-
-  // Nav
-  nav: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "12px 24px",
-    backgroundColor: T.bgSecondary,
-    borderBottom: `1px solid ${T.sidebarBorder}`,
-  },
-  backBtn: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "6px 14px",
-    backgroundColor: T.bgContainer,
-    border: `1px solid ${T.sidebarBorder}`,
-    borderRadius: 10,
-    color: T.textPrimary,
-    fontWeight: 600,
-    fontSize: 13,
-    cursor: "pointer",
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: "50%",
-    backgroundColor: T.buttonPrimaryA,
-    border: `1px solid ${T.buttonPrimary}`,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: 700,
-    fontSize: 15,
-    color: T.buttonPrimary,
-  },
 
   // Main content
   main: { maxWidth: 720, margin: "0 auto", padding: "24px 16px 60px" },

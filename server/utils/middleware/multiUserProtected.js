@@ -9,7 +9,7 @@ const ROLES = {
   student: "student",
   default: "default",
 };
-const DEFAULT_ROLES = [ROLES.admin, ROLES.admin];
+const DEFAULT_ROLES = [ROLES.admin, ROLES.manager];
 
 /**
  * Explicitly check that multi user mode is enabled as well as that the

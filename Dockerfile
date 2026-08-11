@@ -23,7 +23,10 @@ RUN cd collector && yarn install
 # 4. Copy the rest of the source code
 COPY . .
 
+# Build the production frontend consumed by `vite preview`.
+RUN cd frontend && yarn build
+
 # Ensure the sub-app binaries are in the path
-ENV PATH /app/node_modules/.bin:/app/frontend/node_modules/.bin:/app/server/node_modules/.bin:/app/collector/node_modules/.bin:$PATH
+ENV PATH=/app/node_modules/.bin:/app/frontend/node_modules/.bin:/app/server/node_modules/.bin:/app/collector/node_modules/.bin:$PATH
 
 EXPOSE 4173 3001 8888

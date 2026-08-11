@@ -1,6 +1,18 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { ChikoroMascot, MascotSpeechBubble, MASCOT_EXPRESSIONS, getFlashcardExpression } from "@/components/ChikoroMascot";
-import { FiArrowLeft, FiArrowRight, FiCheck, FiX, FiRotateCcw, FiRepeat } from "react-icons/fi";
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  ChikoroMascot,
+  MascotSpeechBubble,
+  MASCOT_EXPRESSIONS,
+  getFlashcardExpression,
+} from "@/components/ChikoroMascot";
+import {
+  FiArrowLeft,
+  FiArrowRight,
+  FiCheck,
+  FiX,
+  FiRotateCcw,
+  FiRepeat,
+} from "react-icons/fi";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -15,14 +27,53 @@ const FormattedText = ({ children }) => {
       remarkPlugins={[remarkMath]}
       rehypePlugins={[rehypeKatex]}
       components={{
-        p: ({ node, ...props }) => <p style={{ margin: "0", display: "inline-block", width: "100%" }} {...props} />,
-        ul: ({ node, ...props }) => <ul style={{ margin: "8px 0", paddingLeft: 20, textAlign: "left" }} {...props} />,
-        ol: ({ node, ...props }) => <ol style={{ margin: "8px 0", paddingLeft: 20, textAlign: "left" }} {...props} />,
-        code: ({ node, inline, ...props }) => (
-          inline 
-            ? <code style={{ background: "rgba(0,0,0,0.06)", padding: "2px 5px", borderRadius: 4, fontFamily: "monospace", fontSize: "0.9em" }} {...props} />
-            : <code style={{ display: "block", background: "#0f172a", color: "#e2e8f0", padding: "12px", borderRadius: 8, fontFamily: "monospace", overflowX: "auto", margin: "8px 0", textAlign: "left", fontSize: "0.85em" }} {...props} />
+        p: ({ node, ...props }) => (
+          <p
+            style={{ margin: "0", display: "inline-block", width: "100%" }}
+            {...props}
+          />
         ),
+        ul: ({ node, ...props }) => (
+          <ul
+            style={{ margin: "8px 0", paddingLeft: 20, textAlign: "left" }}
+            {...props}
+          />
+        ),
+        ol: ({ node, ...props }) => (
+          <ol
+            style={{ margin: "8px 0", paddingLeft: 20, textAlign: "left" }}
+            {...props}
+          />
+        ),
+        code: ({ node, inline, ...props }) =>
+          inline ? (
+            <code
+              style={{
+                background: "rgba(0,0,0,0.06)",
+                padding: "2px 5px",
+                borderRadius: 4,
+                fontFamily: "monospace",
+                fontSize: "0.9em",
+              }}
+              {...props}
+            />
+          ) : (
+            <code
+              style={{
+                display: "block",
+                background: "#0f172a",
+                color: "#e2e8f0",
+                padding: "12px",
+                borderRadius: 8,
+                fontFamily: "monospace",
+                overflowX: "auto",
+                margin: "8px 0",
+                textAlign: "left",
+                fontSize: "0.85em",
+              }}
+              {...props}
+            />
+          ),
       }}
     >
       {String(children)}
@@ -44,15 +95,18 @@ export default function Flashcards({ flashcardData, onExit }) {
 
   // ─── Smart Looping Logic ───────────────────────────────────────────────────
   // Finds the next index that is NOT in the knownCards Set
-  const getNextUnlearnedIndex = useCallback((current, direction = 1) => {
-    let next = (current + direction + cards.length) % cards.length;
-    let loops = 0;
-    while (knownCards.has(next) && loops < cards.length) {
-      next = (next + direction + cards.length) % cards.length;
-      loops++;
-    }
-    return next;
-  }, [cards.length, knownCards]);
+  const getNextUnlearnedIndex = useCallback(
+    (current, direction = 1) => {
+      let next = (current + direction + cards.length) % cards.length;
+      let loops = 0;
+      while (knownCards.has(next) && loops < cards.length) {
+        next = (next + direction + cards.length) % cards.length;
+        loops++;
+      }
+      return next;
+    },
+    [cards.length, knownCards]
+  );
 
   const handleNext = useCallback(() => {
     if (isAnimating || allMastered) return;
@@ -84,27 +138,41 @@ export default function Flashcards({ flashcardData, onExit }) {
     setTimeout(() => setJustMarked(null), 1500);
   }, []);
 
-  const markKnown = useCallback((e) => {
-    if (e) e.stopPropagation();
-    if (isAnimating) return;
-    
-    setKnownCards((prev) => new Set([...prev, currentIndex]));
-    setUnknownCards((prev) => { const n = new Set(prev); n.delete(currentIndex); return n; });
-    triggerReaction("known");
-    
-    setTimeout(() => handleNext(), 500);
-  }, [isAnimating, currentIndex, handleNext, triggerReaction]);
+  const markKnown = useCallback(
+    (e) => {
+      if (e) e.stopPropagation();
+      if (isAnimating) return;
 
-  const markUnknown = useCallback((e) => {
-    if (e) e.stopPropagation();
-    if (isAnimating) return;
+      setKnownCards((prev) => new Set([...prev, currentIndex]));
+      setUnknownCards((prev) => {
+        const n = new Set(prev);
+        n.delete(currentIndex);
+        return n;
+      });
+      triggerReaction("known");
 
-    setUnknownCards((prev) => new Set([...prev, currentIndex]));
-    setKnownCards((prev) => { const n = new Set(prev); n.delete(currentIndex); return n; });
-    triggerReaction("unknown");
-    
-    setTimeout(() => handleNext(), 500);
-  }, [isAnimating, currentIndex, handleNext, triggerReaction]);
+      setTimeout(() => handleNext(), 500);
+    },
+    [isAnimating, currentIndex, handleNext, triggerReaction]
+  );
+
+  const markUnknown = useCallback(
+    (e) => {
+      if (e) e.stopPropagation();
+      if (isAnimating) return;
+
+      setUnknownCards((prev) => new Set([...prev, currentIndex]));
+      setKnownCards((prev) => {
+        const n = new Set(prev);
+        n.delete(currentIndex);
+        return n;
+      });
+      triggerReaction("unknown");
+
+      setTimeout(() => handleNext(), 500);
+    },
+    [isAnimating, currentIndex, handleNext, triggerReaction]
+  );
 
   // ─── Keyboard Shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
@@ -138,7 +206,8 @@ export default function Flashcards({ flashcardData, onExit }) {
     if (allMastered) return "You mastered them all! Amazing! 🎉";
     if (justMarked === "known") return "Nice one! You know your stuff! 💪";
     if (justMarked === "unknown") return "No worries, we'll review it again!";
-    if (knownCards.size > cards.length / 2) return `${knownCards.size}/${cards.length} mastered — almost there!`;
+    if (knownCards.size > cards.length / 2)
+      return `${knownCards.size}/${cards.length} mastered — almost there!`;
     if (!isFlipped) return "Take a guess, then tap to check! (Or press Space)";
     return "Did you get it right? (Press 1 or 2)";
   };
@@ -159,22 +228,41 @@ export default function Flashcards({ flashcardData, onExit }) {
       {/* ═══ Header with Mascot ═══ */}
       <div className="flashcard-header fade-in">
         {onExit && (
-    <button className="control-btn exit-btn" onClick={onExit} title="Exit Flashcards">
-      <FiX /> Exit
-    </button>
-  )}
+          <button
+            className="control-btn exit-btn"
+            onClick={onExit}
+            title="Exit Flashcards"
+          >
+            <FiX /> Exit
+          </button>
+        )}
         <div className="chk-flashcard-mascot-row">
           <div className="mascot-avatar">
-            <ChikoroMascot expression={getMascotExpression()} size={50} animate={true} />
+            <ChikoroMascot
+              expression={getMascotExpression()}
+              size={50}
+              animate={true}
+            />
           </div>
           <div className="flashcard-header-text">
-            <h2>{flashcardData.topic || flashcardData.subject} {flashcardData.grade && <span className="badge"> {flashcardData.grade}</span>}</h2>
-            <p className="card-counter">Card {currentIndex + 1} of {cards.length}</p>
+            <h2>
+              {flashcardData.topic || flashcardData.subject}{" "}
+              {flashcardData.grade && (
+                <span className="badge"> {flashcardData.grade}</span>
+              )}
+            </h2>
+            <p className="card-counter">
+              Card {currentIndex + 1} of {cards.length}
+            </p>
           </div>
         </div>
-        
+
         <div className="chk-flashcard-bubble-wrapper">
-          <MascotSpeechBubble message={getMascotMessage()} visible={true} position="right" />
+          <MascotSpeechBubble
+            message={getMascotMessage()}
+            visible={true}
+            position="right"
+          />
         </div>
 
         <div className="progress-section">
@@ -209,19 +297,28 @@ export default function Flashcards({ flashcardData, onExit }) {
       ) : (
         <div className="flashcard-interactive-area fade-in">
           {/* ═══ Flashcard ═══ */}
-          <div className={`flashcard ${isFlipped ? "flipped" : ""}`} onClick={handleFlip}>
+          <div
+            className={`flashcard ${isFlipped ? "flipped" : ""}`}
+            onClick={handleFlip}
+          >
             <div className="flashcard-inner">
               <div className="flashcard-front">
                 <div className="card-label">Question</div>
                 <div className="card-content-wrapper">
-                  <div className="card-content"><FormattedText>{currentCard.front}</FormattedText></div>
+                  <div className="card-content">
+                    <FormattedText>{currentCard.front}</FormattedText>
+                  </div>
                 </div>
-                <div className="flip-hint"><FiRepeat /> Tap or Space to flip</div>
+                <div className="flip-hint">
+                  <FiRepeat /> Tap or Space to flip
+                </div>
               </div>
               <div className="flashcard-back">
                 <div className="card-label">Answer</div>
                 <div className="card-content-wrapper">
-                  <div className="card-content"><FormattedText>{currentCard.back}</FormattedText></div>
+                  <div className="card-content">
+                    <FormattedText>{currentCard.back}</FormattedText>
+                  </div>
                 </div>
                 {currentCard.category && (
                   <span className="card-category">{currentCard.category}</span>
@@ -232,16 +329,36 @@ export default function Flashcards({ flashcardData, onExit }) {
 
           {/* ═══ Controls ═══ */}
           <div className="flashcard-controls">
-            <button className="control-btn nav-btn" onClick={handlePrev} disabled={isAnimating} title="Previous (Left Arrow)">
+            <button
+              className="control-btn nav-btn"
+              onClick={handlePrev}
+              disabled={isAnimating}
+              title="Previous (Left Arrow)"
+            >
               <FiArrowLeft />
             </button>
-            <button className="control-btn unknown-btn" onClick={markUnknown} disabled={isAnimating} title="Needs Work (Press 1)">
+            <button
+              className="control-btn unknown-btn"
+              onClick={markUnknown}
+              disabled={isAnimating}
+              title="Needs Work (Press 1)"
+            >
               <FiX /> Needs Work
             </button>
-            <button className="control-btn know-btn" onClick={markKnown} disabled={isAnimating} title="Got It (Press 2)">
+            <button
+              className="control-btn know-btn"
+              onClick={markKnown}
+              disabled={isAnimating}
+              title="Got It (Press 2)"
+            >
               <FiCheck /> Got It
             </button>
-            <button className="control-btn nav-btn" onClick={handleNext} disabled={isAnimating} title="Next (Right Arrow)">
+            <button
+              className="control-btn nav-btn"
+              onClick={handleNext}
+              disabled={isAnimating}
+              title="Next (Right Arrow)"
+            >
               <FiArrowRight />
             </button>
           </div>

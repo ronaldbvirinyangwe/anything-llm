@@ -320,14 +320,14 @@ const User = {
     // Can be set via ENV variable on boot. No frontend config at this time.
     // Docs: https://www.npmjs.com/package/joi-password-complexity
     const complexityOptions = {
-      min: process.env.PASSWORDMINCHAR || 8,
-      max: process.env.PASSWORDMAXCHAR || 250,
-      lowerCase: process.env.PASSWORDLOWERCASE || 0,
-      upperCase: process.env.PASSWORDUPPERCASE || 0,
-      numeric: process.env.PASSWORDNUMERIC || 0,
-      symbol: process.env.PASSWORDSYMBOL || 0,
+      min: Number(process.env.PASSWORDMINCHAR) || 8,
+      max: Number(process.env.PASSWORDMAXCHAR) || 250,
+      lowerCase: Number(process.env.PASSWORDLOWERCASE) || 0,
+      upperCase: Number(process.env.PASSWORDUPPERCASE) || 0,
+      numeric: Number(process.env.PASSWORDNUMERIC) || 0,
+      symbol: Number(process.env.PASSWORDSYMBOL) || 0,
       // reqCount should be equal to how many conditions you are testing for (1-4)
-      requirementCount: process.env.PASSWORDREQUIREMENTS || 0,
+      requirementCount: Number(process.env.PASSWORDREQUIREMENTS) || 0,
     };
 
     const complexityCheck = passwordComplexity(

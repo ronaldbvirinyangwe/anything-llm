@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require("uuid");
 const { FlowExecutor, FLOW_TYPES } = require("./executor");
 const { normalizePath } = require("../files");
 const { safeJsonParse } = require("../http");
+const { normalizeFlowConfig } = require("./flowTypes");
 
 /**
  * @typedef {Object} LoadedFlow
@@ -78,7 +79,7 @@ class AgentFlows {
       return {
         name: flow.name,
         uuid,
-        config: flow.config,
+        config: normalizeFlowConfig(flow.config),
       };
     } catch (error) {
       console.error("Failed to load flow:", error);
@@ -93,50 +94,44 @@ class AgentFlows {
    * @param {string|null} uuid - Optional UUID for the flow
    * @returns {Object} Result of the save operation
    */
- static saveFlow(name, config, uuid = null) {
-  try {
-    if (!name) {
-      return { success: false, error: "Flow name is required" };
+  static saveFlow(name, config, uuid = null) {
+    try {
+      if (!name) {
+        return { success: false, error: "Flow name is required" };
+      }
+
+      if (!config || typeof config !== "object") {
+        return { success: false, error: "Invalid or missing config object" };
+      }
+
+      AgentFlows.createOrCheckFlowsDir();
+
+      // ✅ Sanitize config — strip out flowData wrapper keys if accidentally nested
+      const sanitizedConfig = normalizeFlowConfig(config);
+      delete sanitizedConfig.name;
+      delete sanitizedConfig.uuid;
+      delete sanitizedConfig.savedAt;
+
+      const flowUUID = uuid || uuidv4();
+      const flowData = {
+        name,
+        description: sanitizedConfig.description || "No description provided",
+        active: sanitizedConfig.active !== false,
+        config: sanitizedConfig, // ✅ store sanitized config only — no nesting
+        uuid: flowUUID,
+        savedAt: new Date().toISOString(),
+      };
+
+      const flowFilePath = path.join(AgentFlows.flowsDir, `${flowUUID}.json`);
+      fs.writeFileSync(flowFilePath, JSON.stringify(flowData, null, 2));
+
+      console.log(`✅ Agent flow saved: "${name}" → ${flowFilePath}`);
+      return { success: true, flow: flowData };
+    } catch (err) {
+      console.error("❌ AgentFlows.saveFlow failed:", err);
+      return { success: false, error: err.message };
     }
-
-    if (!config || typeof config !== "object") {
-      return { success: false, error: "Invalid or missing config object" };
-    }
-
-    AgentFlows.createOrCheckFlowsDir();
-
-    // ✅ Sanitize config — strip out flowData wrapper keys if accidentally nested
-    const sanitizedConfig = { ...config };
-    delete sanitizedConfig.name;
-    delete sanitizedConfig.uuid;
-    delete sanitizedConfig.savedAt;
-
-    // ✅ Only add blocks if neither blocks nor steps exist
-    if (!Array.isArray(sanitizedConfig.steps) && !Array.isArray(sanitizedConfig.blocks)) {
-      console.warn(`[AgentFlows] No steps or blocks found for "${name}". Creating empty blocks.`);
-      sanitizedConfig.blocks = [];
-    }
-
-    const flowUUID = uuid || uuidv4();
-    const flowData = {
-      name,
-      description: sanitizedConfig.description || "No description provided",
-      active: sanitizedConfig.active !== false,
-      config: sanitizedConfig,  // ✅ store sanitized config only — no nesting
-      uuid: flowUUID,
-      savedAt: new Date().toISOString(),
-    };
-
-    const flowFilePath = path.join(AgentFlows.flowsDir, `${flowUUID}.json`);
-    fs.writeFileSync(flowFilePath, JSON.stringify(flowData, null, 2));
-
-    console.log(`✅ Agent flow saved: "${name}" → ${flowFilePath}`);
-    return { success: true, flow: flowData };
-  } catch (err) {
-    console.error("❌ AgentFlows.saveFlow failed:", err);
-    return { success: false, error: err.message };
   }
-}
 
   /**
    * List all available flows

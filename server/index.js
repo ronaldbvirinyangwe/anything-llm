@@ -30,10 +30,13 @@ const { communityHubEndpoints } = require("./endpoints/communityHub");
 const { agentFlowEndpoints } = require("./endpoints/agentFlows");
 const { mcpServersEndpoints } = require("./endpoints/mcpServers");
 const { mobileEndpoints } = require("./endpoints/mobile");
-const { workspaceParsedFilesEndpoints } = require("./endpoints/workspacesParsedFiles");
+const {
+  workspaceParsedFilesEndpoints,
+} = require("./endpoints/workspacesParsedFiles");
 const { educationEndpoints } = require("./endpoints/education");
 const { httpLogger } = require("./middleware/httpLogger");
-require('./cron/Weeklydigestcron'); // registers the Sunday 7am CAT job
+const { securityMiddleware } = require("./utils/security");
+require("./cron/Weeklydigestcron"); // registers the Sunday 7am CAT job
 
 const app = express();
 const apiRouter = express.Router();
@@ -49,6 +52,7 @@ const educationHierarchyEnabled =
 
 // Create the HTTP server instance
 const server = http.createServer(app);
+securityMiddleware(app);
 
 // Only log HTTP requests in development mode
 if (
@@ -62,22 +66,31 @@ if (
   );
 }
 
+const configuredCorsOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedCorsOrigins = new Set([
+  "https://chikoro-ai.com",
+  "https://www.chikoro-ai.com",
+  ...configuredCorsOrigins,
+]);
 const corsOptions = {
-  origin: [
-    "https://chikoro-ai.com",
-    "https://www.chikoro-ai.com",
-  ],
+  origin(origin, callback) {
+    const localDevelopmentOrigin =
+      process.env.NODE_ENV !== "production" &&
+      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin || "");
+    callback(
+      null,
+      !origin || allowedCorsOrigins.has(origin) || localDevelopmentOrigin
+    );
+  },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Requested-With",
-  ],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   credentials: true,
 };
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
-app.set("trust proxy", 1);
 app.use(bodyParser.text({ limit: BODY_LIMIT }));
 app.use(bodyParser.json({ limit: BODY_LIMIT }));
 app.use(
@@ -116,8 +129,8 @@ app.ws("/ws/notifications", async (ws, req) => {
   });
 });
 
-app.use('/api/system/parent', require('./utils/parentNotificationSettings'));
-app.use('/api/system/courses', require('./endpoints/courses'));
+app.use("/api/system/parent", require("./utils/parentNotificationSettings"));
+app.use("/api/system/courses", require("./endpoints/courses"));
 
 app.use("/api", apiRouter);
 
@@ -146,27 +159,109 @@ browserExtensionEndpoints(apiRouter);
 
 // Serve Frontend in Production
 if (process.env.NODE_ENV !== "development") {
-  const { MetaGenerator } = require("./utils/boot/MetaGenerator");
-  const IndexPage = new MetaGenerator();
+  const publicDirectory = path.resolve(__dirname, "public");
+  const indexPage = path.join(publicDirectory, "index.html");
+  const notFoundPage = path.join(publicDirectory, "404.html");
+  const fs = require("fs");
+  const seoPageRoutes = [
+    "/",
+    "/about",
+    "/pricing",
+    "/blog",
+    "/blog/best-ai-tools-homework-help-zimbabwe-2026",
+    "/blog/how-to-pass-zimsec-o-level-maths",
+    "/blog/chikoro-ai-apk-available-on-apk-pure",
+    "/blog/the-power-of-home-language-learning",
+    "/privacy-policy",
+    "/terms-of-service",
+  ];
+
+  app.use((_, response, next) => {
+    response.removeHeader("X-Powered-By");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("X-Frame-Options", "DENY");
+    response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    next();
+  });
+
+  app.use((request, response, next) => {
+    if (
+      request.method === "GET" &&
+      request.path.length > 1 &&
+      request.path.endsWith("/")
+    ) {
+      const query = request.originalUrl.slice(request.path.length);
+      return response.redirect(
+        301,
+        `${request.path.replace(/\/+$/, "")}${query}`
+      );
+    }
+    next();
+  });
+
+  app.get(seoPageRoutes, (request, response, next) => {
+    const pagePath =
+      request.path === "/"
+        ? indexPage
+        : path.join(
+            publicDirectory,
+            ...request.path.slice(1).split("/"),
+            "index.html"
+          );
+    if (!fs.existsSync(pagePath)) return next();
+
+    response.setHeader("Cache-Control", "no-cache");
+    return response.sendFile(pagePath);
+  });
 
   app.use(
-    express.static(path.resolve(__dirname, "public"), {
-      extensions: ["js"],
-      setHeaders: (res) => {
-        res.removeHeader("X-Powered-By");
-        res.setHeader("X-Frame-Options", "DENY");
+    express.static(publicDirectory, {
+      setHeaders: (response, filePath) => {
+        const relativePath = path.relative(publicDirectory, filePath);
+        const isHashedAsset =
+          relativePath.startsWith(`assets${path.sep}`) &&
+          /-[A-Za-z0-9_-]{8,}\.[^.]+$/.test(relativePath);
+
+        if (isHashedAsset) {
+          response.setHeader(
+            "Cache-Control",
+            "public, max-age=31536000, immutable"
+          );
+        }
       },
     })
   );
 
-  app.use("/", function (_, response) {
-    IndexPage.generate(response);
-    return;
+  app.get(/^\/blog(?:\/.*)?$/, function (_, response) {
+    if (fs.existsSync(notFoundPage)) {
+      return response.status(404).sendFile(notFoundPage);
+    }
+    return response.sendStatus(404);
   });
 
-  app.get("/robots.txt", function (_, response) {
-    response.type("text/plain");
-    response.send("User-agent: *\nDisallow: /").end();
+  const spaRoutePatterns = [
+    /^\/$/,
+    /^\/(about|pricing|privacy-policy|terms-of-service)\/?$/,
+    /^\/(login|register|enrol|payment|quiz|delete-account)\/?$/,
+    /^\/test(?:\/.*)?$/,
+    /^\/(sso|reports|teacher-tools|teacher|student|payments|parent|join)(\/.*)?$/,
+    /^\/(teacher-dashboard|link-student|link-parent|upload-exam)\/?$/,
+    /^\/(courses|education|workspace|settings|onboarding|accept-invite)(\/.*)?$/,
+  ];
+
+  app.get("*", function (request, response) {
+    const isKnownSpaRoute = spaRoutePatterns.some((pattern) =>
+      pattern.test(request.path)
+    );
+    if (!isKnownSpaRoute) {
+      if (fs.existsSync(notFoundPage)) {
+        return response.status(404).sendFile(notFoundPage);
+      }
+      return response.sendStatus(404);
+    }
+
+    response.setHeader("Cache-Control", "no-cache");
+    return response.sendFile(indexPage);
   });
 } else {
   // Debug route for Vector DB command testing

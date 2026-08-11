@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { API_BASE } from "@/utils/constants";
 
 // ─── Theme tokens ─────────────────────────────────────────────────────────────
 const T = {
@@ -32,7 +33,7 @@ export default function LinkChildForm({ parentId, onSuccess }) {
       const token   = localStorage.getItem("chikoroai_authToken");
       const payload = { parentId: Number(parentId), linkCode: linkCode.trim().toUpperCase() };
 
-      const res  = await fetch("https://api.chikoro-ai.com/api/system/parent/link-child", {
+      const res  = await fetch(`${API_BASE}/system/parent/link-child`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),

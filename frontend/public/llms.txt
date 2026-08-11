@@ -1,0 +1,23 @@
+# Chikoro AI
+
+> Chikoro AI is an educational platform for Zimbabwean students, teachers, and families. It provides curriculum-aligned tutoring for ZIMSEC and Cambridge learners in English, Shona, and Ndebele.
+
+## Primary pages
+
+- [Home](https://chikoro-ai.com/): Product overview, supported curricula, languages, subjects, and school offering.
+- [About](https://chikoro-ai.com/about): Mission and approach to multilingual AI-supported education.
+- [Pricing](https://chikoro-ai.com/pricing): Current individual and school pricing information.
+- [Blog](https://chikoro-ai.com/blog): Study guides and Zimbabwe education resources.
+
+## Educational guides
+
+- [How to Pass ZIMSEC O-Level Maths](https://chikoro-ai.com/blog/how-to-pass-zimsec-o-level-maths)
+- [The Power of Home Language Learning](https://chikoro-ai.com/blog/the-power-of-home-language-learning)
+- [Best AI Tools for Homework Help in Zimbabwe](https://chikoro-ai.com/blog/best-ai-tools-homework-help-zimbabwe-2026)
+
+## Policies
+
+- [Privacy policy](https://chikoro-ai.com/privacy-policy)
+- [Terms of service](https://chikoro-ai.com/terms-of-service)
+
+Contact: support@chikoro-ai.com

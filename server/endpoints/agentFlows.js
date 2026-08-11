@@ -13,7 +13,11 @@ const prisma = require("../utils/prisma");
 const MAX_GENERATION_ITEMS = 50;
 
 function validText(value, maxLength = 500) {
-  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.length <= maxLength
+  );
 }
 
 async function workspaceForUser(user, workspaceSlug) {
@@ -28,71 +32,61 @@ async function workspaceForUser(user, workspaceSlug) {
   return membership ? workspace : null;
 }
 
-function agentFlowEndpoints(app) {
- 
-// Save or update an agent flow configuration safely
-app.post(
-  "/agent-flows/save",
-  [validatedRequest, flexUserRoleValid([ROLES.admin])],
-  async (request, response) => {
-    try {
-      const { name, config, uuid } = request.body;
+async function saveAgentFlow(request, response) {
+  try {
+    const { name, config, uuid } = request.body;
 
-      // 🧩 Validate input
-      if (!name || !config) {
-        return response.status(400).json({
-          success: false,
-          error: "Name and config are required",
-        });
-      }
-
-      // 🧠 Ensure valid structure before saving
-      if (typeof config !== "object") {
-        return response.status(400).json({
-          success: false,
-          error: "Config must be a valid object",
-        });
-      }
-
-      // ✅ Prevent saveFlow crash — ensure blocks is always an array
-      if (!Array.isArray(config.blocks)) {
-        console.warn(`[AgentFlows] No blocks array found for ${name}, creating empty one.`);
-        config.blocks = [];
-      }
-
-      // 💾 Save flow using AgentFlows utility
-      const flow = AgentFlows.saveFlow(name, config, uuid);
-
-      if (!flow || !flow.success) {
-        console.error("⚠️ Failed to save flow:", flow?.error);
-        return response.status(500).json({
-          success: false,
-          error: flow?.error || "Failed to save flow",
-        });
-      }
-
-      // 🧭 Log telemetry only for new flows
-      if (!uuid) {
-        await Telemetry.sendTelemetry("agent_flow_created", {
-          blockCount: config.blocks?.length || 0,
-        });
-      }
-
-      // ✅ Respond success
-      return response.status(200).json({
-        success: true,
-        message: `Agent flow "${name}" saved successfully.`,
-        flow,
-      });
-    } catch (error) {
-      console.error("❌ Error saving flow:", error);
-      return response.status(500).json({
+    if (!name || !config) {
+      return response.status(400).json({
         success: false,
-        error: error.message || "Internal server error",
+        error: "Name and config are required",
       });
     }
+
+    if (typeof config !== "object") {
+      return response.status(400).json({
+        success: false,
+        error: "Config must be a valid object",
+      });
+    }
+
+    const saveResult = AgentFlows.saveFlow(name, config, uuid);
+
+    if (!saveResult?.success) {
+      console.error("⚠️ Failed to save flow:", saveResult?.error);
+      return response.status(500).json({
+        success: false,
+        error: saveResult?.error || "Failed to save flow",
+      });
+    }
+
+    if (!uuid) {
+      await Telemetry.sendTelemetry("agent_flow_created", {
+        blockCount: saveResult.flow.config.steps.length,
+      });
+    }
+
+    return response.status(200).json({
+      success: true,
+      message: `Agent flow "${name}" saved successfully.`,
+      flow: saveResult.flow,
+    });
+  } catch (error) {
+    console.error("❌ Error saving flow:", error);
+    return response.status(500).json({
+      success: false,
+      error: error.message || "Internal server error",
+    });
   }
-);
+}
+
+function agentFlowEndpoints(app) {
+  // Save or update an agent flow configuration safely
+  app.post(
+    "/agent-flows/save",
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
+    saveAgentFlow
+  );
 
   // List all available flows
   app.get(
@@ -116,7 +110,6 @@ app.post(
   );
 
   // Get a specific flow by UUID
-
 
   // Run a specific flow
   // app.post(
@@ -214,84 +207,93 @@ app.post(
     }
   );
 
-app.post("/agent-flows/quiz/create", [validatedRequest], async (req, res) => {
-  try {
-    const sessionUser = res.locals.user;
-    const {
-      subject,
-      topic = "",
-      grade,
-      numQuestions = 5,
-      difficulty = "medium",
-      userMessage = "",
-      workspaceSlug = null
-    } = req.body;
+  app.post("/agent-flows/quiz/create", [validatedRequest], async (req, res) => {
+    try {
+      const sessionUser = res.locals.user;
+      const {
+        subject,
+        topic = "",
+        grade,
+        numQuestions = 5,
+        difficulty = "medium",
+        userMessage = "",
+        workspaceSlug = null,
+      } = req.body;
 
-    const questionCount = Number(numQuestions);
+      const questionCount = Number(numQuestions);
 
-    // topic is the specific concept from the conversation; fall back to userMessage
-    const quizTopic = topic || userMessage || "general curriculum topics";
+      // topic is the specific concept from the conversation; fall back to userMessage
+      const quizTopic = topic || userMessage || "general curriculum topics";
 
-    if (
-      !sessionUser?.id ||
-      !validText(subject) ||
-      (typeof grade !== "string" && typeof grade !== "number") ||
-      !validText(String(grade), 50) ||
-      (topic && !validText(topic)) ||
-      (userMessage && !validText(userMessage, 2_000)) ||
-      !["easy", "medium", "hard"].includes(difficulty) ||
-      !Number.isInteger(questionCount) ||
-      questionCount < 1 ||
-      questionCount > MAX_GENERATION_ITEMS
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid generation input. Use 1-50 questions and bounded text fields.",
-      });
-    }
-
-    const workspace = await workspaceForUser(sessionUser, workspaceSlug);
-    if (workspaceSlug && !workspace) {
-      return res.status(403).json({ success: false, error: "Workspace access denied" });
-    }
-
-    console.log(`🤖 Agent is generating a quiz for ${subject} (Grade ${grade})`);
-
-    const wantsHistoryBased = userMessage.toLowerCase().includes('history') || 
-                              userMessage.toLowerCase().includes('previous') ||
-                              userMessage.toLowerCase().includes('what we discussed') ||
-                              userMessage.toLowerCase().includes('based on');
-
-    let contextInfo = "";
-    
-    if (wantsHistoryBased && workspaceSlug) {
-      try {
-        // ✅ FIX: Get workspace ID from slug first
-        if (workspace) {
-          const recentChats = await WorkspaceChats.where(
-            { workspaceId: workspace.id, user_id: sessionUser.id },
-            50,
-            { id: "desc" }
-          );
-          
-          if (recentChats && recentChats.length > 0) {
-            contextInfo = "\n\nRecent conversation context:\n" + 
-              recentChats
-                .filter(chat => chat.role === 'user' || chat.role === 'assistant')
-                .slice(0, 10)
-                .map(chat => `${chat.role}: ${chat.content}`)
-                .join("\n");
-            
-            console.log(`📚 Added ${recentChats.length} messages as context`);
-          }
-        }
-      } catch (err) {
-        console.warn("⚠️ Could not fetch chat history:", err.message);
+      if (
+        !sessionUser?.id ||
+        !validText(subject) ||
+        (typeof grade !== "string" && typeof grade !== "number") ||
+        !validText(String(grade), 50) ||
+        (topic && !validText(topic)) ||
+        (userMessage && !validText(userMessage, 2_000)) ||
+        !["easy", "medium", "hard"].includes(difficulty) ||
+        !Number.isInteger(questionCount) ||
+        questionCount < 1 ||
+        questionCount > MAX_GENERATION_ITEMS
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Invalid generation input. Use 1-50 questions and bounded text fields.",
+        });
       }
-    }
 
-    // === AI Prompt ===
-    const prompt = `You are Chikoro AI — a Zimbabwean AI tutor aligned with ZIMSEC and Cambridge curricula.
+      const workspace = await workspaceForUser(sessionUser, workspaceSlug);
+      if (workspaceSlug && !workspace) {
+        return res
+          .status(403)
+          .json({ success: false, error: "Workspace access denied" });
+      }
+
+      console.log(
+        `🤖 Agent is generating a quiz for ${subject} (Grade ${grade})`
+      );
+
+      const wantsHistoryBased =
+        userMessage.toLowerCase().includes("history") ||
+        userMessage.toLowerCase().includes("previous") ||
+        userMessage.toLowerCase().includes("what we discussed") ||
+        userMessage.toLowerCase().includes("based on");
+
+      let contextInfo = "";
+
+      if (wantsHistoryBased && workspaceSlug) {
+        try {
+          // ✅ FIX: Get workspace ID from slug first
+          if (workspace) {
+            const recentChats = await WorkspaceChats.where(
+              { workspaceId: workspace.id, user_id: sessionUser.id },
+              50,
+              { id: "desc" }
+            );
+
+            if (recentChats && recentChats.length > 0) {
+              contextInfo =
+                "\n\nRecent conversation context:\n" +
+                recentChats
+                  .filter(
+                    (chat) => chat.role === "user" || chat.role === "assistant"
+                  )
+                  .slice(0, 10)
+                  .map((chat) => `${chat.role}: ${chat.content}`)
+                  .join("\n");
+
+              console.log(`📚 Added ${recentChats.length} messages as context`);
+            }
+          }
+        } catch (err) {
+          console.warn("⚠️ Could not fetch chat history:", err.message);
+        }
+      }
+
+      // === AI Prompt ===
+      const prompt = `You are Chikoro AI — a Zimbabwean AI tutor aligned with ZIMSEC and Cambridge curricula.
 
 TASK: Create ${numQuestions} questions STRICTLY about "${quizTopic}" for ${subject}, Grade ${grade}, difficulty: ${difficulty}.
 ALL questions must be about "${quizTopic}" only. Do not generate questions on any other topic.
@@ -319,211 +321,240 @@ EXACT JSON FORMAT REQUIRED:
   ]
 }
 
-- ${Math.ceil(numQuestions/2)} MCQ questions (4 options each, labeled A-D)
-- ${Math.floor(numQuestions/2)} short-answer questions
-${wantsHistoryBased ? '- Base on recent conversation context below' : ''}
+- ${Math.ceil(numQuestions / 2)} MCQ questions (4 options each, labeled A-D)
+- ${Math.floor(numQuestions / 2)} short-answer questions
+${wantsHistoryBased ? "- Base on recent conversation context below" : ""}
 ${contextInfo}
 
 Remember: Return ONLY the JSON object. Start with { and end with }.`;
 
-const vllmBase = process.env.VLLM_BASE_PATH || process.env.OLLAMA_BASE_PATH || "http://192.168.1.128:11434/v1";
-    const ollamaRes = await fetch(`${vllmBase}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY || "EMPTY"}`,
-      },
-      body: JSON.stringify({
-        model: process.env.OLLAMA_MODEL_PREF || "gpt-oss:20b",
-        messages: [{ role: "user", content: prompt }],
-        stream: false,
-        temperature: 0.3,
-      }),
-    });
+      const vllmBase =
+        process.env.VLLM_BASE_PATH ||
+        process.env.OLLAMA_BASE_PATH ||
+        "http://192.168.1.128:11434/v1";
+      const ollamaRes = await fetch(`${vllmBase}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY || "EMPTY"}`,
+        },
+        body: JSON.stringify({
+          model: process.env.OLLAMA_MODEL_PREF || "gpt-oss:20b",
+          messages: [{ role: "user", content: prompt }],
+          stream: false,
+          temperature: 0.3,
+        }),
+      });
 
-    if (!ollamaRes.ok) throw new Error(`vLLM did not respond properly: ${ollamaRes.status}`);
+      if (!ollamaRes.ok)
+        throw new Error(`vLLM did not respond properly: ${ollamaRes.status}`);
 
-    const ollamaData = await ollamaRes.json();
-    let raw = ollamaData.choices?.[0]?.message?.content || "";
+      const ollamaData = await ollamaRes.json();
+      let raw = ollamaData.choices?.[0]?.message?.content || "";
 
-    console.log("🔍 Raw vLLM response:", raw.substring(0, 200));
+      console.log("🔍 Raw vLLM response:", raw.substring(0, 200));
 
-    // === Enhanced JSON parsing ===
-    function safeParseQuizJSON(raw) {
-      // Try direct parse first
-      try {
-        return JSON.parse(raw);
-      } catch (err) {
-        console.warn("⚠️ Initial parse failed, attempting cleanup...");
-      }
-
-      // Aggressive cleanup
-      try {
-        let cleaned = raw
-          .replace(/```json|```/g, "")           // Remove markdown
-          .replace(/^[^{]*({.*})[^}]*$/s, "$1")  // Extract first JSON object
-          .replace(/\r\n|\n|\r/g, " ")           // Remove line breaks
-          .replace(/\\"/g, '"')                  // Fix escaped quotes
-          .replace(/\\'/g, "'")                  // Fix escaped single quotes
-          .replace(/"\s*:\s*"/g, '":"')          // Fix spacing in key-value
-          .replace(/,\s*}/g, "}")                // Remove trailing commas in objects
-          .replace(/,\s*\]/g, "]")               // Remove trailing commas in arrays
-          .trim();
-
-        // Find the actual JSON object bounds
-        const start = cleaned.indexOf("{");
-        const end = cleaned.lastIndexOf("}");
-        
-        if (start !== -1 && end !== -1 && end > start) {
-          cleaned = cleaned.substring(start, end + 1);
+      // === Enhanced JSON parsing ===
+      function safeParseQuizJSON(raw) {
+        // Try direct parse first
+        try {
+          return JSON.parse(raw);
+        } catch (err) {
+          console.warn("⚠️ Initial parse failed, attempting cleanup...");
         }
 
-        console.log("🔧 Cleaned JSON:", cleaned.substring(0, 200));
-        return JSON.parse(cleaned);
-      } catch (retryErr) {
-        console.error("🚨 Final parse failed:", retryErr.message);
-        console.error("🚨 Cleaned text:", raw.substring(0, 500));
-        return null;
-      }
-    }
+        // Aggressive cleanup
+        try {
+          let cleaned = raw
+            .replace(/```json|```/g, "") // Remove markdown
+            .replace(/^[^{]*({.*})[^}]*$/s, "$1") // Extract first JSON object
+            .replace(/\r\n|\n|\r/g, " ") // Remove line breaks
+            .replace(/\\"/g, '"') // Fix escaped quotes
+            .replace(/\\'/g, "'") // Fix escaped single quotes
+            .replace(/"\s*:\s*"/g, '":"') // Fix spacing in key-value
+            .replace(/,\s*}/g, "}") // Remove trailing commas in objects
+            .replace(/,\s*\]/g, "]") // Remove trailing commas in arrays
+            .trim();
 
-    let quiz = safeParseQuizJSON(raw);
-    
-    // ✅ Fallback: Create a sample question if parsing totally failed
-    if (!quiz || !quiz.questions || quiz.questions.length === 0) {
-      console.warn("⚠️ Invalid quiz JSON, creating fallback quiz");
-      quiz = {
-        subject,
-        grade,
-        userMessage,
-        questions: [
-          {
-            type: "MCQ",
-            question: `What is a key concept in ${subject}?`,
-            options: ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"],
-            correct_answer: "A. Option 1"
+          // Find the actual JSON object bounds
+          const start = cleaned.indexOf("{");
+          const end = cleaned.lastIndexOf("}");
+
+          if (start !== -1 && end !== -1 && end > start) {
+            cleaned = cleaned.substring(start, end + 1);
           }
-        ]
-      };
-    }
 
-    console.log(`✅ Quiz generated with ${quiz.questions.length} questions`);
+          console.log("🔧 Cleaned JSON:", cleaned.substring(0, 200));
+          return JSON.parse(cleaned);
+        } catch (retryErr) {
+          console.error("🚨 Final parse failed:", retryErr.message);
+          console.error("🚨 Cleaned text:", raw.substring(0, 500));
+          return null;
+        }
+      }
 
-    // Save to chat history for persistence
-try {
-    if (workspace) {
-      await WorkspaceChats.new({
-        workspaceId: workspace.id,
-        prompt: userMessage || `Create a ${subject} quiz`,
-        response: {
-          text: `Quiz created successfully on ${subject} for Grade ${grade}!`,
-          sources: [],
-          type: "chat",
-          attachments: [],
-          metrics: {},
-          tool_call: "quiz_create",
-          quizData: quiz,
-        },
-        threadId: null,
-        user: { id: sessionUser.id },
-      });
-      console.log("💾 Quiz saved to chat history");
-    }
-} catch (chatErr) {
-  console.warn("⚠️ Failed to save quiz to chat history:", chatErr.message);
-}
+      let quiz = safeParseQuizJSON(raw);
 
-    return res.status(200).json({
-      success: true,
-      tool: "quiz_create",
-      quiz,
-    });
-  } catch (error) {
-    console.error("🔥 Quiz agent error:", error);
-    return res.status(500).json({
-      success: false,
-      error: error.message || "Quiz agent failed",
-    });
-  }
-});
+      // ✅ Fallback: Create a sample question if parsing totally failed
+      if (!quiz || !quiz.questions || quiz.questions.length === 0) {
+        console.warn("⚠️ Invalid quiz JSON, creating fallback quiz");
+        quiz = {
+          subject,
+          grade,
+          userMessage,
+          questions: [
+            {
+              type: "MCQ",
+              question: `What is a key concept in ${subject}?`,
+              options: [
+                "A. Option 1",
+                "B. Option 2",
+                "C. Option 3",
+                "D. Option 4",
+              ],
+              correct_answer: "A. Option 1",
+            },
+          ],
+        };
+      }
 
+      console.log(`✅ Quiz generated with ${quiz.questions.length} questions`);
 
-app.post("/agent-flows/flashcard/create", [validatedRequest], async (req, res) => {
-  try {
-    const sessionUser = res.locals.user;
-    const {
-      subject,
-      topic = "",
-      grade,
-      numCards = 10,
-      numQuestions,
-      difficulty = "medium",
-      userMessage = "",
-      workspaceSlug = null
-    } = req.body;
-
-    const resolvedNumCards = Number(numQuestions ?? numCards);
-    const flashcardTopic = topic || userMessage || "general curriculum topics";
-
-    if (
-      !sessionUser?.id ||
-      !validText(subject) ||
-      (typeof grade !== "string" && typeof grade !== "number") ||
-      !validText(String(grade), 50) ||
-      (topic && !validText(topic)) ||
-      (userMessage && !validText(userMessage, 2_000)) ||
-      !["easy", "medium", "hard"].includes(difficulty) ||
-      !Number.isInteger(resolvedNumCards) ||
-      resolvedNumCards < 1 ||
-      resolvedNumCards > MAX_GENERATION_ITEMS
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid generation input. Use 1-50 cards and bounded text fields.",
-      });
-    }
-
-    const workspace = await workspaceForUser(sessionUser, workspaceSlug);
-    if (workspaceSlug && !workspace) {
-      return res.status(403).json({ success: false, error: "Workspace access denied" });
-    }
-
-    console.log(`🎴 VLLM BASE: ${process.env.VLLM_BASE_PATH} || fallback: http://192.168.1.128:11434/v1`);
-    console.log(`🎴 Agent is generating flashcards for ${subject} (Grade ${grade})`);
-
-    const wantsHistoryBased = userMessage.toLowerCase().includes('history') ||
-                              userMessage.toLowerCase().includes('previous') ||
-                              userMessage.toLowerCase().includes('what we discussed') ||
-                              userMessage.toLowerCase().includes('based on');
-
-    let contextInfo = "";
-
-    if (wantsHistoryBased && workspaceSlug) {
+      // Save to chat history for persistence
       try {
         if (workspace) {
-          const recentChats = await WorkspaceChats.where(
-            { workspaceId: workspace.id, user_id: sessionUser.id },
-            100,
-            { id: "desc" }
-          );
+          await WorkspaceChats.new({
+            workspaceId: workspace.id,
+            prompt: userMessage || `Create a ${subject} quiz`,
+            response: {
+              text: `Quiz created successfully on ${subject} for Grade ${grade}!`,
+              sources: [],
+              type: "chat",
+              attachments: [],
+              metrics: {},
+              tool_call: "quiz_create",
+              quizData: quiz,
+            },
+            threadId: null,
+            user: { id: sessionUser.id },
+          });
+          console.log("💾 Quiz saved to chat history");
+        }
+      } catch (chatErr) {
+        console.warn(
+          "⚠️ Failed to save quiz to chat history:",
+          chatErr.message
+        );
+      }
 
-          if (recentChats && recentChats.length > 0) {
-            contextInfo = "\n\nRecent conversation context:\n" +
-              recentChats
-                .filter(chat => chat.role === 'user' || chat.role === 'assistant')
-                .slice(0, 10)
-                .map(chat => `${chat.role}: ${chat.content}`)
-                .join("\n");
+      return res.status(200).json({
+        success: true,
+        tool: "quiz_create",
+        quiz,
+      });
+    } catch (error) {
+      console.error("🔥 Quiz agent error:", error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || "Quiz agent failed",
+      });
+    }
+  });
 
-            console.log(`📚 Added ${recentChats.length} messages as context`);
+  app.post(
+    "/agent-flows/flashcard/create",
+    [validatedRequest],
+    async (req, res) => {
+      try {
+        const sessionUser = res.locals.user;
+        const {
+          subject,
+          topic = "",
+          grade,
+          numCards = 10,
+          numQuestions,
+          difficulty = "medium",
+          userMessage = "",
+          workspaceSlug = null,
+        } = req.body;
+
+        const resolvedNumCards = Number(numQuestions ?? numCards);
+        const flashcardTopic =
+          topic || userMessage || "general curriculum topics";
+
+        if (
+          !sessionUser?.id ||
+          !validText(subject) ||
+          (typeof grade !== "string" && typeof grade !== "number") ||
+          !validText(String(grade), 50) ||
+          (topic && !validText(topic)) ||
+          (userMessage && !validText(userMessage, 2_000)) ||
+          !["easy", "medium", "hard"].includes(difficulty) ||
+          !Number.isInteger(resolvedNumCards) ||
+          resolvedNumCards < 1 ||
+          resolvedNumCards > MAX_GENERATION_ITEMS
+        ) {
+          return res.status(400).json({
+            success: false,
+            error:
+              "Invalid generation input. Use 1-50 cards and bounded text fields.",
+          });
+        }
+
+        const workspace = await workspaceForUser(sessionUser, workspaceSlug);
+        if (workspaceSlug && !workspace) {
+          return res
+            .status(403)
+            .json({ success: false, error: "Workspace access denied" });
+        }
+
+        console.log(
+          `🎴 VLLM BASE: ${process.env.VLLM_BASE_PATH} || fallback: http://192.168.1.128:11434/v1`
+        );
+        console.log(
+          `🎴 Agent is generating flashcards for ${subject} (Grade ${grade})`
+        );
+
+        const wantsHistoryBased =
+          userMessage.toLowerCase().includes("history") ||
+          userMessage.toLowerCase().includes("previous") ||
+          userMessage.toLowerCase().includes("what we discussed") ||
+          userMessage.toLowerCase().includes("based on");
+
+        let contextInfo = "";
+
+        if (wantsHistoryBased && workspaceSlug) {
+          try {
+            if (workspace) {
+              const recentChats = await WorkspaceChats.where(
+                { workspaceId: workspace.id, user_id: sessionUser.id },
+                100,
+                { id: "desc" }
+              );
+
+              if (recentChats && recentChats.length > 0) {
+                contextInfo =
+                  "\n\nRecent conversation context:\n" +
+                  recentChats
+                    .filter(
+                      (chat) =>
+                        chat.role === "user" || chat.role === "assistant"
+                    )
+                    .slice(0, 10)
+                    .map((chat) => `${chat.role}: ${chat.content}`)
+                    .join("\n");
+
+                console.log(
+                  `📚 Added ${recentChats.length} messages as context`
+                );
+              }
+            }
+          } catch (err) {
+            console.warn("⚠️ Could not fetch chat history:", err.message);
           }
         }
-      } catch (err) {
-        console.warn("⚠️ Could not fetch chat history:", err.message);
-      }
-    }
 
-    const prompt = `You are Chikoro AI — a Zimbabwean AI tutor aligned with ZIMSEC and Cambridge curricula.
+        const prompt = `You are Chikoro AI — a Zimbabwean AI tutor aligned with ZIMSEC and Cambridge curricula.
 
 TASK: Create ${resolvedNumCards} flashcards STRICTLY about "${flashcardTopic}" for ${subject}, Grade ${grade}, difficulty: ${difficulty}.
 ALL cards must be about "${flashcardTopic}" only. Do not generate cards on any other topic.
@@ -549,251 +580,277 @@ Each card must:
 - back: A detailed, educational answer about "${flashcardTopic}"
 - category: A subtopic within "${flashcardTopic}"
 
-${wantsHistoryBased ? 'Base flashcards on the topics discussed in the recent conversation.' : ''}
+${wantsHistoryBased ? "Base flashcards on the topics discussed in the recent conversation." : ""}
 ${contextInfo}
 
 Return ONLY the JSON object. Start with { and end with }. No other text.`;
 
-    const vllmBase = process.env.VLLM_BASE_PATH || process.env.OLLAMA_BASE_PATH || "http://192.168.1.128:11434/v1";
-    const ollamaRes = await fetch(`${vllmBase}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY || "EMPTY"}`,
-      },
-      body: JSON.stringify({
-        model: process.env.OLLAMA_MODEL_PREF || "gpt-oss:20b",
-        messages: [{ role: "user", content: prompt }],
-        stream: false,
-        temperature: 0.3,
-      }),
-    });
+        const vllmBase =
+          process.env.VLLM_BASE_PATH ||
+          process.env.OLLAMA_BASE_PATH ||
+          "http://192.168.1.128:11434/v1";
+        const ollamaRes = await fetch(`${vllmBase}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY || "EMPTY"}`,
+          },
+          body: JSON.stringify({
+            model: process.env.OLLAMA_MODEL_PREF || "gpt-oss:20b",
+            messages: [{ role: "user", content: prompt }],
+            stream: false,
+            temperature: 0.3,
+          }),
+        });
 
-    if (!ollamaRes.ok) throw new Error(`vLLM did not respond properly: ${ollamaRes.status}`);
+        if (!ollamaRes.ok)
+          throw new Error(`vLLM did not respond properly: ${ollamaRes.status}`);
 
-    const ollamaData = await ollamaRes.json();
-    let raw = ollamaData.choices?.[0]?.message?.content || "";
+        const ollamaData = await ollamaRes.json();
+        let raw = ollamaData.choices?.[0]?.message?.content || "";
 
-    console.log("🔍 Raw vLLM response:", raw.substring(0, 200));
+        console.log("🔍 Raw vLLM response:", raw.substring(0, 200));
 
-    function safeParseFlashcardJSON(raw) {
-      try {
-        return JSON.parse(raw);
-      } catch (err) {
-        console.warn("⚠️ Initial parse failed, attempting cleanup...");
-      }
+        function safeParseFlashcardJSON(raw) {
+          try {
+            return JSON.parse(raw);
+          } catch (err) {
+            console.warn("⚠️ Initial parse failed, attempting cleanup...");
+          }
 
-      try {
-        let cleaned = raw
-          .replace(/```json|```/g, "")
-          .replace(/^[^{]*({.*})[^}]*$/s, "$1")
-          .replace(/\r\n|\n|\r/g, " ")
-          .replace(/\\"/g, '"')
-          .replace(/\\'/g, "'")
-          .replace(/"\s*:\s*"/g, '":"')
-          .replace(/,\s*}/g, "}")
-          .replace(/,\s*\]/g, "]")
-          .trim();
+          try {
+            let cleaned = raw
+              .replace(/```json|```/g, "")
+              .replace(/^[^{]*({.*})[^}]*$/s, "$1")
+              .replace(/\r\n|\n|\r/g, " ")
+              .replace(/\\"/g, '"')
+              .replace(/\\'/g, "'")
+              .replace(/"\s*:\s*"/g, '":"')
+              .replace(/,\s*}/g, "}")
+              .replace(/,\s*\]/g, "]")
+              .trim();
 
-        const start = cleaned.indexOf("{");
-        const end = cleaned.lastIndexOf("}");
+            const start = cleaned.indexOf("{");
+            const end = cleaned.lastIndexOf("}");
 
-        if (start !== -1 && end !== -1 && end > start) {
-          cleaned = cleaned.substring(start, end + 1);
+            if (start !== -1 && end !== -1 && end > start) {
+              cleaned = cleaned.substring(start, end + 1);
+            }
+
+            console.log("🔧 Cleaned JSON:", cleaned.substring(0, 200));
+            return JSON.parse(cleaned);
+          } catch (retryErr) {
+            console.error("🚨 Final parse failed:", retryErr.message);
+            return null;
+          }
         }
 
-        console.log("🔧 Cleaned JSON:", cleaned.substring(0, 200));
-        return JSON.parse(cleaned);
-      } catch (retryErr) {
-        console.error("🚨 Final parse failed:", retryErr.message);
-        return null;
-      }
-    }
+        let flashcards = safeParseFlashcardJSON(raw);
 
-    let flashcards = safeParseFlashcardJSON(raw);
+        if (!flashcards || !flashcards.cards || flashcards.cards.length === 0) {
+          console.warn("⚠️ Invalid flashcard JSON, creating fallback");
+          flashcards = {
+            subject,
+            grade,
+            cards: [
+              {
+                front: `Key concept in ${subject}`,
+                back: "This is a placeholder flashcard. The AI will generate proper cards on retry.",
+                category: subject,
+              },
+            ],
+          };
+        }
 
-    if (!flashcards || !flashcards.cards || flashcards.cards.length === 0) {
-      console.warn("⚠️ Invalid flashcard JSON, creating fallback");
-      flashcards = {
-        subject,
-        grade,
-        cards: [
-          {
-            front: `Key concept in ${subject}`,
-            back: "This is a placeholder flashcard. The AI will generate proper cards on retry.",
-            category: subject
+        console.log(
+          `✅ Flashcards generated with ${flashcards.cards.length} cards`
+        );
+
+        let savedFlashcardSetId = null;
+
+        // Save to chat history
+        try {
+          if (workspace) {
+            await WorkspaceChats.new({
+              workspaceId: workspace.id,
+              prompt: userMessage || `Create ${subject} flashcards`,
+              response: {
+                text: `Flashcards created successfully on ${subject} for Grade ${grade}!`,
+                sources: [],
+                type: "chat",
+                attachments: [],
+                metrics: {},
+                tool_call: "flashcard_create",
+                flashcardData: flashcards,
+              },
+              threadId: null,
+              user: { id: sessionUser.id },
+            });
+            console.log("💾 Flashcards saved to chat history");
           }
-        ]
-      };
-    }
+        } catch (chatErr) {
+          console.warn(
+            "⚠️ Failed to save flashcards to chat history:",
+            chatErr.message
+          );
+        }
 
-    console.log(`✅ Flashcards generated with ${flashcards.cards.length} cards`);
+        // Save to saved_flashcard_sets and capture the ID
+        try {
+          const savedSet = await prisma.savedFlashcardSet.create({
+            data: {
+              userId: sessionUser.id,
+              subject,
+              grade,
+              difficulty,
+              userMessage: userMessage || null,
+              cards: flashcards.cards,
+            },
+          });
+          savedFlashcardSetId = savedSet.id;
+          console.log("💾 Flashcard set saved, ID:", savedFlashcardSetId);
+        } catch (dbErr) {
+          console.warn("⚠️ Failed to save flashcard set to DB:", dbErr.message);
+        }
 
-    let savedFlashcardSetId = null;
-
-    // Save to chat history
-    try {
-      if (workspace) {
-        await WorkspaceChats.new({
-          workspaceId: workspace.id,
-          prompt: userMessage || `Create ${subject} flashcards`,
-          response: {
-            text: `Flashcards created successfully on ${subject} for Grade ${grade}!`,
-            sources: [],
-            type: "chat",
-            attachments: [],
-            metrics: {},
-            tool_call: "flashcard_create",
-            flashcardData: flashcards,
-          },
-          threadId: null,
-          user: { id: sessionUser.id },
+        return res.status(200).json({
+          success: true,
+          tool: "flashcard_create",
+          flashcards,
+          savedFlashcardSetId,
         });
-        console.log("💾 Flashcards saved to chat history");
+      } catch (error) {
+        console.error("🔥 Flashcard agent error:", error);
+        return res.status(500).json({
+          success: false,
+          error: error.message || "Flashcard agent failed",
+        });
       }
-    } catch (chatErr) {
-      console.warn("⚠️ Failed to save flashcards to chat history:", chatErr.message);
     }
+  );
 
-    // Save to saved_flashcard_sets and capture the ID
+  // 🔍 Web Search Tool
+  app.post("/agent-flows/web-search", async (req, res) => {
     try {
-      const savedSet = await prisma.savedFlashcardSet.create({
-        data: {
-          userId: sessionUser.id,
-          subject,
-          grade,
-          difficulty,
-          userMessage: userMessage || null,
-          cards: flashcards.cards,
-        },
-      });
-      savedFlashcardSetId = savedSet.id;
-      console.log("💾 Flashcard set saved, ID:", savedFlashcardSetId);
-    } catch (dbErr) {
-      console.warn("⚠️ Failed to save flashcard set to DB:", dbErr.message);
-    }
+      const { query, provider = "tavily", numResults = 5 } = req.body;
 
-    return res.status(200).json({
-      success: true,
-      tool: "flashcard_create",
-      flashcards,
-      savedFlashcardSetId,
-    });
-  } catch (error) {
-    console.error("🔥 Flashcard agent error:", error);
-    return res.status(500).json({
-      success: false,
-      error: error.message || "Flashcard agent failed",
-    });
-  }
-});
-
-// 🔍 Web Search Tool
-app.post("/agent-flows/web-search", async (req, res) => {
-  try {
-    const { query, provider = "tavily", numResults = 5 } = req.body;
-
-    if (!query) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing search query",
-      });
-    }
-
-    let results = [];
-
-    switch (provider) {
-       case "tavily":
-        results = await require("../utils/search/tavily")(query, numResults);
-        break;
-
-      // case "duckduckgo":
-      //   results = await require("../utils/search/duckduckgo")(query, numResults);
-      //   break;
-
-      case "serper":
-        results = await require("../utils/search/serper")(query, numResults);
-        break;
-
-      default:
+      if (!query) {
         return res.status(400).json({
           success: false,
-          error: "Unsupported search provider",
+          error: "Missing search query",
         });
+      }
+
+      let results = [];
+
+      switch (provider) {
+        case "tavily":
+          results = await require("../utils/search/tavily")(query, numResults);
+          break;
+
+        // case "duckduckgo":
+        //   results = await require("../utils/search/duckduckgo")(query, numResults);
+        //   break;
+
+        case "serper":
+          results = await require("../utils/search/serper")(query, numResults);
+          break;
+
+        default:
+          return res.status(400).json({
+            success: false,
+            error: "Unsupported search provider",
+          });
+      }
+
+      return res.json({
+        success: true,
+        tool: "web_search",
+        query,
+        results,
+      });
+    } catch (err) {
+      console.error("🌐 Web search failed:", err);
+      res.status(500).json({
+        success: false,
+        error: err.message,
+      });
     }
+  });
 
-    return res.json({
-      success: true,
-      tool: "web_search",
-      query,
-      results,
-    });
-  } catch (err) {
-    console.error("🌐 Web search failed:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message,
-    });
-  }
-});
+  // Get saved quizzes for a user
+  app.get(
+    "/agent-flows/quiz/history/:userId",
+    [validatedRequest],
+    async (req, res) => {
+      try {
+        const quizzes = await prisma.savedQuiz.findMany({
+          where: { userId: res.locals.user.id },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+        });
+        return res.status(200).json({ success: true, quizzes });
+      } catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    }
+  );
 
-// Get saved quizzes for a user
-app.get("/agent-flows/quiz/history/:userId", [validatedRequest], async (req, res) => {
-  try {
-    const quizzes = await prisma.savedQuiz.findMany({
-      where: { userId: res.locals.user.id },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    });
-    return res.status(200).json({ success: true, quizzes });
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
-  }
-});
+  // Get saved flashcard sets for a user
+  app.get(
+    "/agent-flows/flashcard/history/:userId",
+    [validatedRequest],
+    async (req, res) => {
+      try {
+        const flashcardSets = await prisma.savedFlashcardSet.findMany({
+          where: { userId: res.locals.user.id },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+        });
+        return res.status(200).json({ success: true, flashcardSets });
+      } catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    }
+  );
 
-// Get saved flashcard sets for a user
-app.get("/agent-flows/flashcard/history/:userId", [validatedRequest], async (req, res) => {
-  try {
-    const flashcardSets = await prisma.savedFlashcardSet.findMany({
-      where: { userId: res.locals.user.id },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    });
-    return res.status(200).json({ success: true, flashcardSets });
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
-  }
-});
+  // GET a single flashcard set by ID
+  app.get(
+    "/agent-flows/flashcard/:id",
+    [validatedRequest],
+    async (req, res) => {
+      try {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id))
+          return res.status(400).json({ success: false, error: "Invalid ID" });
+        const flashcardSet = await prisma.savedFlashcardSet.findFirst({
+          where: { id, userId: res.locals.user.id },
+        });
+        if (!flashcardSet)
+          return res.status(404).json({ success: false, error: "Not found" });
+        return res.status(200).json({ success: true, flashcardSet });
+      } catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    }
+  );
 
-// GET a single flashcard set by ID
-app.get("/agent-flows/flashcard/:id", [validatedRequest], async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: "Invalid ID" });
-    const flashcardSet = await prisma.savedFlashcardSet.findFirst({
-      where: { id, userId: res.locals.user.id },
-    });
-    if (!flashcardSet) return res.status(404).json({ success: false, error: "Not found" });
-    return res.status(200).json({ success: true, flashcardSet });
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// GET a single quiz by ID (same fix needed for quiz reopen)
-app.get("/agent-flows/quiz/:id", [validatedRequest], async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: "Invalid ID" });
-    const quiz = await prisma.savedQuiz.findFirst({
-      where: { id, userId: res.locals.user.id },
-    });
-    if (!quiz) return res.status(404).json({ success: false, error: "Not found" });
-    return res.status(200).json({ success: true, quiz });
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
-  }
-});
+  // GET a single quiz by ID (same fix needed for quiz reopen)
+  app.get("/agent-flows/quiz/:id", [validatedRequest], async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id))
+        return res.status(400).json({ success: false, error: "Invalid ID" });
+      const quiz = await prisma.savedQuiz.findFirst({
+        where: { id, userId: res.locals.user.id },
+      });
+      if (!quiz)
+        return res.status(404).json({ success: false, error: "Not found" });
+      return res.status(200).json({ success: true, quiz });
+    } catch (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
 
   app.get(
     "/agent-flows/:uuid",
@@ -822,154 +879,166 @@ app.get("/agent-flows/quiz/:id", [validatedRequest], async (req, res) => {
       }
     }
   );
-  
-// ✅ quiz_create_agent
-setTimeout(() => {
-  try {
-    const existing = AgentFlows.listFlows()?.find(f => f.name === "quiz_create_agent");
-    if (!existing) {
-      const flowConfig = {
-        description: "Generates curriculum-aligned quizzes for Chikoro AI",
-        active: true,
-        steps: [
-          {
-            type: "start",
-            config: {
-              variables: [
-                { name: "subject", value: "" },
-                { name: "userMessage", value: "" },
-                { name: "grade", value: "" },
-                { name: "numQuestions", value: 5 },
-                { name: "difficulty", value: "medium" },
-              ]
-            }
-          },
-          {
-            type: "api-call",
-            config: {
-              endpoint: "/api/agent-flows/quiz/create",
-              method: "POST",
-              body: {
-                subject: "${subject}",
-                userMessage: "${userMessage}",
-                grade: "${grade}",
-                numQuestions: "${numQuestions}",
-                difficulty: "${difficulty}",
-              },
-              resultVariable: "quizResult",
-              directOutput: true,
-            }
-          }
-        ]
-      };
-      const saved = AgentFlows.saveFlow("quiz_create_agent", flowConfig);
-      if (!saved?.success) console.error("⚠️ Failed to save quiz agent flow:", saved?.error);
-      else console.log("✅ quiz_create_agent registered successfully.");
-    } else {
-      console.log("ℹ️ quiz_create_agent already registered.");
-    }
-  } catch (err) {
-    console.error("⚠️ Failed to register quiz agent:", err.message);
-  }
-}, 2000);
 
-// ✅ flashcard_create_agent
-setTimeout(() => {
-  try {
-    const existing = AgentFlows.listFlows()?.find(f => f.name === "flashcard_create_agent");
-    if (!existing) {
-      const flowConfig = {
-        description: "Generates curriculum-aligned flashcards for Chikoro AI",
-        active: true,
-        steps: [
-          {
-            type: "start",
-            config: {
-              variables: [
-                { name: "subject", value: "" },
-                { name: "userMessage", value: "" },
-                { name: "grade", value: "" },
-                { name: "numCards", value: 10 },
-                { name: "difficulty", value: "medium" },
-              ]
-            }
-          },
-          {
-            type: "api-call",
-            config: {
-              url: `${process.env.API_BASE || "http://localhost:3001"}/api/agent-flows/flashcard/create`,
-              method: "POST",
-              bodyType: "json", 
-              body: JSON.stringify({
-                subject: "${subject}",
-                userMessage: "${userMessage}",
-                grade: "${grade}",
-                numCards: "${numCards}",
-                difficulty: "${difficulty}",
-              }),
-              resultVariable: "flashcardResult",
-              directOutput: true,
-            }
-          }
-        ]
-      };
-      const saved = AgentFlows.saveFlow("flashcard_create_agent", flowConfig);
-      if (!saved?.success) console.error("⚠️ Failed to save flashcard agent flow:", saved?.error);
-      else console.log("✅ flashcard_create_agent registered successfully.");
-    } else {
-      console.log("ℹ️ flashcard_create_agent already registered.");
-    }
-  } catch (err) {
-    console.error("⚠️ Failed to register flashcard agent:", err.message);
-  }
-}, 2000);
-
-// ✅ web_search_tool
-setTimeout(() => {
-  try {
-    const existing = AgentFlows.listFlows()?.find(f => f.name === "web_search_tool");
-    if (!existing) {
-      const flowConfig = {
-        description: "Performs live web search for current information and research",
-        active: true,
-        steps: [
-          {
-            type: "start",
-            config: {
-              variables: [
-                { name: "query", value: "" },
-                { name: "provider", value: "tavily" },
-                { name: "numResults", value: 5 },
-              ]
-            }
-          },
-          {
-            type: "api-call",
-            config: {
-              endpoint: "/api/agent-flows/web-search",
-              method: "POST",
-              body: {
-                query: "${query}",
-                provider: "${provider}",
-                numResults: "${numResults}",
+  // ✅ quiz_create_agent
+  setTimeout(() => {
+    try {
+      const existing = AgentFlows.listFlows()?.find(
+        (f) => f.name === "quiz_create_agent"
+      );
+      if (!existing) {
+        const flowConfig = {
+          description: "Generates curriculum-aligned quizzes for Chikoro AI",
+          active: true,
+          steps: [
+            {
+              type: "start",
+              config: {
+                variables: [
+                  { name: "subject", value: "" },
+                  { name: "userMessage", value: "" },
+                  { name: "grade", value: "" },
+                  { name: "numQuestions", value: 5 },
+                  { name: "difficulty", value: "medium" },
+                ],
               },
-              resultVariable: "searchResult",
-              directOutput: true,
-            }
-          }
-        ]
-      };
-      const saved = AgentFlows.saveFlow("web_search_tool", flowConfig);
-      if (!saved?.success) console.error("⚠️ Failed to save web_search_tool:", saved?.error);
-      else console.log("✅ web_search_tool registered successfully.");
-    } else {
-      console.log("ℹ️ web_search_tool already registered.");
+            },
+            {
+              type: "api-call",
+              config: {
+                endpoint: "/api/agent-flows/quiz/create",
+                method: "POST",
+                body: {
+                  subject: "${subject}",
+                  userMessage: "${userMessage}",
+                  grade: "${grade}",
+                  numQuestions: "${numQuestions}",
+                  difficulty: "${difficulty}",
+                },
+                resultVariable: "quizResult",
+                directOutput: true,
+              },
+            },
+          ],
+        };
+        const saved = AgentFlows.saveFlow("quiz_create_agent", flowConfig);
+        if (!saved?.success)
+          console.error("⚠️ Failed to save quiz agent flow:", saved?.error);
+        else console.log("✅ quiz_create_agent registered successfully.");
+      } else {
+        console.log("ℹ️ quiz_create_agent already registered.");
+      }
+    } catch (err) {
+      console.error("⚠️ Failed to register quiz agent:", err.message);
     }
-  } catch (err) {
-    console.error("⚠️ Failed to register web_search_tool:", err.message);
-  }
-}, 2000);
+  }, 2000);
+
+  // ✅ flashcard_create_agent
+  setTimeout(() => {
+    try {
+      const existing = AgentFlows.listFlows()?.find(
+        (f) => f.name === "flashcard_create_agent"
+      );
+      if (!existing) {
+        const flowConfig = {
+          description: "Generates curriculum-aligned flashcards for Chikoro AI",
+          active: true,
+          steps: [
+            {
+              type: "start",
+              config: {
+                variables: [
+                  { name: "subject", value: "" },
+                  { name: "userMessage", value: "" },
+                  { name: "grade", value: "" },
+                  { name: "numCards", value: 10 },
+                  { name: "difficulty", value: "medium" },
+                ],
+              },
+            },
+            {
+              type: "api-call",
+              config: {
+                url: `${process.env.API_BASE || "http://localhost:3001"}/api/agent-flows/flashcard/create`,
+                method: "POST",
+                bodyType: "json",
+                body: JSON.stringify({
+                  subject: "${subject}",
+                  userMessage: "${userMessage}",
+                  grade: "${grade}",
+                  numCards: "${numCards}",
+                  difficulty: "${difficulty}",
+                }),
+                resultVariable: "flashcardResult",
+                directOutput: true,
+              },
+            },
+          ],
+        };
+        const saved = AgentFlows.saveFlow("flashcard_create_agent", flowConfig);
+        if (!saved?.success)
+          console.error(
+            "⚠️ Failed to save flashcard agent flow:",
+            saved?.error
+          );
+        else console.log("✅ flashcard_create_agent registered successfully.");
+      } else {
+        console.log("ℹ️ flashcard_create_agent already registered.");
+      }
+    } catch (err) {
+      console.error("⚠️ Failed to register flashcard agent:", err.message);
+    }
+  }, 2000);
+
+  // ✅ web_search_tool
+  setTimeout(() => {
+    try {
+      const existing = AgentFlows.listFlows()?.find(
+        (f) => f.name === "web_search_tool"
+      );
+      if (!existing) {
+        const flowConfig = {
+          description:
+            "Performs live web search for current information and research",
+          active: true,
+          steps: [
+            {
+              type: "start",
+              config: {
+                variables: [
+                  { name: "query", value: "" },
+                  { name: "provider", value: "tavily" },
+                  { name: "numResults", value: 5 },
+                ],
+              },
+            },
+            {
+              type: "api-call",
+              config: {
+                endpoint: "/api/agent-flows/web-search",
+                method: "POST",
+                body: {
+                  query: "${query}",
+                  provider: "${provider}",
+                  numResults: "${numResults}",
+                },
+                resultVariable: "searchResult",
+                directOutput: true,
+              },
+            },
+          ],
+        };
+        const saved = AgentFlows.saveFlow("web_search_tool", flowConfig);
+        if (!saved?.success)
+          console.error("⚠️ Failed to save web_search_tool:", saved?.error);
+        else console.log("✅ web_search_tool registered successfully.");
+      } else {
+        console.log("ℹ️ web_search_tool already registered.");
+      }
+    } catch (err) {
+      console.error("⚠️ Failed to register web_search_tool:", err.message);
+    }
+  }, 2000);
 }
 
-
-module.exports = { agentFlowEndpoints };
+module.exports = { agentFlowEndpoints, saveAgentFlow };

@@ -2,13 +2,18 @@ const express = require("express");
 const router = express.Router();
 const prisma = require("./prisma");
 const { validatedRequest } = require("./middleware/validatedRequest");
+const { flexUserRoleValid, ROLES } = require("./middleware/multiUserProtected");
 
-router.get("/notification-settings/:childId", validatedRequest, async (req, res) => {
+const parentOnly = [validatedRequest, flexUserRoleValid([ROLES.parent])];
+
+router.get("/notification-settings/:childId", parentOnly, async (req, res) => {
   try {
     const childId = Number(req.params.childId);
     const userId = res.locals.user?.id;
     if (!Number.isInteger(childId) || !userId)
-      return res.status(400).json({ success: false, error: "Invalid child ID" });
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid child ID" });
 
     const parentRecord = await prisma.parents.findFirst({
       where: { user_id: userId },
@@ -16,7 +21,9 @@ router.get("/notification-settings/:childId", validatedRequest, async (req, res)
     });
 
     if (!parentRecord) {
-      return res.status(404).json({ success: false, error: "Parent record not found" });
+      return res
+        .status(404)
+        .json({ success: false, error: "Parent record not found" });
     }
 
     const link = await prisma.parent_students.findFirst({
@@ -24,7 +31,9 @@ router.get("/notification-settings/:childId", validatedRequest, async (req, res)
       select: { id: true },
     });
     if (!link)
-      return res.status(403).json({ success: false, error: "Child access denied" });
+      return res
+        .status(403)
+        .json({ success: false, error: "Child access denied" });
 
     const settings = await prisma.parentNotificationSettings.findFirst({
       where: { parentId: parentRecord.id, studentId: childId },
@@ -44,7 +53,7 @@ router.get("/notification-settings/:childId", validatedRequest, async (req, res)
   }
 });
 
-router.post("/notification-settings", validatedRequest, async (req, res) => {
+router.post("/notification-settings", parentOnly, async (req, res) => {
   try {
     const { childId, weeklyDigest, alertsEnabled, alertThreshold } = req.body;
     const studentId = Number(childId);
@@ -58,7 +67,10 @@ router.post("/notification-settings", validatedRequest, async (req, res) => {
       !Number.isInteger(threshold) ||
       threshold < 0 ||
       threshold > 100
-    ) return res.status(400).json({ success: false, error: "Invalid settings" });
+    )
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid settings" });
 
     const parentRecord = await prisma.parents.findFirst({
       where: { user_id: userId },
@@ -66,7 +78,9 @@ router.post("/notification-settings", validatedRequest, async (req, res) => {
     });
 
     if (!parentRecord) {
-      return res.status(404).json({ success: false, error: "Parent record not found" });
+      return res
+        .status(404)
+        .json({ success: false, error: "Parent record not found" });
     }
 
     const parentId = parentRecord.id;
@@ -75,14 +89,22 @@ router.post("/notification-settings", validatedRequest, async (req, res) => {
       select: { id: true },
     });
     if (!link)
-      return res.status(403).json({ success: false, error: "Child access denied" });
+      return res
+        .status(403)
+        .json({ success: false, error: "Child access denied" });
 
     const settings = await prisma.parentNotificationSettings.upsert({
       where: {
         parentId_studentId: { parentId, studentId },
       },
       update: { weeklyDigest, alertsEnabled, alertThreshold: threshold },
-      create: { parentId, studentId, weeklyDigest, alertsEnabled, alertThreshold: threshold },
+      create: {
+        parentId,
+        studentId,
+        weeklyDigest,
+        alertsEnabled,
+        alertThreshold: threshold,
+      },
     });
 
     res.json({ success: true, settings });
@@ -92,31 +114,30 @@ router.post("/notification-settings", validatedRequest, async (req, res) => {
   }
 });
 
-router.post("/parent-contact", validatedRequest, async (req, res) => {
+router.post("/parent-contact", parentOnly, async (req, res) => {
   try {
     const { email } = req.body;
     const userId = res.locals.user?.id;
 
-    if (!userId || typeof email !== "string" || email.length > 254 || !/^\S+@\S+\.\S+$/.test(email)) {
+    if (
+      !userId ||
+      typeof email !== "string" ||
+      email.length > 254 ||
+      !/^\S+@\S+\.\S+$/.test(email)
+    ) {
       return res.status(400).json({ success: false, error: "Invalid email" });
     }
 
-    const user = await prisma.users.findUnique({
-      where: { id: userId },
-      select: { username: true },
-    });
-
-    const result = await prisma.parents.upsert({
+    const result = await prisma.parents.updateMany({
       where: { user_id: userId },
-      update: { email: email.trim() },
-      create: {
-        user_id: userId,
-        email: email.trim(),
-        name: user?.username || "Parent",
-      },
+      data: { email: email.trim() },
     });
+    if (result.count === 0)
+      return res
+        .status(404)
+        .json({ success: false, error: "Parent record not found" });
 
-    res.json({ success: true, parent: result });
+    res.json({ success: true });
   } catch (err) {
     console.error("update-email error:", err);
     res.status(500).json({ success: false, error: "Failed to update email" });

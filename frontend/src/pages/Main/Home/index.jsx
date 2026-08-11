@@ -4,7 +4,6 @@ import ExploreFeatures from "./ExploreFeatures";
 import Updates from "./Updates";
 import Resources from "./Resources";
 import Checklist from "./Checklist";
-import CurriculumSwitcher from "./CurriculumSwitcher";
 import { isMobile } from "react-device-detect";
 
 export default function Home() {
@@ -16,7 +15,6 @@ export default function Home() {
       <div className="w-full h-full flex flex-col items-center overflow-y-auto no-scroll">
         <div className="w-full max-w-[1200px] flex flex-col gap-y-[24px] p-4 pt-16 md:p-12 md:pt-11">
           <Checklist />
-          <CurriculumSwitcher />
           <QuickLinks />
           <ExploreFeatures />
           <Updates />

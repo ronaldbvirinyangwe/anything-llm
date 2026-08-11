@@ -13,19 +13,20 @@ const {
   sourceIdentifier,
 } = require("./index");
 const { TOOL_DEFINITIONS } = require("./tools/definitions");
+const { planEducationalRequest } = require("../educationalAgents");
 
 const TOOL_DISPLAY_MESSAGES = {
-  "flashcard_create":      "🃏 Creating your flashcards...",
-  "quiz_create":           "📝 Building your quiz...",
-  "check-my-answer":       "🦉 Your tutor is marking your answer...",
-  "generate-notes":        "📚 Your tutor is writing your notes...",
-  "study-planner-elicit":  "📅 Opening your study planner...",
-  "study-planner":         "📅 Building your study plan...",
-  "explain-concept":       "🦉 Your tutor is thinking...",
-  "document-summarizer":   "📄 Reading your documents...",
-  "web-browsing":          "🔍 Searching the web...",
-  "web-scraping":          "🌐 Reading that page...",
-  "create-chart":          "📊 Drawing your chart...",
+  flashcard_create: "🃏 Creating your flashcards...",
+  quiz_create: "📝 Building your quiz...",
+  "check-my-answer": "🦉 Your tutor is marking your answer...",
+  "generate-notes": "📚 Your tutor is writing your notes...",
+  "study-planner-elicit": "📅 Opening your study planner...",
+  "study-planner": "📅 Building your study plan...",
+  "explain-concept": "🦉 Your tutor is thinking...",
+  "document-summarizer": "📄 Reading your documents...",
+  "web-browsing": "🔍 Searching the web...",
+  "web-scraping": "🌐 Reading that page...",
+  "create-chart": "📊 Drawing your chart...",
   "study-onboarding": "😊 Let's get you set up...",
 };
 
@@ -46,20 +47,32 @@ async function detectToolIntent(message) {
   if (!message || typeof message !== "string") return null;
 
   // ── Extract frontend-injected metadata ────────────────────────────────────
-  const gradeMatch   = message.match(/\[Grade:\s*([^\]]+)\]/i);
+  const gradeMatch = message.match(/\[Grade:\s*([^\]]+)\]/i);
   const subjectMatch = message.match(/\[Subject:\s*([^\]]+)\]/i);
-  const grade        = gradeMatch?.[1]?.trim()   ?? "unknown";
-  const subject      = subjectMatch?.[1]?.trim() ?? "General";
+  const curriculumMatch = message.match(/\[Curriculum:\s*([^\]]+)\]/i);
+  const grade = gradeMatch?.[1]?.trim() ?? "unknown";
+  const subject = subjectMatch?.[1]?.trim() ?? "General";
+  const curriculum = curriculumMatch?.[1]?.trim() ?? null;
   const cleanMessage = message.replace(/\[[^\]]+\]/g, "").trim();
 
   if (!cleanMessage) return null;
 
   const WORD_TO_NUM = {
-    one:1, two:2, three:3, four:4, five:5,
-    six:6, seven:7, eight:8, nine:9, ten:10,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
   };
   function extractNum(str) {
-    const m = str.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i);
+    const m = str.match(
+      /\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i
+    );
     if (!m) return null;
     return parseInt(m[1]) || WORD_TO_NUM[m[1].toLowerCase()] || null;
   }
@@ -71,86 +84,144 @@ async function detectToolIntent(message) {
     const via = API_TOOLS.includes(tool) ? "api" : "agent";
 
     if (tool === "quiz_create") {
-
-      const explicitTopic = cleanMessage.match(
-    /(?:on|about|for|covering)\s+(.+?)(?:\s*[,.]|$)/i
-  )?.[1]?.trim();
+      const explicitTopic = cleanMessage
+        .match(/(?:on|about|for|covering)\s+(.+?)(?:\s*[,.]|$)/i)?.[1]
+        ?.trim();
 
       return {
         via,
         tool_call: "quiz_create",
         parameters: {
-          topic:        explicitTopic ?? "",
+          topic: explicitTopic ?? "",
           subject,
           grade,
           numQuestions: extractNum(cleanMessage) ?? 5,
-          userMessage:  cleanMessage,
-          difficulty:   "medium",
+          userMessage: cleanMessage,
+          difficulty: "medium",
         },
       };
     }
     if (tool === "flashcard_create") {
-
-       const explicitTopic = cleanMessage.match(
-    /(?:on|about|for|covering)\s+(.+?)(?:\s*[,.]|$)/i
-  )?.[1]?.trim();
+      const explicitTopic = cleanMessage
+        .match(/(?:on|about|for|covering)\s+(.+?)(?:\s*[,.]|$)/i)?.[1]
+        ?.trim();
       return {
         via,
         tool_call: "flashcard_create",
         parameters: {
-          topic:       explicitTopic ?? "",
+          topic: explicitTopic ?? "",
           subject,
           grade,
-          numCards:    extractNum(cleanMessage) ?? 10,
+          numCards: extractNum(cleanMessage) ?? 10,
           userMessage: cleanMessage,
-          difficulty:  "medium",
+          difficulty: "medium",
         },
       };
     }
     if (tool === "generate-notes") {
-      const topicMatch = cleanMessage.match(/notes?\s+(?:on|about|for|covering)\s+(.+)/i);
+      const topicMatch = cleanMessage.match(
+        /notes?\s+(?:on|about|for|covering)\s+(.+)/i
+      );
       const topic = topicMatch?.[1]?.trim() ?? cleanMessage;
-      const depth = /\bdetailed?\b|\bin[- ]depth\b|\bcomprehensive\b/i.test(cleanMessage)
+      const depth = /\bdetailed?\b|\bin[- ]depth\b|\bcomprehensive\b/i.test(
+        cleanMessage
+      )
         ? "detailed"
         : /\bbrief\b|\bshort\b|\bquick\b/i.test(cleanMessage)
-        ? "brief"
-        : "standard";
-      return { via: "agent", tool_call: "generate-notes", parameters: { subject, topic, depth, message: cleanMessage } };
+          ? "brief"
+          : "standard";
+      return {
+        via: "agent",
+        tool_call: "generate-notes",
+        parameters: { subject, topic, depth, message: cleanMessage },
+      };
     }
     if (tool === "study-planner-elicit") {
-      return { via: "agent", tool_call: "study-planner-elicit", parameters: { message: cleanMessage } };
+      return {
+        via: "agent",
+        tool_call: "study-planner-elicit",
+        parameters: { message: cleanMessage },
+      };
     }
     if (tool === "explain-concept") {
       const conceptMatch = cleanMessage.match(
         /^(?:explain|what\s+is|what\s+are|define|describe|tell\s+me\s+about|how\s+does)\s+(.+)/i
       );
       const concept = conceptMatch?.[1]?.trim() ?? cleanMessage;
-      return { via: "agent", tool_call: "explain-concept", parameters: { concept, subject, message: cleanMessage } };
+      return {
+        via: "agent",
+        tool_call: "explain-concept",
+        parameters: { concept, subject, message: cleanMessage },
+      };
     }
     if (tool === "document-summarizer") {
       const fileMatch = cleanMessage.match(/(?:summarize|summarise)\s+(.+)/i);
-      return { via: "agent", tool_call: "document-summarizer", parameters: { filename: fileMatch?.[1]?.trim() ?? null, message: cleanMessage } };
+      return {
+        via: "agent",
+        tool_call: "document-summarizer",
+        parameters: {
+          filename: fileMatch?.[1]?.trim() ?? null,
+          message: cleanMessage,
+        },
+      };
     }
     if (tool === "web-browsing") {
-      const queryMatch = cleanMessage.match(/(?:search\s+(?:the\s+web\s+)?for|look\s+up|find)\s+(.+)/i);
+      const queryMatch = cleanMessage.match(
+        /(?:search\s+(?:the\s+web\s+)?for|look\s+up|find)\s+(.+)/i
+      );
       const query = queryMatch?.[1]?.trim() ?? cleanMessage;
-      return { via: "agent", tool_call: "web-browsing", parameters: { query, message: cleanMessage } };
+      return {
+        via: "agent",
+        tool_call: "web-browsing",
+        parameters: { query, message: cleanMessage },
+      };
     }
     if (tool === "create-chart") {
-      return { via: "agent", tool_call: "create-chart", parameters: { message: cleanMessage } };
+      return {
+        via: "agent",
+        tool_call: "create-chart",
+        parameters: { message: cleanMessage },
+      };
     }
     if (tool === "study-onboarding") {
-  return {
-    via: "agent",
-    tool_call: "study-onboarding",
-    parameters: {
-      message: cleanMessage,
-      subject,
-      grade,
-    },
-  };
-}
+      return {
+        via: "agent",
+        tool_call: "study-onboarding",
+        parameters: {
+          message: cleanMessage,
+          subject,
+          grade,
+        },
+      };
+    }
     return null;
+  }
+
+  const educationalPlan = planEducationalRequest(cleanMessage, {
+    education: { curriculum, grade, subject },
+  });
+  if (educationalPlan.actionable) {
+    if (educationalPlan.intent === "create-quiz") {
+      const intent = buildIntent("quiz_create");
+      return {
+        ...intent,
+        parameters: { ...intent.parameters, ...educationalPlan.parameters },
+      };
+    }
+    if (educationalPlan.intent === "create-flashcards") {
+      const intent = buildIntent("flashcard_create");
+      return {
+        ...intent,
+        parameters: { ...intent.parameters, ...educationalPlan.parameters },
+      };
+    }
+
+    return {
+      via: "agent",
+      tool_call: educationalPlan.skills[0],
+      parameters: educationalPlan.parameters,
+      educationalPlan,
+    };
   }
 
   // ── LAYER 1: Fast regex fallback (always runs first, zero latency) ────────
@@ -171,34 +242,60 @@ async function detectToolIntent(message) {
       /\bask\s+me\s+(?:some\s+)?question/.test(t) ||
       /(?:generate|create|make)\s+(?:a\s+)?(?:quiz|test|assessment)/.test(t) ||
       /\bquestion[s]?\s+(?:on|about|for)\b/.test(t)
-    ) return "quiz_create";
+    )
+      return "quiz_create";
 
-    if (/(?:generate|make|create|write|give\s+me)\s+(?:study\s+)?notes?\s+(?:on|about|for)|study\s+notes?\s+(?:on|about|for)/.test(t))
+    if (
+      /(?:generate|make|create|write|give\s+me)\s+(?:study\s+)?notes?\s+(?:on|about|for)|study\s+notes?\s+(?:on|about|for)/.test(
+        t
+      )
+    )
       return "generate-notes";
 
-    if (/(?:make|create|build|give\s+me|plan)\s+(?:me\s+)?(?:a\s+)?(?:study|revision|exam)\s+(?:plan|schedule|timetable)|how\s+should\s+i\s+(?:revise|study)\s+for|help\s+me\s+(?:plan|prepare)\s+for/.test(t))
+    if (
+      /(?:make|create|build|give\s+me|plan)\s+(?:me\s+)?(?:a\s+)?(?:study|revision|exam)\s+(?:plan|schedule|timetable)|how\s+should\s+i\s+(?:revise|study)\s+for|help\s+me\s+(?:plan|prepare)\s+for/.test(
+        t
+      )
+    )
       return "study-planner-elicit";
 
-    if (/^(?:explain|what\s+is|what\s+are|define|describe|tell\s+me\s+about|how\s+does)\s+/i.test(text))
+    if (
+      /^(?:explain|what\s+is|what\s+are|define|describe|tell\s+me\s+about|how\s+does)\s+/i.test(
+        text
+      )
+    )
       return "explain-concept";
 
     if (/summarize|summarise|give\s+me\s+a\s+summary\s+of/.test(t))
       return "document-summarizer";
 
-    if (/search\s+(?:the\s+)?web|look\s+up|find\s+(?:recent|latest|current)|what(?:'s|\s+is)\s+(?:the\s+latest|happening|current)/.test(t))
+    if (
+      /search\s+(?:the\s+)?web|look\s+up|find\s+(?:recent|latest|current)|what(?:'s|\s+is)\s+(?:the\s+latest|happening|current)/.test(
+        t
+      )
+    )
       return "web-browsing";
 
-    if (/(?:create|make|generate|show|draw|plot)\s+(?:a\s+)?(?:chart|graph|pie|bar\s+chart|line\s+graph|visuali[sz])/.test(t))
+    if (
+      /(?:create|make|generate|show|draw|plot)\s+(?:a\s+)?(?:chart|graph|pie|bar\s+chart|line\s+graph|visuali[sz])/.test(
+        t
+      )
+    )
       return "create-chart";
     // Vague study intent — route to onboarding screen
-if (
-  /\bhelp\s+me\s+(study|revise|prepare|learn|practice|understand|remember)\b/.test(t) ||
-  /\bi\s+(want|need)\s+to\s+(study|revise|learn|practice)\b/.test(t) ||
-  /\bwhere\s+(do\s+i|should\s+i)\s+start\b/.test(t) ||
-  /\bwhat\s+(should|can)\s+i\s+(do|study|learn)\b/.test(t) ||
-  /^\s*(study|revise|practice|learn)\s*$/.test(t) ||
-  /^(yes|yeah|ok|okay|sure|let'?s\s+go|ready|start|hi|hello|hii|helo)\s*$/.test(t)
-) return "study-onboarding";
+    if (
+      /\bhelp\s+me\s+(study|revise|prepare|learn|practice|understand|remember)\b/.test(
+        t
+      ) ||
+      /\bi\s+(want|need)\s+to\s+(study|revise|learn|practice)\b/.test(t) ||
+      /\bwhere\s+(do\s+i|should\s+i)\s+start\b/.test(t) ||
+      /\bwhat\s+(should|can)\s+i\s+(do|study|learn)\b/.test(t) ||
+      /^\s*(study|revise|practice|learn)\s*$/.test(t) ||
+      /^(yes|yeah|ok|okay|sure|let'?s\s+go|ready|start|hi|hello|hii|helo)\s*$/.test(
+        t
+      )
+    )
+      return "study-onboarding";
 
     return null;
   }
@@ -219,10 +316,13 @@ if (
       process.env.OLLAMA_BASE_PATH ||
       "http://192.168.1.128:11434/v1";
 
-    // Use a small dedicated classifier model if configured, 
+    // Use a small dedicated classifier model if configured,
     // otherwise fall back to the main model
-   const classifierModel   = process.env.CLASSIFIER_MODEL   || process.env.OLLAMA_MODEL_PREF || "gpt-oss:20b";
-const classifierBaseUrl = process.env.CLASSIFIER_BASE_URL || vllmBase;
+    const classifierModel =
+      process.env.CLASSIFIER_MODEL ||
+      process.env.OLLAMA_MODEL_PREF ||
+      "gpt-oss:20b";
+    const classifierBaseUrl = process.env.CLASSIFIER_BASE_URL || vllmBase;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
@@ -236,7 +336,8 @@ const classifierBaseUrl = process.env.CLASSIFIER_BASE_URL || vllmBase;
         messages: [
           {
             role: "system",
-            content: "You are a JSON classifier. Respond with ONLY a raw JSON object. No thinking tags. No markdown. No explanation.",
+            content:
+              "You are a JSON classifier. Respond with ONLY a raw JSON object. No thinking tags. No markdown. No explanation.",
           },
           {
             role: "user",
@@ -285,8 +386,6 @@ JSON response:`,
     console.log(`✅ [Classifier LLM] "${cleanMessage}" → "${tool}"`);
 
     return buildIntent(tool?.trim());
-    
-
   } catch (err) {
     console.warn("⚠️ [Classifier LLM] Failed:", err.message);
     return null;
@@ -347,12 +446,14 @@ async function streamChatWithWorkspace(
       workspace?.queryRefusalResponse ??
       "There is no relevant information in this workspace to answer your query.";
 
-        const toolIntent = await detectToolIntent(updatedMessage);
-        
+    const toolIntent = await detectToolIntent(updatedMessage);
+
     writeResponseChunk(response, {
       id: uuid,
       type: "textResponse",
-      textResponse: TOOL_DISPLAY_MESSAGES[toolIntent.tool_call] ?? "🦉 Your tutor is thinking...",
+      textResponse:
+        TOOL_DISPLAY_MESSAGES[toolIntent.tool_call] ??
+        "🦉 Your tutor is thinking...",
       sources: [],
       attachments,
       close: true,
@@ -362,7 +463,12 @@ async function streamChatWithWorkspace(
     await WorkspaceChats.new({
       workspaceId: workspace.id,
       prompt: message,
-      response: { text: textResponse, sources: [], type: chatMode, attachments },
+      response: {
+        text: textResponse,
+        sources: [],
+        type: chatMode,
+        attachments,
+      },
       threadId: thread?.id || null,
       include: false,
       user,
@@ -393,7 +499,9 @@ async function streamChatWithWorkspace(
       });
 
     if (visionContext.length > 0) {
-      console.log(`👁️ Adding ${visionContext.length} vision analyses to context`);
+      console.log(
+        `👁️ Adding ${visionContext.length} vision analyses to context`
+      );
       contextTexts = [...visionContext, ...contextTexts];
     }
   }
@@ -410,7 +518,9 @@ async function streamChatWithWorkspace(
         pinnedDocIdentifiers.push(sourceIdentifier(doc));
         contextTexts.push(pageContent);
         sources.push({
-          text: pageContent.slice(0, 1_000) + "...continued on in source document...",
+          text:
+            pageContent.slice(0, 1_000) +
+            "...continued on in source document...",
           ...metadata,
         });
       });
@@ -426,7 +536,8 @@ async function streamChatWithWorkspace(
     const { pageContent, ...metadata } = doc;
     contextTexts.push(pageContent);
     sources.push({
-      text: pageContent.slice(0, 1_000) + "...continued on in source document...",
+      text:
+        pageContent.slice(0, 1_000) + "...continued on in source document...",
       ...metadata,
     });
   });
@@ -486,7 +597,12 @@ async function streamChatWithWorkspace(
     await WorkspaceChats.new({
       workspaceId: workspace.id,
       prompt: message,
-      response: { text: textResponse, sources: [], type: chatMode, attachments },
+      response: {
+        text: textResponse,
+        sources: [],
+        type: chatMode,
+        attachments,
+      },
       threadId: thread?.id || null,
       include: false,
       user,
@@ -517,31 +633,41 @@ async function streamChatWithWorkspace(
   // LLM wants to invoke a tool. If it does, return the tool call early so the
   // caller (chat.js) can route to the appropriate handler without ever opening
   // the stream.
-// ─── Keyword-based tool routing ───────────────────────────────────────────
+  // ─── Keyword-based tool routing ───────────────────────────────────────────
 
-const toolIntent = await detectToolIntent(updatedMessage);
+  const toolIntent = await detectToolIntent(updatedMessage);
 
   if (toolIntent) {
-    console.log(`✅ Tool intent detected [${toolIntent.via}]: ${toolIntent.tool_call}`);
+    console.log(
+      `✅ Tool intent detected [${toolIntent.via}]: ${toolIntent.tool_call}`
+    );
 
     if (toolIntent.via === "api") {
       // Direct route — return to chat.js which POSTs to /agent-flows/
-      return { tool_call: toolIntent.tool_call, parameters: toolIntent.parameters };
+      return {
+        tool_call: toolIntent.tool_call,
+        parameters: toolIntent.parameters,
+      };
     }
 
     if (toolIntent.via === "agent") {
       // Spin up an agent invocation so the aibitat plugin handles it
-      const { WorkspaceAgentInvocation } = require("../../models/workspaceAgentInvocation");
+      const {
+        WorkspaceAgentInvocation,
+      } = require("../../models/workspaceAgentInvocation");
 
-      const { invocation: agentInvocation } = await WorkspaceAgentInvocation.new({
-        prompt: updatedMessage,
-        workspace,
-        user,
-        thread,
-      });
+      const { invocation: agentInvocation } =
+        await WorkspaceAgentInvocation.new({
+          prompt: updatedMessage,
+          workspace,
+          user,
+          thread,
+        });
 
       if (!agentInvocation) {
-        console.warn(`⚠️ Could not start agent for tool: ${toolIntent.tool_call} — falling through to normal chat`);
+        console.warn(
+          `⚠️ Could not start agent for tool: ${toolIntent.tool_call} — falling through to normal chat`
+        );
         // Fall through — don't return, let the stream run
       } else {
         writeResponseChunk(response, {
@@ -606,7 +732,8 @@ const toolIntent = await detectToolIntent(updatedMessage);
       sources,
     });
 
-    completeText = typeof result === "string" ? result : result?.fullText || result;
+    completeText =
+      typeof result === "string" ? result : result?.fullText || result;
     metrics = stream.metrics;
   }
 
@@ -647,6 +774,7 @@ const toolIntent = await detectToolIntent(updatedMessage);
 }
 
 module.exports = {
+  detectToolIntent,
   VALID_CHAT_MODE,
   streamChatWithWorkspace,
 };

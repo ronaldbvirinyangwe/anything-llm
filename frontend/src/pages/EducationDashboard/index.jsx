@@ -27,14 +27,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import EducationHierarchy from "@/models/educationHierarchy";
+import EducationHierarchy, {
+  EDUCATION_ROLE_LABELS,
+  educationViewerContext,
+} from "@/models/educationHierarchy";
 
 const TYPE_LABELS = {
   ministry: "National",
-  department: "Department",
+  department: "Ministry department",
   province: "Province",
   district: "District",
   school: "School",
+  school_department: "School department",
   class: "Class",
 };
 
@@ -52,6 +56,10 @@ const PERFORMANCE_TABLES = {
     description: "Compare schools or select one to view its classes.",
   },
   school: {
+    title: "Department and class performance",
+    description: "Select a department or class to explore its performance.",
+  },
+  school_department: {
     title: "Class performance",
     description: "Compare classes or select one for detailed performance.",
   },
@@ -94,6 +102,37 @@ function EmptyChart({ children }) {
   );
 }
 
+function dashboardDescription(scopeType, viewer) {
+  let description =
+    "Curriculum participation and learning performance across this scope.";
+
+  if (scopeType === "school_department") {
+    description =
+      viewer.role === "hod"
+        ? "Department participation, subject performance, and support signals for academic leadership."
+        : "Participation and learning performance across this school department.";
+  } else if (viewer.role === "headmaster") {
+    description =
+      "School-wide participation, performance, and learner-support signals for leadership decisions.";
+  } else if (viewer.role === "deputy_head") {
+    description =
+      "School-wide academic performance and participation for day-to-day oversight.";
+  } else if (viewer.role === "student_support") {
+    description =
+      "Learning and participation signals to help prioritize student support.";
+  }
+
+  if (viewer.canViewPii === false)
+    return `${description} Learner identities remain protected in this view.`;
+  if (viewer.capabilities.canViewClass === false)
+    return `${description} This view is limited to aggregate signals.`;
+  if (viewer.capabilities.canViewClass && scopeType === "school")
+    return `${description} Open a department or class for more detail.`;
+  if (viewer.capabilities.canViewClass && scopeType === "school_department")
+    return `${description} Open a class for more detail.`;
+  return description;
+}
+
 export default function EducationDashboard() {
   const { scopeType, scopeId } = useParams();
   const navigate = useNavigate();
@@ -114,14 +153,17 @@ export default function EducationDashboard() {
     EducationHierarchy.access()
       .then((access) => {
         if (!active) return;
-        if (!access.enabled || !access.defaultOrganization) {
-          setError(
-            "Your account has not been assigned to an education organization."
-          );
+        const defaultScope =
+          access.defaultOrganization ||
+          (access.defaultClassId
+            ? { id: access.defaultClassId, type: "class" }
+            : null);
+        if (!access.enabled || !defaultScope) {
+          setError("Your account has not been assigned to an education scope.");
           setLoading(false);
           return;
         }
-        navigate(routeFor(access.defaultOrganization), { replace: true });
+        navigate(routeFor(defaultScope), { replace: true });
       })
       .catch((err) => {
         if (active) {
@@ -204,10 +246,22 @@ export default function EducationDashboard() {
     trend = [],
     children = [],
   } = data;
-  const performanceTable = PERFORMANCE_TABLES[scope.type] || {
+  const viewer = educationViewerContext(data, scope.id);
+  const roleLabel = EDUCATION_ROLE_LABELS[viewer.role] || "Education viewer";
+  let performanceTable = PERFORMANCE_TABLES[scope.type] || {
     title: "Organization performance",
     description: "Select a row to drill into the next level.",
   };
+  if (
+    scope.type === "school" &&
+    children.length &&
+    children.every((child) => child.type === "school_department")
+  ) {
+    performanceTable = {
+      title: "Department performance",
+      description: "Compare departments or select one to view its classes.",
+    };
+  }
   return (
     <main className="min-h-screen bg-theme-bg-primary px-4 py-6 md:px-8 md:py-8">
       <div className="mx-auto max-w-7xl space-y-6">
@@ -223,16 +277,20 @@ export default function EducationDashboard() {
                   <ArrowLeft size={15} /> {parent.name}
                 </button>
               )}
-              <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-cyan-400">
-                <Buildings size={16} /> {TYPE_LABELS[scope.type] || scope.type}{" "}
-                overview
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-cyan-400">
+                  <Buildings size={16} />
+                  {TYPE_LABELS[scope.type] || scope.type}
+                </span>
+                <span className="rounded-full border border-theme-sidebar-border bg-theme-bg-primary px-2.5 py-1 text-[11px] font-bold text-theme-text-secondary">
+                  {roleLabel}
+                </span>
               </div>
               <h1 className="text-2xl font-black text-theme-text-primary md:text-4xl">
                 {scope.name}
               </h1>
               <p className="mt-2 text-sm text-theme-text-secondary">
-                Curriculum participation and learning performance across this
-                scope.
+                {dashboardDescription(scope.type, viewer)}
               </p>
             </div>
             <div className="flex items-center gap-2 rounded-xl border border-theme-sidebar-border bg-theme-bg-primary px-3 py-2 text-xs text-theme-text-secondary">

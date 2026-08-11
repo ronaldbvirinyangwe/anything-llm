@@ -6,6 +6,7 @@ import {
 } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
 import axios from "axios";
+import { API_BASE } from "@/utils/constants";
 import {
   BarChart,
   Bar,
@@ -73,7 +74,7 @@ export default function PaymentHistory() {
     try {
       const token = localStorage.getItem("chikoroai_authToken");
       const res = await axios.get(
-        "https://api.chikoro-ai.com/api/payments/history",
+        `${API_BASE}/payments/history`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (res.data.success) {

@@ -2,10 +2,13 @@ import useLoginMode from "@/hooks/useLoginMode";
 import usePfp from "@/hooks/usePfp";
 import useUser from "@/hooks/useUser";
 import System from "@/models/system";
-import EducationHierarchy from "@/models/educationHierarchy";
+import EducationHierarchy, {
+  educationDashboardTitle,
+  educationViewerContext,
+} from "@/models/educationHierarchy";
 import paths from "@/utils/paths";
 import { userFromStorage } from "@/utils/request";
-import { Buildings, Person } from "@phosphor-icons/react";
+import { BookOpen, Buildings, ChartLine, Person } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import AccountModal from "../AccountModal";
 import {
@@ -27,6 +30,7 @@ export default function UserButton() {
   const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [supportEmail, setSupportEmail] = useState("");
   const [hasEducationAccess, setHasEducationAccess] = useState(false);
+  const [educationLabel, setEducationLabel] = useState("Education Dashboard");
 
   const handleClose = (event) => {
     if (
@@ -71,7 +75,17 @@ export default function UserButton() {
   useEffect(() => {
     if (mode !== "multi" || !user) return;
     EducationHierarchy.access()
-      .then(({ enabled }) => setHasEducationAccess(Boolean(enabled)))
+      .then((access) => {
+        setHasEducationAccess(Boolean(access.enabled));
+        if (!access.enabled || !access.defaultOrganization) return;
+        const viewer = educationViewerContext(
+          access,
+          access.defaultOrganization.id
+        );
+        setEducationLabel(
+          educationDashboardTitle(access.defaultOrganization.type, viewer.role)
+        );
+      })
       .catch(() => setHasEducationAccess(false));
   }, [mode, user]);
 
@@ -109,7 +123,7 @@ export default function UserButton() {
                 }}
                 className="flex w-full items-center gap-2 whitespace-nowrap rounded-md border-none px-4 py-1.5 text-left text-theme-text-primary hover:bg-theme-action-menu-item-hover"
               >
-                <Buildings size={16} /> Education dashboard
+                <Buildings size={16} /> {educationLabel}
               </button>
             )}
             <a
@@ -119,12 +133,32 @@ export default function UserButton() {
               {t("profile_settings.support")}
             </a>
             {user?.role === "student" && (
-              <button
-                className="text-theme-text-primary hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md"
-                onClick={LinkParent}
-              >
-                Link Parent
-              </button>
+              <>
+                <button
+                  className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-4 py-1.5 text-left text-theme-text-primary hover:bg-theme-action-menu-item-hover"
+                  onClick={() => {
+                    setShowMenu(false);
+                    navigate("/courses");
+                  }}
+                >
+                  <BookOpen size={16} /> My Courses
+                </button>
+                <button
+                  className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-4 py-1.5 text-left text-theme-text-primary hover:bg-theme-action-menu-item-hover"
+                  onClick={() => {
+                    setShowMenu(false);
+                    navigate("/student/results");
+                  }}
+                >
+                  <ChartLine size={16} /> My Results
+                </button>
+                <button
+                  className="text-theme-text-primary hover:bg-theme-action-menu-item-hover w-full text-left px-4 py-1.5 rounded-md"
+                  onClick={LinkParent}
+                >
+                  Link Parent
+                </button>
+              </>
             )}
             <button
               onClick={() => {

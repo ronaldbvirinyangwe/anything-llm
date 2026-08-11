@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { MagnifyingGlass, CheckCircle } from "@phosphor-icons/react";
 import showToast from "@/utils/toast";
-import axios from "axios"; 
-import System from "@/models/system";
+import axios from "axios";
+import { API_BASE } from "@/utils/constants";
 
 const formatDate = (dateString) => {
   if (!dateString) return "N/A";
@@ -40,29 +40,24 @@ export default function PaymentManagement() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-
-  
-
- 
-
   const fetchStudents = async () => {
-  try {
-    const token = localStorage.getItem("chikoroai_authToken");
-    const res = await axios.get("https://api.chikoro-ai.com/api/system/students", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.data.success) {
-      setStudents(res.data.students || []);
-      setFilteredStudents(res.data.students || []);
+    try {
+      const token = localStorage.getItem("chikoroai_authToken");
+      const res = await axios.get(`${API_BASE}/system/students`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.data.success) {
+        setStudents(res.data.students || []);
+        setFilteredStudents(res.data.students || []);
+      }
+    } catch (error) {
+      showToast("Error loading students", "error");
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    showToast("Error loading students", "error");
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
- useEffect(() => {
+  useEffect(() => {
     fetchStudents();
   }, []);
 
@@ -82,28 +77,26 @@ export default function PaymentManagement() {
   };
 
   const handleRecordPayment = async (formData) => {
-  setSubmitting(true);
-  try {
-    const token = localStorage.getItem("chikoroai_authToken");
-    const res = await axios.post(
-      `https://api.chikoro-ai.com/api/payments/cash/${selectedStudent.id}`,
-      formData,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    
-    if (res.data.success) {
-      showToast("Cash payment recorded successfully", "success");
-      setSelectedStudent(null);
-      fetchStudents();
+    setSubmitting(true);
+    try {
+      const token = localStorage.getItem("chikoroai_authToken");
+      const res = await axios.post(
+        `${API_BASE}/payments/cash/${selectedStudent.id}`,
+        formData,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (res.data.success) {
+        showToast("Cash payment recorded successfully", "success");
+        setSelectedStudent(null);
+        fetchStudents();
+      }
+    } catch (error) {
+      showToast("Error recording payment", "error");
+    } finally {
+      setSubmitting(false);
     }
-  } catch (error) {
-    showToast("Error recording payment", "error");
-  } finally {
-    setSubmitting(false);
-  }
-};
-
-
+  };
 
   if (loading) {
     return (
@@ -147,14 +140,17 @@ export default function PaymentManagement() {
   );
 }
 
-function StudentSearchTable({ students, searchQuery, onSearch, onSelectStudent }) {
+function StudentSearchTable({
+  students,
+  searchQuery,
+  onSearch,
+  onSelectStudent,
+}) {
   return (
     <div className="bg-theme-bg-sidebar rounded-[16px] border-2 border-theme-sidebar-border p-6">
       <div className="mb-4">
         <div className="relative">
-          <MagnifyingGlass
-            className="absolute left-3 top-1/2 transform -translate-y-1/2 text-theme-text-secondary h-5 w-5"
-          />
+          <MagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-theme-text-secondary h-5 w-5" />
           <input
             type="text"
             value={searchQuery}
@@ -205,7 +201,7 @@ function StudentSearchTable({ students, searchQuery, onSearch, onSelectStudent }
                   student.subscription_status,
                   student.subscription_expiration_date
                 );
-                
+
                 return (
                   <tr
                     key={student.id}
@@ -226,10 +222,10 @@ function StudentSearchTable({ students, searchQuery, onSearch, onSelectStudent }
                           subStatus.color === "green"
                             ? "bg-green-500/20 text-green-400"
                             : subStatus.color === "orange"
-                            ? "bg-orange-500/20 text-orange-400"
-                            : subStatus.color === "red"
-                            ? "bg-red-500/20 text-red-400"
-                            : "bg-yellow-500/20 text-yellow-400"
+                              ? "bg-orange-500/20 text-orange-400"
+                              : subStatus.color === "red"
+                                ? "bg-red-500/20 text-red-400"
+                                : "bg-yellow-500/20 text-yellow-400"
                         }`}
                       >
                         {subStatus.label}
@@ -258,7 +254,6 @@ function StudentSearchTable({ students, searchQuery, onSearch, onSelectStudent }
   );
 }
 
-
 function CashPaymentForm({ student, onSubmit, onCancel, submitting }) {
   const [amount, setAmount] = useState("");
   const [plan, setPlan] = useState(student.school ? "school basic" : "premium");
@@ -280,11 +275,11 @@ function CashPaymentForm({ student, onSubmit, onCancel, submitting }) {
       showToast("Please enter a valid duration", "error");
       return;
     }
-    onSubmit({ 
-      amount: parseFloat(amount), 
-      plan, 
-      duration: parseInt(duration),  // Include duration
-      notes 
+    onSubmit({
+      amount: parseFloat(amount),
+      plan,
+      duration: parseInt(duration), // Include duration
+      notes,
     });
   };
 
@@ -304,8 +299,8 @@ function CashPaymentForm({ student, onSubmit, onCancel, submitting }) {
               subStatus.color === "green"
                 ? "bg-green-500/20 text-green-400"
                 : subStatus.color === "red"
-                ? "bg-red-500/20 text-red-400"
-                : "bg-yellow-500/20 text-yellow-400"
+                  ? "bg-red-500/20 text-red-400"
+                  : "bg-yellow-500/20 text-yellow-400"
             }`}
           >
             {subStatus.label}
@@ -427,4 +422,3 @@ function CashPaymentForm({ student, onSubmit, onCancel, submitting }) {
     </div>
   );
 }
-

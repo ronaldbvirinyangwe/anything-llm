@@ -17,6 +17,7 @@ import {
 import Sidebar from "@/components/Sidebar";
 import { useSidebarToggle } from "../../components/Sidebar/SidebarToggle/index";
 import axios from "axios";
+import { API_BASE } from "@/utils/constants";
 
 ChartJS.register(
   LineElement, BarElement, CategoryScale, LinearScale,
@@ -235,7 +236,7 @@ export default function EnhancedStudentReport() {
         const token      = localStorage.getItem("chikoroai_authToken");
         const storedUser = JSON.parse(localStorage.getItem("chikoroai_user") || "{}");
         const res = await axios.get(
-          `https://api.chikoro-ai.com/api/system/reports/student/${id}`,
+          `${API_BASE}/system/reports/student/${id}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (!res.data.success) { setError(res.data.error || "Failed to fetch report"); setLoading(false); return; }

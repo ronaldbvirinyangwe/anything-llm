@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css"; // Required for math equations to display correctly
+import { API_BASE } from "@/utils/constants";
 
 // ─── Markdown / Math Renderer Wrapper ─────────────────────────────────────────
 // This component safely renders standard Markdown + LaTeX math ($ inline, $$ block)
@@ -188,7 +189,6 @@ export default function ExamPanel({ externalTest, onClose }) {
         answers: answersArray,
       };
 
-      const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:3001/api";
       const res = await fetch(`${API_BASE}/quiz/submit`, {
         method: "POST",
         headers: {

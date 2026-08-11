@@ -11,11 +11,14 @@ const {
   USER_AGENT,
   WORKSPACE_AGENT,
   agentSkillsFromSystemSettings,
+  mcpSkillsForContext,
 } = require("./defaults");
 const { AgentHandler } = require(".");
 const {
   WorkspaceAgentInvocation,
 } = require("../../models/workspaceAgentInvocation");
+const { buildEducationalContext } = require("../educationalContext");
+const { planEducationalRequest } = require("../educationalAgents");
 
 /**
  * This is an instance and functional Agent handler, but it does not utilize
@@ -46,6 +49,8 @@ class EphemeralAgentHandler extends AgentHandler {
   provider = null;
   /** @type {string|null} the model to use for the agent */
   model = null;
+  educationalContext = null;
+  educationalPlan = null;
 
   /**
    * @param {{
@@ -330,14 +335,20 @@ class EphemeralAgentHandler extends AgentHandler {
 
     this.aibitat.agent(
       WORKSPACE_AGENT.name,
-      await WORKSPACE_AGENT.getDefinition(this.provider, this.#workspace, user)
+      await WORKSPACE_AGENT.getDefinition(
+        this.provider,
+        this.#workspace,
+        user,
+        this.educationalContext,
+        this.educationalPlan
+      )
     );
 
     this.#funcsToLoad = [
       ...(await agentSkillsFromSystemSettings()),
       ...ImportedPlugin.activeImportedPlugins(),
       ...AgentFlows.activeFlowPlugins(),
-      ...(await new MCPCompatibilityLayer().activeMCPServers()),
+      ...(await mcpSkillsForContext(this.educationalContext)),
     ];
   }
 
@@ -351,16 +362,28 @@ class EphemeralAgentHandler extends AgentHandler {
       handler,
     }
   ) {
+    this.educationalContext ??= await buildEducationalContext({
+      userId: this.#userId,
+      workspaceId: this.#workspace.id,
+    });
+    this.educationalPlan ??= planEducationalRequest(
+      this.#prompt,
+      this.educationalContext
+    );
+
     this.aibitat = new AIbitat({
       provider: this.provider ?? "openai",
       model: this.model ?? "gpt-4o",
       chats: await this.#chatHistory(20),
+      maxRounds: 8,
       handlerProps: {
         invocation: {
           workspace: this.#workspace,
           workspace_id: this.#workspace.id,
         },
-        log: this.log,
+        educationalContext: this.educationalContext,
+        educationalPlan: this.educationalPlan,
+        log: this.log.bind(this),
       },
     });
 

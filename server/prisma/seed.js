@@ -1,4 +1,5 @@
 const { PrismaClient } = require("@prisma/client");
+const bcrypt = require("bcrypt");
 const prisma = new PrismaClient();
 
 async function main() {
@@ -21,8 +22,8 @@ async function main() {
   }
 
   // Admin user
-  const adminUsername = "admin";
-  const adminPassword = "admin123"; // plain text for now
+  const adminUsername = process.env.SEED_ADMIN_USERNAME || "admin";
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || "admin123";
   const existingAdmin = await prisma.users.findUnique({
     where: { username: adminUsername },
   });
@@ -31,7 +32,7 @@ async function main() {
     await prisma.users.create({
       data: {
         username: adminUsername,
-        password: adminPassword, // your system's login route will hash it if necessary
+        password: bcrypt.hashSync(adminPassword, 10),
         role: "admin",
         bio: "System administrator account",
       },

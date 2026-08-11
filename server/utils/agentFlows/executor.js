@@ -1,4 +1,8 @@
-const { FLOW_TYPES } = require("./flowTypes");
+const {
+  FLOW_TYPES,
+  normalizeFlowConfig,
+  normalizeFlowType,
+} = require("./flowTypes");
 const executeApiCall = require("./executors/api-call");
 const executeLLMInstruction = require("./executors/llm-instruction");
 const executeWebScraping = require("./executors/web-scraping");
@@ -143,7 +147,7 @@ class FlowExecutor {
       aibitat: this.aibitat,
     };
 
-    switch (step.type) {
+    switch (normalizeFlowType(step.type)) {
       case FLOW_TYPES.START.type:
         // For start blocks, we just initialize variables if they're not already set
         if (config.variables) {
@@ -187,12 +191,12 @@ class FlowExecutor {
    */
   async executeFlow(flow, initialVariables = {}, aibitat) {
     await Telemetry.sendTelemetry("agent_flow_execution_started");
+    const { steps } = normalizeFlowConfig(flow.config);
 
     // Initialize variables with both initial values and any passed-in values
     this.variables = {
       ...(
-        flow.config.steps.find((s) => s.type === "start")?.config?.variables ||
-        []
+        steps.find((s) => s.type === "start")?.config?.variables || []
       ).reduce((acc, v) => ({ ...acc, [v.name]: v.value }), {}),
       ...initialVariables, // This will override any default values with passed-in values
     };
@@ -202,7 +206,7 @@ class FlowExecutor {
     const results = [];
     let directOutputResult = null;
 
-    for (const step of flow.config.steps) {
+    for (const step of steps) {
       try {
         const result = await this.executeStep(step);
 

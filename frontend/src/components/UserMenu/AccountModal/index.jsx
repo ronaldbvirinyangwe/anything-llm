@@ -10,10 +10,18 @@ import { useThemeContext } from "@/ThemeContext";
 import { useTranslation } from "react-i18next";
 import { useState, useEffect } from "react";
 import { Tooltip } from "react-tooltip";
+import useCurriculum from "@/hooks/useCurriculum";
 
 export default function AccountModal({ user, hideModal }) {
   const { pfp, setPfp } = usePfp();
   const { t } = useTranslation();
+  const { curriculum, setCurriculum, updating: updatingCurriculum } =
+    useCurriculum();
+
+  const handleCurriculumChange = async (event) => {
+    const { success, error } = await setCurriculum(event.target.value);
+    if (!success) showToast(error || "Unable to update curriculum.", "error");
+  };
 
   const handleFileUpload = async (event) => {
   const file = event.target.files[0];
@@ -183,6 +191,33 @@ export default function AccountModal({ user, hideModal }) {
                   defaultValue={user.bio}
                 />
               </div>
+              {user.role === "student" && (
+                <div>
+                  <label
+                    htmlFor="curriculum"
+                    className="block mb-2 text-sm font-medium text-theme-text-primary"
+                  >
+                    Curriculum
+                  </label>
+                  <select
+                    id="curriculum"
+                    value={curriculum}
+                    onChange={handleCurriculumChange}
+                    disabled={updatingCurriculum}
+                    className="border-none bg-theme-settings-input-bg text-theme-settings-input-text text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5 disabled:opacity-60"
+                  >
+                    <option value="" disabled>
+                      Select curriculum
+                    </option>
+                    <option value="ZIMSEC">ZIMSEC</option>
+                    <option value="Cambridge">Cambridge</option>
+                  </select>
+                  <p className="mt-2 text-xs text-theme-text-secondary">
+                    This controls the subjects and learning context used in
+                    chat.
+                  </p>
+                </div>
+              )}
               <div className="flex gap-x-16">
                 <div className="flex flex-col gap-y-6">
                   <ThemePreference />

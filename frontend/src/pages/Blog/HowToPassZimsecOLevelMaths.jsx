@@ -1,15 +1,6 @@
-import React, { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-
-const SEO = {
-  title: "How to Pass ZIMSEC O-Level Maths: A Step-by-Step Study Guide | Chikoro AI",
-  description:
-    "A practical, Zimbabwe-specific guide to passing ZIMSEC O-Level Maths (4004/4008). Covers syllabus, past papers, exam technique, timed revision, and common mistakes.",
-  canonical: "https://chikoro-ai.com/blog/how-to-pass-zimsec-o-level-maths",
-  publishedDate: "2026-03-17",
-  keywords:
-    "how to pass ZIMSEC O-Level Maths, ZIMSEC maths study guide, ZIMSEC 4004 4008, Zimbabwe O-Level maths revision, ZIMSEC past papers maths",
-};
+import React from "react";
+import { Link } from "react-router-dom";
+import PublicSiteShell from "@/components/PublicSiteShell";
 
 const sections = [
   {
@@ -88,120 +79,65 @@ const sections = [
 ];
 
 export default function HowToPassZimsecOLevelMaths() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    document.title = SEO.title;
-    const setMeta = (name, content, prop = false) => {
-      const sel = prop ? `meta[property="${name}"]` : `meta[name="${name}"]`;
-      let el = document.querySelector(sel);
-      if (!el) { el = document.createElement("meta"); prop ? el.setAttribute("property", name) : el.setAttribute("name", name); document.head.appendChild(el); }
-      el.setAttribute("content", content);
-    };
-    const setLink = (rel, href) => {
-      let el = document.querySelector(`link[rel="${rel}"]`);
-      if (!el) { el = document.createElement("link"); el.setAttribute("rel", rel); document.head.appendChild(el); }
-      el.setAttribute("href", href);
-    };
-    setMeta("description", SEO.description);
-    setMeta("keywords", SEO.keywords);
-    setMeta("og:title", SEO.title, true);
-    setMeta("og:description", SEO.description, true);
-    setMeta("og:url", SEO.canonical, true);
-    setMeta("og:type", "article", true);
-    setMeta("article:published_time", SEO.publishedDate, true);
-    setMeta("twitter:title", SEO.title, true);
-    setMeta("twitter:description", SEO.description, true);
-    setLink("canonical", SEO.canonical);
-
-    // Article JSON-LD
-    let ld = document.getElementById("ld-article");
-    if (!ld) { ld = document.createElement("script"); ld.id = "ld-article"; ld.type = "application/ld+json"; document.head.appendChild(ld); }
-    ld.textContent = JSON.stringify({
-      "@context": "https://schema.org",
-      "@type": "Article",
-      "headline": "How to Pass ZIMSEC O-Level Maths: A Step-by-Step Study Guide",
-      "description": SEO.description,
-      "datePublished": SEO.publishedDate,
-      "dateModified": SEO.publishedDate,
-      "url": SEO.canonical,
-      "publisher": { "@type": "Organization", "name": "Chikoro AI", "url": "https://chikoro-ai.com" },
-      "author": { "@type": "Organization", "name": "Chikoro AI" },
-      "inLanguage": "en-ZW",
-      "about": { "@type": "Thing", "name": "ZIMSEC O-Level Mathematics" }
-    });
-
-    return () => {
-      document.title = "Chikoro AI — AI Homework Help & Tutor for Zimbabwe Students";
-      document.getElementById("ld-article")?.remove();
-    };
-  }, []);
-
   return (
-    <div className="min-h-screen bg-theme-bg-primary text-theme-text-primary">
-      {/* Nav */}
-      <nav className="sticky top-0 z-50 flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#080c10]/80 backdrop-blur-xl">
-        <button
-          onClick={() => navigate("/")}
-          className="text-xl font-bold bg-gradient-to-r from-[#75D6FF] via-white to-[#75D6FF] bg-clip-text text-transparent"
-        >
-          Chikoro AI
-        </button>
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate("/blog")} className="text-sm text-theme-text-secondary hover:text-white transition-colors">Blog</button>
-          <button onClick={() => navigate("/pricing")} className="text-sm text-theme-text-secondary hover:text-white transition-colors">Pricing</button>
-          <button
-            onClick={() => navigate("/register")}
-            className="text-sm font-semibold px-4 py-2 rounded-lg bg-[#75D6FF] text-gray-900 hover:bg-white transition-colors"
-          >
-            Get started free
-          </button>
-        </div>
-      </nav>
-
+    <PublicSiteShell>
       <article className="max-w-3xl mx-auto px-6 pt-12 pb-20">
         {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-xs text-theme-text-secondary mb-8">
-          <button onClick={() => navigate("/blog")} className="hover:text-white transition-colors">Blog</button>
+        <div className="mb-8 flex items-center gap-2 text-xs text-landing-text-muted">
+          <Link
+            to="/blog"
+            className="transition-colors hover:text-landing-text"
+          >
+            Blog
+          </Link>
           <span>/</span>
-          <span className="text-white">How to Pass ZIMSEC O-Level Maths</span>
+          <span className="text-landing-text">
+            How to Pass ZIMSEC O-Level Maths
+          </span>
         </div>
 
         {/* Meta */}
         <div className="flex items-center gap-3 mb-6 flex-wrap">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-[#75D6FF]/10 text-[#75D6FF] border border-[#75D6FF]/30">
+          <span className="rounded-full border border-landing-accent-border bg-landing-accent-soft px-3 py-1 text-xs font-semibold text-landing-accent">
             Study Tips
           </span>
-          <span className="text-xs text-theme-text-secondary">17 March 2026</span>
-          <span className="text-xs text-theme-text-secondary">&bull; 8 min read</span>
+          <span className="text-xs text-landing-text-muted">17 March 2026</span>
+          <span className="text-xs text-landing-text-muted">
+            &bull; 8 min read
+          </span>
         </div>
 
         {/* Title */}
-        <h1 className="text-3xl md:text-4xl font-bold text-white leading-tight mb-6">
+        <h1 className="mb-6 text-3xl font-bold leading-tight text-landing-text md:text-4xl">
           How to Pass ZIMSEC O-Level Maths: A Step-by-Step Study Guide
         </h1>
 
         {/* Intro */}
-        <p className="text-theme-text-secondary leading-relaxed mb-4">
-          ZIMSEC O-Level Mathematics is one of the most important subjects on your certificate — and
-          one of the most feared. A C or better in Maths is required for most tertiary programmes and
-          many jobs. Yet thousands of students sit the exam every year underprepared, not because
-          they are not intelligent, but because they studied the wrong way.
+        <p className="mb-4 leading-relaxed text-landing-text-muted">
+          ZIMSEC O-Level Mathematics is one of the most important subjects on
+          your certificate — and one of the most feared. A C or better in Maths
+          is required for most tertiary programmes and many jobs. Yet thousands
+          of students sit the exam every year underprepared, not because they
+          are not intelligent, but because they studied the wrong way.
         </p>
-        <p className="text-theme-text-secondary leading-relaxed mb-4">
-          This guide covers exactly what you need to do — from now until exam day — to pass O-Level
-          Maths with confidence. It does not matter whether you are starting from scratch or polishing
-          an already-solid foundation. Follow these steps and you will give yourself the best possible
-          chance.
+        <p className="mb-4 leading-relaxed text-landing-text-muted">
+          This guide covers exactly what you need to do — from now until exam
+          day — to pass O-Level Maths with confidence. It does not matter
+          whether you are starting from scratch or polishing an already-solid
+          foundation. Follow these steps and you will give yourself the best
+          possible chance.
         </p>
 
         {/* Quick tip box */}
-        <div className="rounded-xl bg-[#75D6FF]/5 border border-[#75D6FF]/30 p-5 mb-10">
-          <p className="text-sm text-[#75D6FF] font-semibold mb-1">Before you start</p>
-          <p className="text-sm text-theme-text-secondary leading-relaxed">
-            Get a copy of the ZIMSEC O-Level Maths syllabus (4004/4008) and a pack of past papers.
-            Everything in this guide assumes you have both. If you do not have them, ask your teacher
-            or use Chikoro AI to get a full topic list instantly.
+        <div className="mb-10 rounded-xl border border-landing-accent-border bg-landing-accent-soft p-5">
+          <p className="mb-1 text-sm font-semibold text-landing-accent">
+            Before you start
+          </p>
+          <p className="text-sm leading-relaxed text-landing-text-muted">
+            Get a copy of the ZIMSEC O-Level Maths syllabus (4004/4008) and a
+            pack of past papers. Everything in this guide assumes you have both.
+            If you do not have them, ask your teacher or use Chikoro AI to get a
+            full topic list instantly.
           </p>
         </div>
 
@@ -209,10 +145,15 @@ export default function HowToPassZimsecOLevelMaths() {
         <div className="space-y-10">
           {sections.map(({ heading, body }) => (
             <div key={heading}>
-              <h2 className="text-xl font-bold text-white mb-4">{heading}</h2>
+              <h2 className="mb-4 text-xl font-bold text-landing-text">
+                {heading}
+              </h2>
               <div className="space-y-3">
                 {body.map((para, i) => (
-                  <p key={i} className="text-theme-text-secondary leading-relaxed text-sm">
+                  <p
+                    key={i}
+                    className="text-sm leading-relaxed text-landing-text-muted"
+                  >
                     {para}
                   </p>
                 ))}
@@ -222,38 +163,62 @@ export default function HowToPassZimsecOLevelMaths() {
         </div>
 
         {/* Grade breakdown box */}
-        <div className="mt-12 mb-10 rounded-xl border border-white/10 bg-theme-bg-secondary overflow-hidden">
-          <div className="px-6 py-4 border-b border-white/10">
-            <h2 className="text-base font-bold text-white">ZIMSEC O-Level Maths grade boundaries (approximate)</h2>
+        <div className="mb-10 mt-12 overflow-hidden rounded-xl border border-landing-border bg-landing-surface">
+          <div className="border-b border-landing-border px-6 py-4">
+            <h2 className="text-base font-bold text-landing-text">
+              ZIMSEC O-Level Maths grade boundaries (approximate)
+            </h2>
           </div>
-          <div className="divide-y divide-white/10">
+          <div className="divide-y divide-landing-border">
             {[
               { grade: "A", range: "75 – 100%", label: "Distinction" },
               { grade: "B", range: "60 – 74%", label: "Merit" },
-              { grade: "C", range: "50 – 59%", label: "Credit (pass for tertiary entry)" },
+              {
+                grade: "C",
+                range: "50 – 59%",
+                label: "Credit (pass for tertiary entry)",
+              },
               { grade: "D", range: "40 – 49%", label: "Pass" },
-              { grade: "E", range: "30 – 39%", label: "Pass (limited recognition)" },
+              {
+                grade: "E",
+                range: "30 – 39%",
+                label: "Pass (limited recognition)",
+              },
               { grade: "U", range: "Below 30%", label: "Ungraded" },
             ].map(({ grade, range, label }) => (
-              <div key={grade} className="flex items-center justify-between px-6 py-3">
+              <div
+                key={grade}
+                className="flex items-center justify-between px-6 py-3"
+              >
                 <div className="flex items-center gap-4">
-                  <span className={`text-lg font-extrabold w-6 text-center ${grade === "A" || grade === "B" || grade === "C" ? "text-[#75D6FF]" : "text-white/40"}`}>
+                  <span
+                    className={`w-6 text-center text-lg font-extrabold ${grade === "A" || grade === "B" || grade === "C" ? "text-landing-accent" : "text-landing-text-faint"}`}
+                  >
                     {grade}
                   </span>
-                  <span className="text-sm text-theme-text-secondary">{label}</span>
+                  <span className="text-sm text-landing-text-muted">
+                    {label}
+                  </span>
                 </div>
-                <span className="text-sm font-semibold text-white">{range}</span>
+                <span className="text-sm font-semibold text-landing-text">
+                  {range}
+                </span>
               </div>
             ))}
           </div>
-          <div className="px-6 py-3 bg-white/[0.02]">
-            <p className="text-xs text-white/40">Grade boundaries vary slightly per year. A grade C or above is the standard requirement for most tertiary programmes.</p>
+          <div className="bg-landing-surface-subtle px-6 py-3">
+            <p className="text-xs text-landing-text-faint">
+              Grade boundaries vary slightly per year. A grade C or above is the
+              standard requirement for most tertiary programmes.
+            </p>
           </div>
         </div>
 
         {/* Summary */}
         <div className="mb-10">
-          <h2 className="text-xl font-bold text-white mb-4">Summary: what to do this week</h2>
+          <h2 className="mb-4 text-xl font-bold text-landing-text">
+            Summary: what to do this week
+          </h2>
           <ul className="space-y-3">
             {[
               "Download the ZIMSEC O-Level Maths syllabus and list every topic",
@@ -262,8 +227,11 @@ export default function HowToPassZimsecOLevelMaths() {
               "Do one timed past paper section this weekend",
               "Use Chikoro AI to get instant explanations for any topic you do not understand",
             ].map((item, i) => (
-              <li key={i} className="flex items-start gap-3 text-sm text-theme-text-secondary">
-                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#75D6FF]/20 text-[#75D6FF] text-xs flex items-center justify-center font-bold mt-0.5">
+              <li
+                key={i}
+                className="flex items-start gap-3 text-sm text-landing-text-muted"
+              >
+                <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-landing-accent-soft text-xs font-bold text-landing-accent">
                   {i + 1}
                 </span>
                 {item}
@@ -273,57 +241,31 @@ export default function HowToPassZimsecOLevelMaths() {
         </div>
 
         {/* CTA */}
-        <div className="rounded-2xl bg-[#75D6FF]/5 border border-[#75D6FF]/30 p-8 text-center">
-          <h2 className="text-xl font-bold text-white mb-3">Get instant Maths help with Chikoro AI</h2>
-          <p className="text-sm text-theme-text-secondary mb-6 max-w-md mx-auto">
-            Ask any ZIMSEC O-Level Maths question and get a step-by-step explanation in English, Shona, or Ndebele.
-            Upload a past paper or worksheet and get it explained instantly — 24/7.
+        <div className="rounded-2xl border border-landing-accent-border bg-landing-accent-soft p-8 text-center">
+          <h2 className="mb-3 text-xl font-bold text-landing-text">
+            Get instant Maths help with Chikoro AI
+          </h2>
+          <p className="mx-auto mb-6 max-w-md text-sm text-landing-text-muted">
+            Ask any ZIMSEC O-Level Maths question and get a step-by-step
+            explanation in English, Shona, or Ndebele. Upload a past paper or
+            worksheet and get it explained instantly — 24/7.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <button
-              onClick={() => navigate("/register")}
-              className="px-8 py-3 rounded-xl bg-[#75D6FF] text-gray-900 font-bold hover:bg-white transition-colors text-sm"
+            <Link
+              to="/register"
+              className="rounded-xl bg-landing-accent px-8 py-3 text-sm font-bold text-landing-accent-foreground transition-colors hover:bg-landing-accent-hover"
             >
               Start for free — no card needed
-            </button>
-            <button
-              onClick={() => navigate("/pricing")}
-              className="px-8 py-3 rounded-xl border border-white/20 text-white font-semibold hover:border-[#75D6FF] transition-colors text-sm"
+            </Link>
+            <Link
+              to="/pricing"
+              className="rounded-xl border border-landing-border-strong px-8 py-3 text-sm font-semibold text-landing-text transition-colors hover:border-landing-accent"
             >
               See pricing
-            </button>
+            </Link>
           </div>
         </div>
       </article>
-
-      {/* Footer */}
-      <footer className="border-t border-white/10 bg-[#060a0d]">
-        <div className="max-w-6xl mx-auto px-6 py-12 grid grid-cols-2 md:grid-cols-4 gap-8">
-          <div className="col-span-2">
-            <p className="text-lg font-bold bg-gradient-to-r from-[#75D6FF] via-white to-[#75D6FF] bg-clip-text text-transparent mb-2">Chikoro AI</p>
-            <p className="text-xs text-white/40 leading-relaxed max-w-xs">Zimbabwe's first AI tutor — aligned to ZIMSEC & Cambridge, in English, Shona, and Ndebele.</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-4">Product</p>
-            <ul className="space-y-2">
-              {[{l:"Pricing",p:"/pricing"},{l:"About",p:"/about"},{l:"Blog",p:"/blog"}].map(({l,p})=>(
-                <li key={l}><button onClick={()=>navigate(p)} className="text-xs text-white/40 hover:text-white transition-colors">{l}</button></li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-4">Account</p>
-            <ul className="space-y-2">
-              {[{l:"Sign up free",p:"/register"},{l:"Log in",p:"/login"}].map(({l,p})=>(
-                <li key={l}><button onClick={()=>navigate(p)} className="text-xs text-white/40 hover:text-white transition-colors">{l}</button></li>
-              ))}
-            </ul>
-          </div>
-        </div>
-        <div className="border-t border-white/[0.06] px-6 py-5 max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p className="text-xs text-white/25">&copy; {new Date().getFullYear()} Chikoro AI &mdash; Zimbabwe&apos;s AI Tutor</p>
-        </div>
-      </footer>
-    </div>
+    </PublicSiteShell>
   );
 }

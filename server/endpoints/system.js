@@ -165,33 +165,50 @@ function systemEndpoints(app) {
     response.sendStatus(200).end();
   });
 
-  app.post("/system/enrol/student", [validatedRequest], async (request, response) => {
+  app.post("/system/enrol/student", [
+    validatedRequest,
+    flexUserRoleValid([ROLES.default]),
+  ], async (request, response) => {
   try {
     const { name, age, academicLevel, curriculum, grade } = reqBody(request);
     const sessionUser = await userFromSession(request, response);
     if (!sessionUser?.id) return response.status(401).json({ error: "Unauthorized" });
+    const parsedAge = Number(age);
+    if (
+      typeof name !== "string" ||
+      !name.trim() ||
+      !Number.isInteger(parsedAge) ||
+      parsedAge < 4 ||
+      parsedAge > 30 ||
+      typeof academicLevel !== "string" ||
+      !academicLevel.trim() ||
+      !["ZIMSEC", "Cambridge"].includes(curriculum) ||
+      typeof grade !== "string" ||
+      !grade.trim()
+    ) {
+      return response.status(400).json({ error: "Invalid student profile." });
+    }
 
     // Prevent duplicate profiles
     const existing = await prisma.students.findFirst({ where: { user_id: sessionUser.id } });
     if (existing) return response.status(409).json({ error: "Student profile already exists." });
 
-    // Create new student record
-    const student = await prisma.students.create({
-      data: {
-        user_id: sessionUser.id,
-        name,
-        age: parseInt(age),
-        academicLevel,
-        curriculum,
-        grade,
-      },
-    });
-
-    // Update user role
-    const updatedUser = await prisma.users.update({
-      where: { id: sessionUser.id },
-      data: { role: "student" },
-    });
+    const [student, updatedUser] = await prisma.$transaction([
+      prisma.students.create({
+        data: {
+          user_id: sessionUser.id,
+          name,
+          age: parsedAge,
+          academicLevel: academicLevel.trim(),
+          curriculum,
+          grade: grade.trim(),
+        },
+      }),
+      prisma.users.update({
+        where: { id: sessionUser.id },
+        data: { role: "student" },
+      }),
+    ]);
 
     // ✅ Auto-create "Study" workspace
     const { workspace: studyWorkspace } = await Workspace.new("Study", updatedUser.id);
@@ -209,7 +226,7 @@ function systemEndpoints(app) {
         role: updatedUser.role,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: process.env.JWT_EXPIRY || "12h" }
     );
 
     await EventLogs.logEvent("student_enrolled", { username: sessionUser.username }, sessionUser.id);
@@ -785,6 +802,7 @@ function extractRelevantMarkScheme(markSchemeText, startQ, endQ) {
 
 app.post("/teacher/extract-exam-paper",
   validatedRequest,
+  flexUserRoleValid([ROLES.teacher]),
   (req, res, next) => {
     upload.fields([
       { name: 'examPaper', maxCount: 1 },
@@ -1063,28 +1081,44 @@ NOW EXTRACT ALL QUESTIONS (start with "1." immediately):`;
 
 
 
- app.post("/system/enrol/teacher", [validatedRequest], async (request, response) => {
+ app.post("/system/enrol/teacher", [
+  validatedRequest,
+  flexUserRoleValid([ROLES.default]),
+ ], async (request, response) => {
   try {
     const { name, school } = reqBody(request);
     const sessionUser = await userFromSession(request, response);
     if (!sessionUser?.id) return response.status(401).json({ error: "Unauthorized" });
+    if (
+      typeof name !== "string" ||
+      !name.trim() ||
+      typeof school !== "string" ||
+      !school.trim()
+    ) {
+      return response.status(400).json({ error: "Invalid teacher profile." });
+    }
 
     const existing = await prisma.teachers.findFirst({ where: { user_id: sessionUser.id } });
     if (existing) return response.status(409).json({ error: "Teacher profile already exists." });
 
-    const teacher = await prisma.teachers.create({
-      data: { user_id: sessionUser.id, name, school },
-    });
-
-    const updatedUser = await prisma.users.update({
-      where: { id: sessionUser.id },
-      data: { role: "teacher" },
-    });
+    const [teacher, updatedUser] = await prisma.$transaction([
+      prisma.teachers.create({
+        data: {
+          user_id: sessionUser.id,
+          name: name.trim(),
+          school: school.trim(),
+        },
+      }),
+      prisma.users.update({
+        where: { id: sessionUser.id },
+        data: { role: "teacher" },
+      }),
+    ]);
 
     const newToken = jwt.sign(
       { id: updatedUser.id, username: updatedUser.username, role: updatedUser.role },
       process.env.JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: process.env.JWT_EXPIRY || "12h" }
     );
 
     response.status(200).json({
@@ -1099,7 +1133,10 @@ NOW EXTRACT ALL QUESTIONS (start with "1." immediately):`;
   }
 });
 
-app.post("/system/enrol/parent", [validatedRequest], async (request, response) => {
+app.post("/system/enrol/parent", [
+  validatedRequest,
+  flexUserRoleValid([ROLES.default]),
+], async (request, response) => {
   try {
     const { name, studentName } = reqBody(request);
     const sessionUser = await userFromSession(request, response);
@@ -1123,19 +1160,18 @@ app.post("/system/enrol/parent", [validatedRequest], async (request, response) =
         .status(409)
         .json({ error: "Parent profile already exists." });
 
-    // ✅ Create new parent profile
-    const parent = await prisma.parents.create({
-      data: {
-        user_id: sessionUser.id,
-        name: name.trim(),
-      },
-    });
-
-    // ✅ Update user role to "parent"
-    const updatedUser = await prisma.users.update({
-      where: { id: sessionUser.id },
-      data: { role: "parent" },
-    });
+    const [parent, updatedUser] = await prisma.$transaction([
+      prisma.parents.create({
+        data: {
+          user_id: sessionUser.id,
+          name: name.trim(),
+        },
+      }),
+      prisma.users.update({
+        where: { id: sessionUser.id },
+        data: { role: "parent" },
+      }),
+    ]);
 
     // ✅ Issue new JWT token with updated role
     const jwt = require("jsonwebtoken");
@@ -1146,7 +1182,7 @@ app.post("/system/enrol/parent", [validatedRequest], async (request, response) =
         role: updatedUser.role,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: process.env.JWT_EXPIRY || "12h" }
     );
 
     await EventLogs.logEvent(
@@ -1213,7 +1249,7 @@ app.get("/system/student/:userId", [validatedRequest], async (request, response)
   }
 });
 
-app.get("/system/teacher/my-quizzes", [validatedRequest], async (req, res) => {
+app.get("/system/teacher/my-quizzes", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const userId = res.locals.user.id;
 
@@ -1317,6 +1353,13 @@ app.get("/system/teacher/:userId", [validatedRequest], async (request, response)
         .status(400)
         .json({ success: false, error: "Invalid userId parameter." });
     }
+    const requester = res.locals.user;
+    if (
+      id !== Number(requester.id) &&
+      ![ROLES.admin, ROLES.manager].includes(requester.role)
+    ) {
+      return res.status(403).json({ success: false, error: "Forbidden" });
+    }
 
     // Find the user first (so we know their role)
     const user = await prisma.users.findUnique({
@@ -1390,7 +1433,7 @@ app.post("/system/refresh-role", [validatedRequest], async (req, res) => {
         role: updatedUser.role,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: process.env.JWT_EXPIRY || "12h" }
     );
 
     return res.json({
@@ -1448,14 +1491,60 @@ app.get("/system/my-profile", [validatedRequest], async (req, res) => {
   }
 });
 
+app.post(
+  "/system/my-profile/curriculum",
+  [validatedRequest],
+  async (req, res) => {
+    try {
+      const sessionUser = await userFromSession(req, res);
+      if (!sessionUser?.id)
+        return res.status(401).json({ success: false, error: "Unauthorized" });
+      if (sessionUser.role !== "student")
+        return res.status(403).json({
+          success: false,
+          error: "Curriculum preferences are only available to students.",
+        });
+
+      const curriculum = String(reqBody(req).curriculum || "").trim();
+      if (!["ZIMSEC", "Cambridge"].includes(curriculum))
+        return res.status(400).json({
+          success: false,
+          error: "Select either ZIMSEC or Cambridge.",
+        });
+
+      const updated = await prisma.students.updateMany({
+        where: { user_id: sessionUser.id },
+        data: { curriculum },
+      });
+      if (updated.count === 0)
+        return res
+          .status(404)
+          .json({ success: false, error: "Student profile not found." });
+
+      return res.status(200).json({ success: true, curriculum });
+    } catch (err) {
+      console.error("Error updating curriculum:", err);
+      return res.status(500).json({
+        success: false,
+        error: "Unable to update curriculum.",
+      });
+    }
+  }
+);
+
 // ==============================================
 // 📊 Teacher Dashboard Stats
 // ==============================================
-app.get("/system/teacher-dashboard/stats/:userId", [validatedRequest], async (req, res) => {
+app.get("/system/teacher-dashboard/stats/:userId", [
+  validatedRequest,
+  flexUserRoleValid([ROLES.teacher]),
+], async (req, res) => {
   try {
     const { userId } = req.params;
     const id = Number(userId);
     if (isNaN(id)) return res.status(400).json({ success: false, error: "Invalid user ID." });
+    if (id !== Number(res.locals.user.id))
+      return res.status(403).json({ success: false, error: "Forbidden" });
 
     // Fetch the user's profile
     const user = await prisma.users.findUnique({
@@ -1540,7 +1629,7 @@ app.get("/system/teacher-dashboard/stats/:userId", [validatedRequest], async (re
   }
 });
 
-app.post("/payments/initiate", [validatedRequest], async (req, res) => {
+app.post("/payments/initiate", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   try {
     const sessionUser = res.locals.user;
     if (!sessionUser?.id) {
@@ -1633,7 +1722,7 @@ app.post("/payments/initiate", [validatedRequest], async (req, res) => {
   // -----------------------------
   // GET /payments/status
   // -----------------------------
-app.get("/payments/status", [validatedRequest], async (req, res) => {
+app.get("/payments/status", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   try {
     const user = res.locals.user;
     console.log("🔍 Payment Status Check:");
@@ -1862,7 +1951,7 @@ app.get("/payments/status", [validatedRequest], async (req, res) => {
 // 🧠 QUIZ RESULTS ENDPOINTS
 // ====================================================
 
-app.get("/quiz/results", [validatedRequest], async (req, res) => {
+app.get("/quiz/results", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   try {
     const sessionUser = await userFromSession(req, res);
     if (!sessionUser?.id)
@@ -1884,7 +1973,7 @@ app.get("/quiz/results", [validatedRequest], async (req, res) => {
   }
 });
 
-app.get("/quiz/result/:id", [validatedRequest], async (req, res) => {
+app.get("/quiz/result/:id", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   const { id } = req.params;
   const user = res.locals.user;
 
@@ -1941,6 +2030,14 @@ app.post("/quiz/generate",
   },
   async (req, res) => {
     try {
+      if (
+        !req.header("X-Service-Key") &&
+        res.locals.user?.role !== ROLES.student
+      ) {
+        return res
+          .status(403)
+          .json({ success: false, error: "Student access required." });
+      }
       const { subject, grade, topic, numQuestions = 10, difficulty = "medium", questionType = "mixed", curriculum } = req.body;
 
     if (!subject || !grade) {
@@ -2115,7 +2212,7 @@ MIXED RULES:
 });
 
 
-app.post("/quiz/mark", [validatedRequest], async (req, res) => {
+app.post("/quiz/mark", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   const { quiz, answers } = req.body;
   const user = res.locals.user;
 
@@ -2404,7 +2501,7 @@ FEEDBACK: [Your detailed feedback]
 
 const { sendLowScoreAlert } = require("../utils/Parentnotifications");
 
-app.post("/quiz/submit", [validatedRequest], async (req, res) => {
+app.post("/quiz/submit", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   try {
     // 1. Auth
     const sessionUser = await userFromSession(req, res);
@@ -2668,6 +2765,14 @@ app.post(
           .status(401)
           .json({ success: false, error: "Unauthorized" });
       }
+      if (
+        !request.header("X-Service-Key") &&
+        sessionUser.role !== ROLES.teacher
+      ) {
+        return response
+          .status(403)
+          .json({ success: false, error: "Teacher access required." });
+      }
 
       const { subject, topic, grade, duration, objectives } = request.body;
 
@@ -2812,6 +2917,7 @@ function extractRelevantSyllabusContent(text, maxChars = 6000) {
 app.post(
   "/system/teacher-tools/generate-scheme-of-work",
   validatedRequest,
+  flexUserRoleValid([ROLES.teacher]),
   (req, res, next) => {
     upload.fields([
       { name: "syllabus", maxCount: 1 }
@@ -3019,7 +3125,7 @@ async function searchDuckDuckGo(query) {
 
 app.post(
   "/system/teacher-tools/resource-finder",
-  [validatedRequest],
+  [validatedRequest, flexUserRoleValid([ROLES.teacher])],
   async (request, response) => {
     try {
       const sessionUser = await userFromSession(request, response);
@@ -3467,7 +3573,7 @@ Format neatly in Markdown with proper headers (##).
 });
 
 // POST /system/practice/similar
-app.post("/system/practice/similar", [validatedRequest], async (request, response) => {
+app.post("/system/practice/similar", [validatedRequest, flexUserRoleValid([ROLES.student])], async (request, response) => {
   try {
     const sessionUser = await userFromSession(request, response);
     if (!sessionUser?.id) {
@@ -3576,7 +3682,7 @@ The JSON format must be EXACTLY this:
 });
 
 // POST /system/flashcards/save-weak-area
-app.post("/system/flashcards/save-weak-area", [validatedRequest], async (request, response) => {
+app.post("/system/flashcards/save-weak-area", [validatedRequest, flexUserRoleValid([ROLES.student])], async (request, response) => {
   try {
     const sessionUser = await userFromSession(request, response);
     if (!sessionUser?.id) {
@@ -3643,7 +3749,7 @@ app.post("/system/flashcards/save-weak-area", [validatedRequest], async (request
   }
 });
 
-app.get("/system/flashcards/weak-areas/:userId", [validatedRequest], async (request, response) => {
+app.get("/system/flashcards/weak-areas/:userId", [validatedRequest, flexUserRoleValid([ROLES.student])], async (request, response) => {
   try {
     const sessionUser = await userFromSession(request, response);
     if (!sessionUser?.id) {
@@ -3688,7 +3794,7 @@ app.get("/system/flashcards/weak-areas/:userId", [validatedRequest], async (requ
   }
 });
 
-app.patch("/system/flashcards/weak-areas/:cardId/resolve", [validatedRequest], async (request, response) => {
+app.patch("/system/flashcards/weak-areas/:cardId/resolve", [validatedRequest, flexUserRoleValid([ROLES.student])], async (request, response) => {
   try {
     const sessionUser = await userFromSession(request, response);
     if (!sessionUser?.id) {
@@ -3719,7 +3825,7 @@ app.patch("/system/flashcards/weak-areas/:cardId/resolve", [validatedRequest], a
   }
 });
 
-app.post("/flashcards/mastery/xp", [validatedRequest], async (req, res) => {
+app.post("/flashcards/mastery/xp", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   const { masteredCount, totalCards, subject } = req.body;
   const user = res.locals.user;
 
@@ -3749,7 +3855,7 @@ app.post("/flashcards/mastery/xp", [validatedRequest], async (req, res) => {
   }
 });
 
-app.post("/system/link-student/:userId", [validatedRequest], async (req, res) => {
+app.post("/system/link-student/:userId", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const { studentId, subject } = req.body;
     const id = res.locals.user.id;
@@ -3784,7 +3890,7 @@ app.post("/system/link-student/:userId", [validatedRequest], async (req, res) =>
   }
 }); 
 
-app.post("/system/teacher/generate-quiz", [validatedRequest], async (req, res) => {
+app.post("/system/teacher/generate-quiz", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const { subject, topic, grade, difficulty, numQuestions, questionType, curriculum } = req.body;
     const questionCount = Number(numQuestions);
@@ -4068,7 +4174,7 @@ function cleanThinkingModelOutput(rawText, contentType = 'general') {
   return cleaned;
 }
 
-app.post("/system/teacher/share-quiz-with-class", [validatedRequest], async (req, res) => {
+app.post("/system/teacher/share-quiz-with-class", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const sessionUser = await userFromSession(req, res);
     if (!sessionUser?.id) {
@@ -4304,7 +4410,7 @@ app.post("/system/push-token", [validatedRequest], async (req, res) => {
   }
 });
 // Create public quiz link (not class-specific)
-app.post("/system/teacher/create-quiz-link", [validatedRequest], async (req, res) => {
+app.post("/system/teacher/create-quiz-link", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const sessionUser = await userFromSession(req, res);
     if (!sessionUser?.id) {
@@ -4396,7 +4502,7 @@ app.get("/system/quiz/:code", async (req, res) => {
 
 
 
-app.post("/system/student/submit-quiz", [validatedRequest], async (req, res) => {
+app.post("/system/student/submit-quiz", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   try {
     const sessionUser = res.locals.user;
     const {
@@ -4743,9 +4849,11 @@ function cleanAIResponse(text) {
 }
 
 // Get student's own quiz results
-app.get("/system/student/my-results/:studentId", [validatedRequest], async (req, res) => {
+app.get("/system/student/my-results/:studentId", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   try {
     const userId = res.locals.user.id;
+    if (Number(req.params.studentId) !== Number(userId))
+      return res.status(403).json({ success: false, error: "Forbidden" });
 
     const results = await prisma.quiz_results.findMany({
       where: { user_id: userId },
@@ -4796,7 +4904,7 @@ app.get("/system/student/my-results/:studentId", [validatedRequest], async (req,
 });
 
 // Get detailed result for a specific quiz
-app.get("/system/student/result-detail/:resultId", [validatedRequest], async (req, res) => {
+app.get("/system/student/result-detail/:resultId", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   try {
     const { resultId } = req.params;
 
@@ -4858,7 +4966,7 @@ app.get("/system/student/result-detail/:resultId", [validatedRequest], async (re
 
 // Get detailed result for a specific quiz (for teachers)
 // Get detailed result for a specific quiz (for teachers)
-app.get("/system/teacher/result-detail/:resultId", [validatedRequest], async (req, res) => {
+app.get("/system/teacher/result-detail/:resultId", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const { resultId } = req.params;
     const userId = res.locals.user.id;
@@ -4958,7 +5066,7 @@ app.get("/system/teacher/result-detail/:resultId", [validatedRequest], async (re
 
 // Get overview of all results for a specific quiz (for teachers)
 
-app.get("/system/teacher/quiz-results/:quizId", [validatedRequest], async (req, res) => {
+app.get("/system/teacher/quiz-results/:quizId", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const { quizId } = req.params;
     const userId = res.locals.user.id;
@@ -5094,7 +5202,7 @@ app.get("/system/teacher/quiz-results/:quizId", [validatedRequest], async (req, 
     res.status(500).json({ success: false, error: "Failed to fetch quiz results" });
   }
 });
-app.get("/system/teacher/student-results/:studentId", [validatedRequest], async (req, res) => {
+app.get("/system/teacher/student-results/:studentId", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const { studentId } = req.params;
     const sessionUser = res.locals.user;
@@ -5204,7 +5312,7 @@ app.get("/system/quiz/:quizCode", async (req, res) => {
   }
 });
 
-app.post("/system/teacher/redo-question", [validatedRequest], async (req, res) => {
+app.post("/system/teacher/redo-question", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const { type, raw, subject, topic, grade, difficulty } = req.body;
 
@@ -5271,7 +5379,7 @@ ${formatInstructions}`;
   }
 });
 
-app.get("/system/teacher/my-students/:userId", [validatedRequest], async (req, res) => {
+app.get("/system/teacher/my-students/:userId", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const id = res.locals.user.id;
     const teacher = await prisma.teachers.findFirst({
@@ -5300,7 +5408,7 @@ app.get("/system/teacher/my-students/:userId", [validatedRequest], async (req, r
 });
 
 // Get child report for parent
-app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, res) => {
+app.get("/system/parent/child-report/:childId", [validatedRequest, flexUserRoleValid([ROLES.parent])], async (req, res) => {
   try {
     const childId = Number(req.params.childId);
     const userId = res.locals.user.id;
@@ -5345,6 +5453,7 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
     // Get student info
     const student = await prisma.students.findUnique({
       where: { id: childId },
+      include: { user: { select: { streak: true } } },
     });
 
     if (!student) {
@@ -5394,8 +5503,16 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
       where: { userId: student.user_id },
       select: { cards: true },
     });
-    const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
-    const mastered = 0;
+    const flashcards = flashcardSets.flatMap((set) =>
+      Array.isArray(set.cards) ? set.cards : []
+    );
+    const totalFlashcards = flashcards.length;
+    const mastered = flashcards.filter(
+      (card) =>
+        card?.mastered === true ||
+        card?.status === "mastered" ||
+        Number(card?.mastery || card?.masteryLevel || 0) >= 3
+    ).length;
 
     // ── NEW: Fetch struggled areas from WeakAreaCard ──────────────────────
     const weakAreaCards = await prisma.weakAreaCard.findMany({
@@ -5422,6 +5539,49 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
       });
       return acc;
     }, {});
+
+    const classMemberships = await prisma.class_students.findMany({
+      where: { studentId: student.id, status: "active" },
+      select: {
+        class: {
+          select: {
+            students: {
+              where: { status: "active" },
+              select: { student: { select: { user_id: true } } },
+            },
+          },
+        },
+      },
+    });
+    const classUserIds = [
+      ...new Set(
+        classMemberships.flatMap(({ class: educationClass }) =>
+          educationClass.students.map(({ student: peer }) => peer.user_id)
+        )
+      ),
+    ];
+    const classResults = classUserIds.length
+      ? await prisma.quiz_results.findMany({
+          where: { user_id: { in: classUserIds } },
+          select: { subject: true, score: true },
+        })
+      : [];
+    const classTotals = classResults.reduce((totals, result) => {
+      const subject = result.subject || "General";
+      totals[subject] ||= { score: 0, count: 0 };
+      totals[subject].score += Number(result.score) || 0;
+      totals[subject].count += 1;
+      return totals;
+    }, {});
+    const classAverages = Object.fromEntries(
+      Object.entries(classTotals).map(([subject, totals]) => [
+        subject,
+        Math.round(totals.score / totals.count),
+      ])
+    );
+    const classScoreTrend = [...quizzes]
+      .reverse()
+      .map((quiz) => classAverages[quiz.subject] ?? null);
 
     console.log("✅ Found", weakAreaCards.length, "weak area cards across", Object.keys(struggledAreas).length, "subjects");
 
@@ -5497,9 +5657,15 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
 
     const summary = generateSummary();
 
-    const parentRecord = await prisma.parents.findFirst({
-      where: { user_id: Number(userId) },
-      select: { email: true },
+    const unresolvedWeakAreas = weakAreaCards.filter((card) => !card.resolved);
+    const homeAdvice = unresolvedWeakAreas.length
+      ? `Focus the next study session on ${unresolvedWeakAreas[0].subject}. Ask your child to explain the flagged question in their own words, review the correct answer together, then try a similar practice question.`
+      : totalQuizzes > 0
+        ? "Keep a consistent weekly study routine, review incorrect quiz answers, and celebrate steady improvement rather than individual scores."
+        : "Help your child complete their first short quiz so Chikoro AI can identify strengths and recommend focused practice.";
+
+    const notifSettings = await prisma.parentNotificationSettings.findFirst({
+      where: { parentId: parent.id, studentId: student.id },
     });
 
     // Return data in the format the frontend expects
@@ -5510,21 +5676,22 @@ app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, 
         id: student.id,
         name: student.name,
         grade: student.grade,
-        streak: 0, // TODO: Calculate streak from activity
+        streak: student.user?.streak || 0,
       },
       reports: [
         {
           date: new Date().toISOString(),
           quizzes: quizzes,
           summary: summary,
-          homeAdvice: null, // TODO: generate dedicated home-advice content
+          homeAdvice,
           averageScore: averageScore,
           totalXP: totalXP,
           mastered: mastered,
           totalFlashcards: totalFlashcards,
-          classAverages: {},   // TODO: wire up real class averages
-          classScoreTrend: [], // TODO: wire up real class trend
+          classAverages,
+          classScoreTrend,
           struggledAreas: struggledAreas, // ← NEW
+          notifSettings,
         }
       ]
     });
@@ -5554,7 +5721,7 @@ app.get("/system/students", [
 });
 
 
-app.get("/system/parent/my-children/:parentId", [validatedRequest], async (req, res) => {
+app.get("/system/parent/my-children", [validatedRequest, flexUserRoleValid([ROLES.parent])], async (req, res) => {
   try {
     const parent = await prisma.parents.findFirst({
       where: { user_id: res.locals.user.id },
@@ -5596,7 +5763,7 @@ function generateLinkCode(length = 8) {
 // ----------------------------------------------------------------------
 // Generate a link code (student-initiated)
 // ----------------------------------------------------------------------
-app.post("/system/student/generate-link-code", [validatedRequest], async (req, res) => {
+app.post("/system/student/generate-link-code", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   try {
     const { studentId } = req.body;
     const userId = res.locals.user.id;
@@ -5681,7 +5848,7 @@ app.post("/system/student/generate-link-code", [validatedRequest], async (req, r
 // ----------------------------------------------------------------------
 // Link a child to a parent account (parent-initiated, using the code)
 // ----------------------------------------------------------------------
-app.post("/system/parent/link-child", [validatedRequest], async (req, res) => {
+app.post("/system/parent/link-child", [validatedRequest, flexUserRoleValid([ROLES.parent])], async (req, res) => {
   try {
     const { linkCode } = req.body;
     const userId = res.locals.user.id;
@@ -5783,7 +5950,7 @@ app.post("/system/parent/link-child", [validatedRequest], async (req, res) => {
 });
 
 
-app.post("/system/teacher/create-class-link", [validatedRequest], async (req, res) => {
+app.post("/system/teacher/create-class-link", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
   try {
     const { subject } = req.body;
     const sessionUser = await userFromSession(req, res);
@@ -5815,7 +5982,7 @@ app.post("/system/teacher/create-class-link", [validatedRequest], async (req, re
   }
 });
 
-app.post("/system/student/join-class/:classCode", [validatedRequest], async (req, res) => {
+app.post("/system/student/join-class/:classCode", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   try {
     const { classCode } = req.params;
     const sessionUser = await userFromSession(req, res);
@@ -5869,7 +6036,7 @@ app.post("/system/student/join-class/:classCode", [validatedRequest], async (req
   }
 });
 
-app.get("/system/student/active-link-code/:studentId", [validatedRequest], async (req, res) => {
+app.get("/system/student/active-link-code/:studentId", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
   try {
     const student = await prisma.students.findFirst({
       where: { user_id: res.locals.user.id },

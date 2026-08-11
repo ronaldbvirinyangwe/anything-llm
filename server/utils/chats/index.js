@@ -96,7 +96,7 @@ This student is at primary school level${gradeNum === 7 ? ", preparing for the Z
 - Focus on core concepts — avoid unnecessary technical jargon.
 - Reinforce basic numeracy and literacy skills where relevant.
 - Questions and explanations should be concrete, not abstract.
-${gradeNum === 7 ? "- The Grade 7 national exam tests: English, Mathematics, General Paper, and Integrated Science. Prioritise exam technique: reading carefully, showing working in Maths, and writing full sentences in English." : ""}`;
+${gradeNum === 7 ? "- The Grade 7 national exam tests: English, Mathematics, Indigenous Language(Shona, Ndebele, Tonga, Nambya, Tshivenda, or Xichangana),Agriculture, Science and Technology / ICT, Social Sciences (Social Studies / Heritage Studies)Physical Education and Arts. Prioritise exam technique: reading carefully, showing working in Maths, and writing full sentences in English." : ""}`;
   }
 
   if (level.includes("a-level") || level.includes("alevel") || gradeNum >= 12) {
@@ -111,7 +111,8 @@ This student is at A-Level, preparing for advanced ${curriculum} examinations.
   }
 
   // Default: O-Level / Junior Secondary (Forms 1–4, Grades 8–11)
-  const isExamYear = gradeNum === 10 || gradeNum === 11 || level.includes("o-level");
+  const isExamYear =
+    gradeNum === 10 || gradeNum === 11 || level.includes("o-level");
   return `### Exam Level Context: O-Level / Secondary (${curriculum})
 This student is at secondary school level${isExamYear ? ", in an O-Level examination year" : ""}.
 - Use clear explanations with appropriate secondary-level vocabulary.
@@ -135,7 +136,13 @@ async function chatPrompt(workspace, user = null) {
     try {
       studentProfile = await prisma.students.findFirst({
         where: { user_id: Number(user.id) },
-        select: { name: true, grade: true, age: true, curriculum: true, academicLevel: true },
+        select: {
+          name: true,
+          grade: true,
+          age: true,
+          curriculum: true,
+          academicLevel: true,
+        },
       });
     } catch (_) {}
   }
@@ -147,11 +154,15 @@ async function chatPrompt(workspace, user = null) {
   const academicLevel = studentProfile?.academicLevel || "Secondary";
 
   // Build exam-level specific guidance based on the student's actual level
-  const examLevelGuidance = getExamLevelGuidance(academicLevel, grade, curriculum);
+  const examLevelGuidance = getExamLevelGuidance(
+    academicLevel,
+    grade,
+    curriculum
+  );
 
   const basePrompt =
     workspace?.openAiPrompt ??
-`You are **Chikoro AI**, an intelligent, culturally-aware personalised tutor designed for Zimbabwean learners.
+    `You are **Chikoro AI**, an intelligent, culturally-aware personalised tutor designed for Zimbabwean learners.
 
 ### Student Profile
 - Name: ${name}

@@ -7,6 +7,7 @@ import { ChikoroMascot, MascotSpeechBubble, MASCOT_EXPRESSIONS, getQuizExpressio
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./test.css";
+import { API_BASE } from "@/utils/constants";
 
 // ✅ Zustand store
 const useTestStore = create((set) => ({
@@ -87,7 +88,7 @@ export default function Test({ readOnly = false, externalTest = null }) {
   const generateQuiz = async (params) => {
     useTestStore.setState({ isLoading: true, error: "" });
     try {
-      const res = await fetch("https://api.chikoro-ai.com/api/quiz/generate", {
+      const res = await fetch(`${API_BASE}/quiz/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -175,7 +176,7 @@ export default function Test({ readOnly = false, externalTest = null }) {
 
     useTestStore.setState({ isLoading: true });
     try {
-      const res = await fetch("https://api.chikoro-ai.com/api/quiz/mark", {
+      const res = await fetch(`${API_BASE}/quiz/mark`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

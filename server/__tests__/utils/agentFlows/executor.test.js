@@ -1,4 +1,20 @@
+jest.mock("../../../utils/agentFlows/executors/api-call", () =>
+  jest.fn(async () => "api result")
+);
+jest.mock("../../../utils/agentFlows/executors/llm-instruction", () =>
+  jest.fn(async () => "llm result")
+);
+jest.mock("../../../utils/agentFlows/executors/web-scraping", () =>
+  jest.fn(async () => "scraping result")
+);
+jest.mock("../../../models/telemetry", () => ({
+  Telemetry: { sendTelemetry: jest.fn(async () => {}) },
+}));
+
 const { FlowExecutor } = require("../../../utils/agentFlows/executor");
+const executeApiCall = require("../../../utils/agentFlows/executors/api-call");
+const executeLLMInstruction = require("../../../utils/agentFlows/executors/llm-instruction");
+const executeWebScraping = require("../../../utils/agentFlows/executors/web-scraping");
 
 describe("FlowExecutor: getValueFromPath", () => {
   const executor = new FlowExecutor();
@@ -16,7 +32,7 @@ describe("FlowExecutor: getValueFromPath", () => {
     expect(executor.getValueFromPath(obj, -1)).toBe("");
     expect(executor.getValueFromPath(obj, undefined)).toBe("");
     expect(executor.getValueFromPath(obj, [1, 2, 3])).toBe("");
-    expect(executor.getValueFromPath(obj, () => { })).toBe("");
+    expect(executor.getValueFromPath(obj, () => {})).toBe("");
   });
 
   it("should be able to resolve a value from a dot path at various levels", () => {
@@ -31,9 +47,9 @@ describe("FlowExecutor: getValueFromPath", () => {
             { id: 1, name: "answer2" },
             { id: 2, name: "answer3" },
             { id: 3, name: "answer4" },
-          ]
-        }
-      }
+          ],
+        },
+      },
     };
     expect(executor.getValueFromPath(obj, "a.prop")).toBe("top-prop");
     expect(executor.getValueFromPath(obj, "a.b.c")).toBe("answer");
@@ -42,9 +58,13 @@ describe("FlowExecutor: getValueFromPath", () => {
     expect(executor.getValueFromPath(obj, "a.b.arr[1]")).toBe(2);
     expect(executor.getValueFromPath(obj, "a.b.arr[2]")).toBe(3);
     expect(executor.getValueFromPath(obj, "a.b.subarr[0].id")).toBe(1);
-    expect(executor.getValueFromPath(obj, "a.b.subarr[0].name")).toBe("answer2");
+    expect(executor.getValueFromPath(obj, "a.b.subarr[0].name")).toBe(
+      "answer2"
+    );
     expect(executor.getValueFromPath(obj, "a.b.subarr[1].id")).toBe(2);
-    expect(executor.getValueFromPath(obj, "a.b.subarr[2].name")).toBe("answer4");
+    expect(executor.getValueFromPath(obj, "a.b.subarr[2].name")).toBe(
+      "answer4"
+    );
     expect(executor.getValueFromPath(obj, "a.b.subarr[2].id")).toBe(3);
   });
 
@@ -60,14 +80,20 @@ describe("FlowExecutor: getValueFromPath", () => {
 
   it("can return a stringified item if the path target is not an object or array", () => {
     const obj = { a: { b: { c: "answer", numbers: [1, 2, 3] } } };
-    expect(executor.getValueFromPath(obj, "a.b")).toEqual(JSON.stringify(obj.a.b));
-    expect(executor.getValueFromPath(obj, "a.b.numbers")).toEqual(JSON.stringify(obj.a.b.numbers));
+    expect(executor.getValueFromPath(obj, "a.b")).toEqual(
+      JSON.stringify(obj.a.b)
+    );
+    expect(executor.getValueFromPath(obj, "a.b.numbers")).toEqual(
+      JSON.stringify(obj.a.b.numbers)
+    );
     expect(executor.getValueFromPath(obj, "a.b.c")).toBe("answer");
   });
 
   it("can return a stringified object if the path target is an array", () => {
     const obj = { a: { b: [1, 2, 3] } };
-    expect(executor.getValueFromPath(obj, "a.b")).toEqual(JSON.stringify(obj.a.b));
+    expect(executor.getValueFromPath(obj, "a.b")).toEqual(
+      JSON.stringify(obj.a.b)
+    );
     expect(executor.getValueFromPath(obj, "a.b[0]")).toBe(1);
     expect(executor.getValueFromPath(obj, "a.b[1]")).toBe(2);
     expect(executor.getValueFromPath(obj, "a.b[2]")).toBe(3);
@@ -78,16 +104,62 @@ describe("FlowExecutor: getValueFromPath", () => {
       a: {
         items: [
           {
-            'my-long-key': [
+            "my-long-key": [
               { id: 1, name: "answer1" },
               { id: 2, name: "answer2" },
               { id: 3, name: "answer3" },
-            ]
+            ],
           },
         ],
-      }
+      },
     };
-    expect(executor.getValueFromPath(obj, "a.items[0]['my-long-key'][1].id")).toBe(2);
-    expect(executor.getValueFromPath(obj, "a.items[0]['my-long-key'][1].name")).toBe("answer2");
+    expect(
+      executor.getValueFromPath(obj, "a.items[0]['my-long-key'][1].id")
+    ).toBe(2);
+    expect(
+      executor.getValueFromPath(obj, "a.items[0]['my-long-key'][1].name")
+    ).toBe("answer2");
+  });
+});
+
+describe("FlowExecutor: legacy flow normalization", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it.each([
+    ["api-call", executeApiCall, "api result"],
+    ["llm-instruction", executeLLMInstruction, "llm result"],
+    ["web-scraping", executeWebScraping, "scraping result"],
+  ])("executes the legacy %s type", async (type, executor, expected) => {
+    const flowExecutor = new FlowExecutor();
+    const result = await flowExecutor.executeStep({ type, config: {} });
+
+    expect(result).toBe(expected);
+    expect(executor).toHaveBeenCalledTimes(1);
+  });
+
+  it("executes blocks when a legacy config has no steps", async () => {
+    const executor = new FlowExecutor();
+    const result = await executor.executeFlow(
+      {
+        config: {
+          blocks: [
+            {
+              type: "start",
+              config: { variables: [{ name: "topic", value: "default" }] },
+            },
+            { type: "api-call", config: { resultVariable: "response" } },
+          ],
+        },
+      },
+      { topic: "provided" }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.variables).toEqual({
+      topic: "provided",
+      response: "api result",
+    });
   });
 });

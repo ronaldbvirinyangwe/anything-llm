@@ -110,42 +110,42 @@ model system_settings {
 }
 
 model users {
-  id                          Int                           @id @default(autoincrement())
-  username                    String?                       @unique
-  password                    String
-  pfpFilename                 String?
-  role                        String                        @default("default")
-  suspended                   Int                           @default(0)
-  seen_recovery_codes         Boolean?                      @default(false)
-  createdAt                   DateTime                      @default(now())
-  lastUpdatedAt               DateTime                      @default(now())
-  dailyMessageLimit           Int?
-  bio                         String?                       @default("")
-  streak                      Int                           @default(0)
-  lastActiveDate              DateTime?                     @db.Date
-  PushToken                   PushToken[]
-  browser_extension_api_keys  browser_extension_api_keys[]
-  desktop_mobile_devices      desktop_mobile_devices[]
-  embed_chats                 embed_chats[]
-  embed_configs               embed_configs[]
-  notifications               notifications[]
-  parents                     parents[]
-  password_reset_tokens       password_reset_tokens[]
-  payment_logs                payment_logs[]
-  prompt_history              prompt_history[]
-  quiz_results                quiz_results[]
-  recovery_codes              recovery_codes[]
-  slash_command_presets       slash_command_presets[]
-  students                    students[]
-  system_prompt_variables     system_prompt_variables[]
-  teachers                    teachers[]
-  temporary_auth_tokens       temporary_auth_tokens[]
-  workspace_agent_invocations workspace_agent_invocations[]
-  workspace_chats             workspace_chats[]
-  workspace_parsed_files      workspace_parsed_files[]
-  threads                     workspace_threads[]
-  workspace_users             workspace_users[]
-  organization_memberships    organization_memberships[]
+  id                           Int                               @id @default(autoincrement())
+  username                     String?                           @unique
+  password                     String
+  pfpFilename                  String?
+  role                         String                            @default("default")
+  suspended                    Int                               @default(0)
+  seen_recovery_codes          Boolean?                          @default(false)
+  createdAt                    DateTime                          @default(now())
+  lastUpdatedAt                DateTime                          @default(now())
+  dailyMessageLimit            Int?
+  bio                          String?                           @default("")
+  streak                       Int                               @default(0)
+  lastActiveDate               DateTime?                         @db.Date
+  PushToken                    PushToken[]
+  browser_extension_api_keys   browser_extension_api_keys[]
+  desktop_mobile_devices       desktop_mobile_devices[]
+  embed_chats                  embed_chats[]
+  embed_configs                embed_configs[]
+  notifications                notifications[]
+  parents                      parents[]
+  password_reset_tokens        password_reset_tokens[]
+  payment_logs                 payment_logs[]
+  prompt_history               prompt_history[]
+  quiz_results                 quiz_results[]
+  recovery_codes               recovery_codes[]
+  slash_command_presets        slash_command_presets[]
+  students                     students[]
+  system_prompt_variables      system_prompt_variables[]
+  teachers                     teachers[]
+  temporary_auth_tokens        temporary_auth_tokens[]
+  workspace_agent_invocations  workspace_agent_invocations[]
+  workspace_chats              workspace_chats[]
+  workspace_parsed_files       workspace_parsed_files[]
+  threads                      workspace_threads[]
+  workspace_users              workspace_users[]
+  organization_memberships     organization_memberships[]
   submittedSchoolVerifications school_verification_submissions[] @relation("SchoolVerificationSubmitter")
   reviewedSchoolVerifications  school_verification_submissions[] @relation("SchoolVerificationReviewer")
 }
@@ -226,7 +226,7 @@ model workspaces {
   workspace_suggested_messages workspace_suggested_messages[]
   threads                      workspace_threads[]
   workspace_users              workspace_users[]
-  courses                       courses[]      
+  courses                      courses[]
 }
 
 model workspace_threads {
@@ -468,32 +468,31 @@ model workspace_parsed_files {
 }
 
 model students {
-  id                            Int                        @id @default(autoincrement())
-  name                          String
-  age                           Int
-  academicLevel                 String
-  curriculum                    String
-  grade                         String
-  user_id                       Int
-  createdAt                     DateTime                   @default(now())
-  subscription_expiration_date  DateTime?
-  subscription_payment_poll_url String?
-  subscription_plan             String?
-  subscription_status           SubscriptionStatus         @default(none)
-  subscription_updated_at       DateTime                   @updatedAt
-  parent_students               parent_students[]
-  payment_logs                  payment_logs[]
-  linkCodes                     student_link_codes[]
-  student_quiz_assignments      student_quiz_assignments[]
-  user                          users                      @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  teacher_students              teacher_students[]
-  notificationSettings          ParentNotificationSettings[] 
-    student_courses                 student_courses[]                   // ← add this
-  student_lesson_progress         student_lesson_progress[]           // ← add this
-  student_assignment_submissions  student_assignment_submissions[]  
-  class_students                  class_students[]
+  id                             Int                              @id @default(autoincrement())
+  name                           String
+  age                            Int
+  academicLevel                  String
+  curriculum                     String
+  grade                          String
+  user_id                        Int                              @unique
+  createdAt                      DateTime                         @default(now())
+  subscription_expiration_date   DateTime?
+  subscription_payment_poll_url  String?
+  subscription_plan              String?
+  subscription_status            SubscriptionStatus               @default(none)
+  subscription_updated_at        DateTime                         @updatedAt
+  parent_students                parent_students[]
+  payment_logs                   payment_logs[]
+  linkCodes                      student_link_codes[]
+  student_quiz_assignments       student_quiz_assignments[]
+  user                           users                            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  teacher_students               teacher_students[]
+  notificationSettings           ParentNotificationSettings[]
+  student_courses                student_courses[] // ← add this
+  student_lesson_progress        student_lesson_progress[] // ← add this
+  student_assignment_submissions student_assignment_submissions[]
+  class_students                 class_students[]
 
-  @@index([user_id])
   @@map("students")
 }
 
@@ -501,7 +500,7 @@ model teachers {
   id               Int                @id @default(autoincrement())
   name             String
   school           String
-  user_id          Int
+  user_id          Int                @unique
   createdAt        DateTime           @default(now())
   class_links      class_links[]
   shared_quizzes   shared_quizzes[]
@@ -509,18 +508,17 @@ model teachers {
   class_teachers   class_teachers[]
   user             users              @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  @@index([user_id])
 }
 
 model parents {
-  id              Int               @id @default(autoincrement())
-  name            String
-  user_id         Int               @unique
-  email           String?
-  createdAt       DateTime          @default(now())
-  studentName     String?
-  parent_students parent_students[]
-  user            users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id                   Int                          @id @default(autoincrement())
+  name                 String
+  user_id              Int                          @unique
+  email                String?
+  createdAt            DateTime                     @default(now())
+  studentName          String?
+  parent_students      parent_students[]
+  user                 users                        @relation(fields: [user_id], references: [id], onDelete: Cascade)
   notificationSettings ParentNotificationSettings[]
 }
 
@@ -634,19 +632,20 @@ model SavedFlashcardSet {
 
   @@map("saved_flashcard_sets")
 }
+
 model WeakAreaCard {
-  id           Int      @id @default(autoincrement())
-  userId       Int
-  subject      String
-  question     String
-  wrongAnswer  String?
-  correctAnswer String
-  explanation  String?
-  timesWrong   Int      @default(1)
-  resolved     Boolean  @default(false)
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  subject        String
+  question       String
+  wrongAnswer    String?
+  correctAnswer  String
+  explanation    String?
+  timesWrong     Int      @default(1)
+  resolved       Boolean  @default(false)
   firstFlaggedAt DateTime @default(now())
-  lastWrongAt   DateTime @default(now())
-  
+  lastWrongAt    DateTime @default(now())
+
   @@map("weak_area_cards")
 }
 
@@ -685,6 +684,7 @@ enum SubscriptionStatus {
   paid
   none
 }
+
 model ParentNotificationSettings {
   id             Int      @id @default(autoincrement())
   parentId       Int
@@ -701,19 +701,20 @@ model ParentNotificationSettings {
   @@unique([parentId, studentId])
   @@map("parent_notification_settings")
 }
-model courses {
-  id             Int      @id @default(autoincrement())
-  subject        String
-  curriculum     String
-  academicLevel  String
-  grade          String
-  status         String   @default("generating")
-  rating         Float?
-  workspaceId    Int?                              // ← new
-  createdAt      DateTime @default(now())
-  lastUpdatedAt  DateTime @updatedAt
 
-  workspace          workspaces?        @relation(fields: [workspaceId], references: [id])
+model courses {
+  id            Int      @id @default(autoincrement())
+  subject       String
+  curriculum    String
+  academicLevel String
+  grade         String
+  status        String   @default("generating")
+  rating        Float?
+  workspaceId   Int? // ← new
+  createdAt     DateTime @default(now())
+  lastUpdatedAt DateTime @updatedAt
+
+  workspace          workspaces?       @relation(fields: [workspaceId], references: [id])
   modules            course_modules[]
   student_enrolments student_courses[]
 
@@ -722,17 +723,16 @@ model courses {
 }
 
 model course_modules {
-  id        Int     @id @default(autoincrement())
-  courseId  Int
-  position  Int
-  title     String
+  id                  Int    @id @default(autoincrement())
+  courseId            Int
+  position            Int
+  title               String
   lockedUntilModuleId Int?
-   status String @default("not_started")
+  status              String @default("not_started")
 
-  course      courses           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course      courses              @relation(fields: [courseId], references: [id], onDelete: Cascade)
   lessons     course_lessons[]
   assignments course_assignments[]
-  
 
   @@index([courseId])
 }
@@ -745,7 +745,7 @@ model course_lessons {
   contentMd   String?
   durationMin Int?
 
-  module   course_modules                  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  module   course_modules            @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   progress student_lesson_progress[]
 
   @@index([moduleId])
@@ -759,17 +759,17 @@ model course_assignments {
   stepsJson   Json?
   etaHours    String?
 
-  module      course_modules                       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  module      course_modules                   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   submissions student_assignment_submissions[]
 
   @@index([moduleId])
 }
 
 model student_courses {
-  id          Int      @id @default(autoincrement())
-  studentId   Int
-  courseId    Int
-  enrolledAt  DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  studentId  Int
+  courseId   Int
+  enrolledAt DateTime @default(now())
 
   student students @relation(fields: [studentId], references: [id], onDelete: Cascade)
   course  courses  @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -785,25 +785,25 @@ model student_lesson_progress {
   done      Boolean   @default(false)
   doneAt    DateTime?
 
-  student students        @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  lesson  course_lessons  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  student students       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lesson  course_lessons @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   @@unique([studentId, lessonId])
   @@index([studentId])
 }
 
 model student_assignment_submissions {
-  id              Int       @id @default(autoincrement())
-  studentId       Int
-  assignmentId    Int
-  submissionLink  String?
-  status          String    @default("not_started") // not_started | submitted | needs_revision | complete
-  feedback        String?
-  submittedAt     DateTime?
-  createdAt       DateTime  @default(now())
+  id             Int       @id @default(autoincrement())
+  studentId      Int
+  assignmentId   Int
+  submissionLink String?
+  status         String    @default("not_started") // not_started | submitted | needs_revision | complete
+  feedback       String?
+  submittedAt    DateTime?
+  createdAt      DateTime  @default(now())
 
-  student    students            @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  assignment course_assignments  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    students           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  assignment course_assignments @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
 
   @@index([studentId])
   @@index([assignmentId])
@@ -822,7 +822,8 @@ model organizations {
   parent                  organizations?                    @relation("OrganizationTree", fields: [parentId], references: [id], onDelete: Restrict)
   children                organizations[]                   @relation("OrganizationTree")
   memberships             organization_memberships[]
-  classes                 education_classes[]
+  classes                 education_classes[]               @relation("SchoolClasses")
+  departmentClasses       education_classes[]               @relation("ClassDepartment")
   verificationSubmissions school_verification_submissions[]
 
   @@index([parentId])
@@ -864,20 +865,23 @@ model education_classes {
   id               Int              @id @default(autoincrement())
   code             String           @unique
   schoolId         Int
+  departmentId     Int?
   academicPeriodId Int
   name             String
   grade            String?
   curriculum       String?
   subject          String?
   active           Boolean          @default(true)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  school           organizations    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  school           organizations    @relation("SchoolClasses", fields: [schoolId], references: [id], onDelete: Restrict)
+  department       organizations?   @relation("ClassDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
   academicPeriod   academic_periods @relation(fields: [academicPeriodId], references: [id], onDelete: Restrict)
   students         class_students[]
   teachers         class_teachers[]
 
   @@index([schoolId])
+  @@index([departmentId])
   @@index([academicPeriodId])
 }
 

@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: chikoro-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-chikoro}
+      POSTGRES_USER: ${POSTGRES_USER:-chikoro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chikoro_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - chikoro-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   frontend:
     build: .
     container_name: chikoro-frontend
@@ -13,6 +31,11 @@ services:
     restart: always
     ports:
       - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-chikoro}:${POSTGRES_PASSWORD:-chikoro_dev}@postgres:5432/${POSTGRES_DB:-chikoro}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
     command: yarn prod:server
 
   collector:
@@ -22,3 +45,6 @@ services:
     ports:
       - "8888:8888"
     command: yarn dev:collector
+
+volumes:
+  chikoro-postgres-data:

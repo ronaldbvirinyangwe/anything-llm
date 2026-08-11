@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import "./student-results.css";
+import { API_BASE } from "@/utils/constants";
 
 export default function StudentResults() {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ export default function StudentResults() {
         }
 
         const res = await axios.get(
-          `https://api.chikoro-ai.com/api/system/student/my-results/${studentId}`,
+          `${API_BASE}/system/student/my-results/${studentId}`,
           {
             headers: { Authorization: `Bearer ${token}` },
           }
@@ -53,7 +54,7 @@ export default function StudentResults() {
     return (
       <div className="results-container">
         <div className="error-message">{error}</div>
-        <Link to="/student-dashboard" className="back-btn">
+        <Link to="/" className="back-btn">
           ← Back to Dashboard
         </Link>
       </div>
@@ -78,7 +79,7 @@ export default function StudentResults() {
   return (
     <div className="results-container">
       <nav className="results-nav">
-        <Link to="/student-dashboard" className="back-btn">
+        <Link to="/" className="back-btn">
           ← Back to Dashboard
         </Link>
       </nav>

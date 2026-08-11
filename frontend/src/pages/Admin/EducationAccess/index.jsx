@@ -11,32 +11,41 @@ import {
 } from "@phosphor-icons/react";
 import Sidebar from "@/components/SettingsSidebar";
 import Admin from "@/models/admin";
-import EducationHierarchy from "@/models/educationHierarchy";
+import EducationHierarchy, {
+  EDUCATION_ROLE_LABELS,
+} from "@/models/educationHierarchy";
 import showToast from "@/utils/toast";
-
-const ROLE_LABELS = {
-  ministry_admin: "Ministry administrator",
-  ministry_analyst: "Ministry analyst",
-  department_admin: "Department administrator",
-  department_analyst: "Department analyst",
-  province_admin: "Provincial administrator",
-  district_admin: "District administrator",
-  school_admin: "School administrator",
-  teacher: "Teacher",
-  viewer: "Read-only viewer",
-};
 
 const ROLES_BY_TYPE = {
   ministry: ["ministry_admin", "ministry_analyst", "viewer"],
   department: ["department_admin", "department_analyst", "viewer"],
   province: ["province_admin", "viewer"],
   district: ["district_admin", "viewer"],
-  school: ["school_admin", "viewer"],
+  school: ["headmaster", "deputy_head", "student_support", "teacher", "viewer"],
+  school_department: ["hod", "viewer"],
+};
+
+const ORGANIZATION_TYPE_LABELS = {
+  ministry: "Ministry",
+  department: "Ministry departments",
+  province: "Provinces",
+  district: "Districts",
+  school: "Schools",
+  school_department: "School departments",
+};
+
+const PARENT_TYPE_BY_ORGANIZATION = {
+  department: "ministry",
+  province: "ministry",
+  district: "province",
+  school: "district",
+  school_department: "school",
 };
 
 export default function EducationAccess() {
   const [users, setUsers] = useState([]);
   const [organizations, setOrganizations] = useState([]);
+  const [educationClasses, setEducationClasses] = useState([]);
   const [memberships, setMemberships] = useState([]);
   const [schoolVerifications, setSchoolVerifications] = useState([]);
   const [userId, setUserId] = useState("");
@@ -45,6 +54,14 @@ export default function EducationAccess() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [creatingOrganization, setCreatingOrganization] = useState(false);
+  const [assigningClassId, setAssigningClassId] = useState(null);
+  const [organizationForm, setOrganizationForm] = useState({
+    code: "",
+    name: "",
+    type: "department",
+    parentId: "",
+  });
 
   const load = async () => {
     try {
@@ -53,8 +70,9 @@ export default function EducationAccess() {
         EducationHierarchy.accessControl(),
       ]);
       setUsers(allUsers);
-      setOrganizations(access.organizations);
-      setMemberships(access.memberships);
+      setOrganizations(access.organizations || []);
+      setEducationClasses(access.classes || []);
+      setMemberships(access.memberships || []);
       setSchoolVerifications(access.schoolVerifications || []);
       const eligibleUsers = allUsers.filter((user) => user.role === "default");
       setUserId((current) => current || String(eligibleUsers[0]?.id || ""));
@@ -81,12 +99,17 @@ export default function EducationAccess() {
     (organization) => String(organization.id) === organizationId
   );
   const allowedRoles = ROLES_BY_TYPE[selectedOrganization?.type] || ["viewer"];
+  const requiredParentType =
+    PARENT_TYPE_BY_ORGANIZATION[organizationForm.type] || null;
+  const parentOrganizations = organizations.filter(
+    ({ type }) => type === requiredParentType
+  );
   const visibleMemberships = memberships.filter((membership) => {
     const value = search.toLowerCase();
     return (
       membership.user?.username?.toLowerCase().includes(value) ||
       membership.organization?.name?.toLowerCase().includes(value) ||
-      ROLE_LABELS[membership.role]?.toLowerCase().includes(value)
+      EDUCATION_ROLE_LABELS[membership.role]?.toLowerCase().includes(value)
     );
   });
 
@@ -117,10 +140,62 @@ export default function EducationAccess() {
     }
   };
 
+  const createOrganization = async (event) => {
+    event.preventDefault();
+    if (
+      !organizationForm.code.trim() ||
+      !organizationForm.name.trim() ||
+      (requiredParentType && !organizationForm.parentId)
+    )
+      return;
+    setCreatingOrganization(true);
+    try {
+      await EducationHierarchy.createOrganization({
+        ...organizationForm,
+        parentId: requiredParentType ? Number(organizationForm.parentId) : null,
+      });
+      setOrganizationForm((current) => ({
+        ...current,
+        code: "",
+        name: "",
+      }));
+      showToast("Education organization created.", "success");
+      await load();
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setCreatingOrganization(false);
+    }
+  };
+
+  const assignClassDepartment = async (educationClass, value) => {
+    const departmentId = value ? Number(value) : null;
+    setAssigningClassId(educationClass.id);
+    try {
+      const result = await EducationHierarchy.assignClassDepartment(
+        educationClass.id,
+        departmentId
+      );
+      setEducationClasses((current) =>
+        current.map((item) =>
+          item.id === educationClass.id ? { ...item, ...result.class } : item
+        )
+      );
+      showToast(
+        departmentId ? "Class assigned to department." : "Class unassigned.",
+        "success"
+      );
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setAssigningClassId(null);
+    }
+  };
+
   const revokeAccess = async (membership) => {
     if (
       !window.confirm(
-        `Remove ${ROLE_LABELS[membership.role] || membership.role} access for ${membership.user?.username}?`
+        `Remove ${EDUCATION_ROLE_LABELS[membership.role] || membership.role} access for ${membership.user?.username}?`
       )
     )
       return;
@@ -198,12 +273,120 @@ export default function EducationAccess() {
                 <LockKey size={20} /> Use a standard account
               </div>
               <p className="mt-2 text-sm leading-6 text-theme-text-secondary">
-                Create ministry users with the global role “default”, then
-                assign their education scope here. Global admin accounts always
-                retain internal payment access.
+                Create users with the global role “default”, then assign their
+                education scope here. Headmaster and HOD are education
+                membership roles, not global account roles.
               </p>
             </div>
           </section>
+
+          <form
+            onSubmit={createOrganization}
+            className="rounded-2xl border border-theme-sidebar-border bg-theme-bg-primary p-5"
+          >
+            <h2 className="font-bold text-theme-text-primary">
+              Create organization
+            </h2>
+            <p className="mt-1 text-xs text-theme-text-secondary">
+              Add a hierarchy node under a valid parent organization.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <label className="text-xs font-bold uppercase tracking-wide text-theme-text-secondary">
+                Type
+                <select
+                  value={organizationForm.type}
+                  onChange={(event) =>
+                    setOrganizationForm((current) => ({
+                      ...current,
+                      type: event.target.value,
+                      parentId: "",
+                    }))
+                  }
+                  className="mt-2 w-full rounded-xl border border-theme-sidebar-border bg-theme-bg-secondary px-3 py-3 text-sm normal-case text-theme-text-primary"
+                >
+                  {Object.entries(ORGANIZATION_TYPE_LABELS).map(
+                    ([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
+              <label className="text-xs font-bold uppercase tracking-wide text-theme-text-secondary">
+                Code
+                <input
+                  required
+                  value={organizationForm.code}
+                  onChange={(event) =>
+                    setOrganizationForm((current) => ({
+                      ...current,
+                      code: event.target.value,
+                    }))
+                  }
+                  placeholder="Unique code"
+                  className="mt-2 w-full rounded-xl border border-theme-sidebar-border bg-theme-bg-secondary px-3 py-3 text-sm normal-case text-theme-text-primary"
+                />
+              </label>
+              <label className="text-xs font-bold uppercase tracking-wide text-theme-text-secondary">
+                Name
+                <input
+                  required
+                  value={organizationForm.name}
+                  onChange={(event) =>
+                    setOrganizationForm((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  placeholder="Organization name"
+                  className="mt-2 w-full rounded-xl border border-theme-sidebar-border bg-theme-bg-secondary px-3 py-3 text-sm normal-case text-theme-text-primary"
+                />
+              </label>
+              <label className="text-xs font-bold uppercase tracking-wide text-theme-text-secondary">
+                Parent
+                <select
+                  required={Boolean(requiredParentType)}
+                  disabled={!requiredParentType}
+                  value={organizationForm.parentId}
+                  onChange={(event) =>
+                    setOrganizationForm((current) => ({
+                      ...current,
+                      parentId: event.target.value,
+                    }))
+                  }
+                  className="mt-2 w-full rounded-xl border border-theme-sidebar-border bg-theme-bg-secondary px-3 py-3 text-sm normal-case text-theme-text-primary disabled:opacity-60"
+                >
+                  <option value="">
+                    {requiredParentType
+                      ? `Select ${requiredParentType.replaceAll("_", " ")}`
+                      : "No parent"}
+                  </option>
+                  {parentOrganizations.map((organization) => (
+                    <option key={organization.id} value={organization.id}>
+                      {organization.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {requiredParentType && !parentOrganizations.length && !loading && (
+              <p className="mt-4 text-sm text-amber-400">
+                Create an active {requiredParentType.replaceAll("_", " ")}{" "}
+                before adding this organization type.
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={
+                creatingOrganization ||
+                (requiredParentType && !parentOrganizations.length)
+              }
+              className="mt-5 rounded-xl bg-cyan-500 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {creatingOrganization ? "Creating..." : "Create organization"}
+            </button>
+          </form>
 
           <form
             onSubmit={grantAccess}
@@ -238,11 +421,9 @@ export default function EducationAccess() {
                     "province",
                     "district",
                     "school",
+                    "school_department",
                   ].map((type) => (
-                    <optgroup
-                      key={type}
-                      label={`${type[0].toUpperCase()}${type.slice(1)}`}
-                    >
+                    <optgroup key={type} label={ORGANIZATION_TYPE_LABELS[type]}>
                       {organizations
                         .filter((organization) => organization.type === type)
                         .map((organization) => (
@@ -263,7 +444,7 @@ export default function EducationAccess() {
                 >
                   {allowedRoles.map((value) => (
                     <option key={value} value={value}>
-                      {ROLE_LABELS[value]}
+                      {EDUCATION_ROLE_LABELS[value]}
                     </option>
                   ))}
                 </select>
@@ -283,6 +464,72 @@ export default function EducationAccess() {
               {saving ? "Granting access..." : "Grant education access"}
             </button>
           </form>
+
+          <section className="overflow-hidden rounded-2xl border border-theme-sidebar-border bg-theme-bg-primary">
+            <div className="border-b border-theme-sidebar-border p-5">
+              <h2 className="font-bold text-theme-text-primary">
+                Class department assignments
+              </h2>
+              <p className="mt-1 text-xs text-theme-text-secondary">
+                A class can only be assigned to a department in its own school.
+              </p>
+            </div>
+            {educationClasses.length ? (
+              <div className="divide-y divide-theme-sidebar-border">
+                {educationClasses.map((educationClass) => {
+                  const departments = organizations.filter(
+                    ({ type, parentId }) =>
+                      type === "school_department" &&
+                      parentId === educationClass.schoolId
+                  );
+                  return (
+                    <div
+                      key={educationClass.id}
+                      className="grid gap-3 p-5 sm:grid-cols-[1fr_minmax(220px,360px)] sm:items-center"
+                    >
+                      <div>
+                        <div className="font-bold text-theme-text-primary">
+                          {educationClass.name}
+                        </div>
+                        <div className="mt-1 text-xs text-theme-text-secondary">
+                          {educationClass.school?.name || "Unknown school"} ·{" "}
+                          {educationClass.code}
+                          {educationClass.grade
+                            ? ` · Grade ${educationClass.grade}`
+                            : ""}
+                        </div>
+                      </div>
+                      <label className="text-xs font-bold uppercase tracking-wide text-theme-text-secondary">
+                        Department
+                        <select
+                          value={educationClass.departmentId || ""}
+                          disabled={assigningClassId === educationClass.id}
+                          onChange={(event) =>
+                            assignClassDepartment(
+                              educationClass,
+                              event.target.value
+                            )
+                          }
+                          className="mt-2 w-full rounded-xl border border-theme-sidebar-border bg-theme-bg-secondary px-3 py-3 text-sm normal-case text-theme-text-primary disabled:opacity-60"
+                        >
+                          <option value="">Unassigned</option>
+                          {departments.map((department) => (
+                            <option key={department.id} value={department.id}>
+                              {department.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-8 text-center text-sm text-theme-text-secondary">
+                No active education classes are available.
+              </div>
+            )}
+          </section>
 
           <section className="overflow-hidden rounded-2xl border border-cyan-500/20 bg-theme-bg-primary">
             <div className="border-b border-theme-sidebar-border p-5">
@@ -414,12 +661,15 @@ export default function EducationAccess() {
                           {membership.user?.username || "Unknown user"}
                         </td>
                         <td className="px-4 py-4">
-                          {ROLE_LABELS[membership.role] || membership.role}
+                          {EDUCATION_ROLE_LABELS[membership.role] ||
+                            membership.role}
                         </td>
                         <td className="px-4 py-4">
                           <div>{membership.organization?.name}</div>
                           <div className="mt-1 text-xs uppercase text-theme-text-secondary">
-                            {membership.organization?.type}
+                            {ORGANIZATION_TYPE_LABELS[
+                              membership.organization?.type
+                            ] || membership.organization?.type}
                           </div>
                         </td>
                         <td className="px-4 py-4">

@@ -1,4 +1,5 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
+const configuredApiBase = import.meta.env.VITE_API_BASE?.trim();
+export const API_BASE = (configuredApiBase || "/api").replace(/\/+$/, "");
 export const ONBOARDING_SURVEY_URL = "https://onboarding.anythingllm.com";
 
 export const AUTH_USER = "chikoroai_user";
@@ -54,8 +55,7 @@ export const NVIDIA_NIM_COMMON_URLS = [
 ];
 
 export function fullApiUrl() {
-  if (API_BASE !== "/api") return API_BASE;
-  return `${window.location.origin}/api`;
+  return new URL(API_BASE, window.location.origin).toString().replace(/\/$/, "");
 }
 
 export const POPUP_BROWSER_EXTENSION_EVENT = "NEW_BROWSER_EXTENSION_CONNECTION";

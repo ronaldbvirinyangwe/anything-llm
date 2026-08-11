@@ -10,6 +10,8 @@ import PublishEntityModal from "@/components/CommunityHub/PublishEntityModal";
 import { useModal } from "@/hooks/useModal";
 
 const DEFAULT_PROMPT = "";
+const DEFAULT_PROMPT_LABEL =
+  "Using the Chikoro AI platform default. Add a prompt here only to override it for this workspace.";
 
 export default function ChatPromptSettings({ workspace, setHasChanges }) {
   const { t } = useTranslation();
@@ -127,7 +129,7 @@ export default function ChatPromptSettings({ workspace, setHasChanges }) {
           </p>
         </div>
 
-        <input type="hidden" name="openAiPrompt" defaultValue={prompt} />
+        <input type="hidden" name="openAiPrompt" value={prompt} readOnly />
         <div className="relative w-full flex flex-col items-end">
           <button
             ref={historyButtonRef}
@@ -144,7 +146,7 @@ export default function ChatPromptSettings({ workspace, setHasChanges }) {
             <span
               className={`${!!prompt ? "hidden" : "block"} text-sm pointer-events-none absolute top-2 left-0 p-2.5 w-full h-full !text-theme-settings-input-placeholder opacity-60`}
             >
-              {DEFAULT_PROMPT}
+              {DEFAULT_PROMPT_LABEL}
             </span>
             {isEditing ? (
               <textarea
@@ -218,7 +220,7 @@ export default function ChatPromptSettings({ workspace, setHasChanges }) {
                   }}
                 />
               </>
-            )} 
+            )}
           </div>
         </div>
       </div>

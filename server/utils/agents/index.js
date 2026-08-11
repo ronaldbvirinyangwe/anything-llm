@@ -11,6 +11,8 @@ const ImportedPlugin = require("./imported");
 const { AgentFlows } = require("../agentFlows");
 const MCPCompatibilityLayer = require("../MCP");
 const { autoMemory } = require("./aibitat/plugins/auto-memory");
+const { buildEducationalContext } = require("../educationalContext");
+const { planEducationalRequest } = require("../educationalAgents");
 
 class AgentHandler {
   #invocationUUID;
@@ -20,6 +22,8 @@ class AgentHandler {
   channel = null;
   provider = null;
   model = null;
+  educationalContext = null;
+  educationalPlan = null;
 
   constructor({ uuid }) {
     this.#invocationUUID = uuid;
@@ -32,7 +36,6 @@ class AgentHandler {
   closeAlert() {
     this.log(`End ${this.#invocationUUID}::${this.provider}:${this.model}`);
   }
-
 
   async #chatHistory(limit = 10) {
     try {
@@ -73,7 +76,6 @@ class AgentHandler {
       return [];
     }
   }
-
 
   checkSetup() {
     switch (this.provider) {
@@ -534,7 +536,9 @@ class AgentHandler {
     const workspaceAgentDef = await WORKSPACE_AGENT.getDefinition(
       this.provider,
       this.invocation.workspace,
-      user
+      user,
+      this.educationalContext,
+      this.educationalPlan
     );
 
     this.aibitat.agent(USER_AGENT.name, userAgentDef);
@@ -556,14 +560,25 @@ class AgentHandler {
       socket,
     }
   ) {
+    this.educationalContext ??= await buildEducationalContext({
+      userId: this.invocation.user_id,
+      workspaceId: this.invocation.workspace_id,
+    });
+    this.educationalPlan ??= planEducationalRequest(
+      this.invocation.prompt,
+      this.educationalContext
+    );
+
     this.aibitat = new AIbitat({
       provider: this.provider ?? "openai",
       model: this.model ?? "gpt-4o",
       chats: await this.#chatHistory(20),
-       maxRounds: 2,  
+      maxRounds: 8,
       handlerProps: {
         invocation: this.invocation,
-        log: this.log,
+        educationalContext: this.educationalContext,
+        educationalPlan: this.educationalPlan,
+        log: this.log.bind(this),
       },
     });
 
@@ -583,9 +598,9 @@ class AgentHandler {
     );
     this.aibitat.use(AgentPlugins.chatHistory.plugin());
 
-     // ✅ auto-memory goes HERE
-  this.log(`Attached ${autoMemory.name} plugin to Agent cluster`);
-  this.aibitat.use(autoMemory.plugin());
+    // ✅ auto-memory goes HERE
+    this.log(`Attached ${autoMemory.name} plugin to Agent cluster`);
+    this.aibitat.use(autoMemory.plugin());
 
     // Load required agents (Default + custom)
     await this.#loadAgents();

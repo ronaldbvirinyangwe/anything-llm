@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { API_BASE } from "@/utils/constants";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ export default function TeacherResultDetail() {
       try {
         const token = localStorage.getItem("chikoroai_authToken");
         const res = await axios.get(
-          `https://api.chikoro-ai.com/api/system/teacher/result-detail/${resultId}`,
+          `${API_BASE}/system/teacher/result-detail/${resultId}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (res.data.success) setResult(res.data.result);

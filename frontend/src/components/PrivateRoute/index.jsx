@@ -8,6 +8,7 @@ import { userFromStorage } from "@/utils/request";
 import System from "@/models/system";
 import UserMenu from "../UserMenu";
 import { KeyboardShortcutWrapper } from "@/utils/keyboardShortcuts";
+import EducationHierarchy from "@/models/educationHierarchy";
 
 // Used only for Multi-user mode only as we permission specific pages based on auth role.
 // When in single user mode we just bypass any authchecks.
@@ -92,9 +93,26 @@ function useIsAuthenticated() {
   return { isAuthd, shouldRedirectToOnboarding, multiUserMode };
 }
 
-// Allows only admin to access the route and if in single user mode,
-// allows all users to access the route
-export function AdminRoute({ Component, hideUserMenu = false }) {
+function RouteContent({ Component, hideUserMenu = false }) {
+  return (
+    <KeyboardShortcutWrapper>
+      {hideUserMenu ? (
+        <Component />
+      ) : (
+        <UserMenu>
+          <Component />
+        </UserMenu>
+      )}
+    </KeyboardShortcutWrapper>
+  );
+}
+
+function RoleRoute({
+  Component,
+  allowedRoles,
+  hideUserMenu = false,
+  allowSingleUser = false,
+}) {
   const { isAuthd, shouldRedirectToOnboarding, multiUserMode } =
     useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
@@ -104,61 +122,76 @@ export function AdminRoute({ Component, hideUserMenu = false }) {
   }
 
   const user = userFromStorage();
-  return isAuthd && (user?.role === "admin" || !multiUserMode) ? (
-    hideUserMenu ? (
-      <KeyboardShortcutWrapper>
-        <Component />
-      </KeyboardShortcutWrapper>
-    ) : (
-      <KeyboardShortcutWrapper>
-        <UserMenu>
-          <Component />
-        </UserMenu>
-      </KeyboardShortcutWrapper>
-    )
+  const permitted =
+    isAuthd &&
+    (allowedRoles.includes(user?.role) || (allowSingleUser && !multiUserMode));
+  return permitted ? (
+    <RouteContent Component={Component} hideUserMenu={hideUserMenu} />
   ) : (
     <Navigate to={paths.home()} />
+  );
+}
+
+// Allows only admin to access the route and if in single user mode,
+// allows all users to access the route
+export function AdminRoute({ Component, hideUserMenu = false }) {
+  return (
+    <RoleRoute
+      Component={Component}
+      allowedRoles={["admin"]}
+      hideUserMenu={hideUserMenu}
+      allowSingleUser
+    />
   );
 }
 
 // Allows manager and admin to access the route and if in single user mode,
 // allows all users to access the route
-export function ManagerRoute({ Component }) {
-  const { isAuthd, shouldRedirectToOnboarding, multiUserMode } =
-    useIsAuthenticated();
-  if (isAuthd === null) return <FullScreenLoader />;
-
-  if (shouldRedirectToOnboarding) {
-    return <Navigate to={paths.onboarding.home()} />;
-  }
-
-  const user = userFromStorage();
-  return isAuthd && (user?.role !== "default" || !multiUserMode) ? (
-    <KeyboardShortcutWrapper>
-      <UserMenu>
-        <Component />
-      </UserMenu>
-    </KeyboardShortcutWrapper>
-  ) : (
-    <Navigate to={paths.home()} />
+export function ManagerRoute({ Component, hideUserMenu = false }) {
+  return (
+    <RoleRoute
+      Component={Component}
+      allowedRoles={["admin", "manager"]}
+      hideUserMenu={hideUserMenu}
+      allowSingleUser
+    />
   );
 }
 
 export function StudentRoute({ Component }) {
+  return <RoleRoute Component={Component} allowedRoles={["student"]} />;
+}
+
+export function TeacherRoute({ Component }) {
+  return <RoleRoute Component={Component} allowedRoles={["teacher"]} />;
+}
+
+export function ParentRoute({ Component }) {
+  return <RoleRoute Component={Component} allowedRoles={["parent"]} />;
+}
+
+export function EducationRoute({ Component }) {
   const { isAuthd, shouldRedirectToOnboarding } = useIsAuthenticated();
-  if (isAuthd === null) return <FullScreenLoader />;
+  const [hasAccess, setHasAccess] = useState(null);
 
-  if (shouldRedirectToOnboarding) {
+  useEffect(() => {
+    if (!isAuthd) return;
+    let active = true;
+    EducationHierarchy.access()
+      .then(({ enabled }) => active && setHasAccess(Boolean(enabled)))
+      .catch(() => active && setHasAccess(false));
+    return () => {
+      active = false;
+    };
+  }, [isAuthd]);
+
+  if (isAuthd === null || (isAuthd && hasAccess === null))
+    return <FullScreenLoader />;
+  if (shouldRedirectToOnboarding)
     return <Navigate to={paths.onboarding.home()} />;
-  }
-
-  const user = userFromStorage();
-  return isAuthd && user?.role === "student" ? (
-    <KeyboardShortcutWrapper>
-      <UserMenu>
-        <Component />
-      </UserMenu>
-    </KeyboardShortcutWrapper>
+  if (!isAuthd) return <Navigate to={paths.login(true)} />;
+  return hasAccess ? (
+    <RouteContent Component={Component} />
   ) : (
     <Navigate to={paths.home()} />
   );
@@ -173,11 +206,7 @@ export default function PrivateRoute({ Component }) {
   }
 
   return isAuthd ? (
-    <KeyboardShortcutWrapper>
-      <UserMenu>
-        <Component />
-      </UserMenu>
-    </KeyboardShortcutWrapper>
+    <RouteContent Component={Component} />
   ) : (
     <Navigate to={paths.login(true)} />
   );

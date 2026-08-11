@@ -13,13 +13,18 @@ import { useParams } from "react-router-dom";
 import paths from "@/utils/paths";
 import Appearance from "@/models/appearance";
 import useTextSize from "@/hooks/useTextSize";
-import { v4 } from "uuid";
 import { useTranslation } from "react-i18next";
 import { useChatMessageAlignment } from "@/hooks/useChatMessageAlignment";
+import { API_BASE } from "@/utils/constants";
 import { useNavigate } from "react-router-dom";
-import './notification.css';
+import "./notification.css";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import  { MascotWithBubble, ChikoroMascot, MascotSpeechBubble, MASCOT_EXPRESSIONS } from "@/components/ChikoroMascot";
+import {
+  MascotWithBubble,
+  ChikoroMascot,
+  MascotSpeechBubble,
+  MASCOT_EXPRESSIONS,
+} from "@/components/ChikoroMascot";
 import {
   ThoughtChainComponent,
   THOUGHT_REGEX_OPEN,
@@ -46,21 +51,25 @@ function getNotificationExpression(type) {
   }
 }
 
-export const NotificationMessage = memo(function NotificationMessage({ message }) {
+export const NotificationMessage = memo(function NotificationMessage({
+  message,
+}) {
   const navigate = useNavigate();
-  const API_BASE = import.meta.env.VITE_API_BASE || "https://api.chikoro-ai.com/api";
 
   const handleTakeQuiz = async () => {
     if (message.notificationId) {
       try {
         const token = localStorage.getItem("chikoroai_authToken");
-        await fetch(`${API_BASE}/system/notifications/${message.notificationId}/read`, {
-          method: 'PATCH',
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        await fetch(
+          `${API_BASE}/system/notifications/${message.notificationId}/read`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
       } catch (err) {
         console.error("❌ Failed to mark notification as read:", err);
       }
@@ -74,20 +83,16 @@ export const NotificationMessage = memo(function NotificationMessage({ message }
   const mascotExpr = getNotificationExpression(message.type);
 
   return (
-    <div className={`notification-card ${message.darkMode ? 'dark' : ''}`}>
+    <div className={`notification-card ${message.darkMode ? "dark" : ""}`}>
       <div className="notification-icon">
-        <ChikoroMascot
-          expression={mascotExpr}
-          size={36}
-          animate={true}
-        />
+        <ChikoroMascot expression={mascotExpr} size={36} animate={true} />
       </div>
       <div className="notification-content">
         <p className="notification-message">{message.content}</p>
         <p className="notification-time">
           {message.createdAt
             ? new Date(message.createdAt).toLocaleString()
-            : 'Just now'}
+            : "Just now"}
         </p>
       </div>
       {message.link && (
@@ -172,57 +177,61 @@ export default function ChatHistory({
     sendCommand({ text: `${heading} ${message}`, autoSubmit: true });
   };
 
-  const saveEditedMessage = useCallback(async ({
-    editedMessage,
-    chatId,
-    role,
-    attachments = [],
-  }) => {
-    if (!editedMessage) return;
-    const currentHistory = historyRef.current;
+  const saveEditedMessage = useCallback(
+    async ({ editedMessage, chatId, role, attachments = [] }) => {
+      if (!editedMessage) return;
+      const currentHistory = historyRef.current;
 
-    if (role === "user") {
-      const updatedHistory = currentHistory.slice(
-        0,
-        currentHistory.findIndex((msg) => msg.chatId === chatId) + 1
-      );
-      updatedHistory[updatedHistory.length - 1].content = editedMessage;
-      await Workspace.deleteEditedChats(workspace.slug, threadSlug, chatId);
-      sendCommand({
-        text: editedMessage,
-        autoSubmit: true,
-        history: updatedHistory,
-        attachments,
-      });
-      return;
-    }
+      if (role === "user") {
+        const updatedHistory = currentHistory.slice(
+          0,
+          currentHistory.findIndex((msg) => msg.chatId === chatId) + 1
+        );
+        updatedHistory[updatedHistory.length - 1].content = editedMessage;
+        await Workspace.deleteEditedChats(workspace.slug, threadSlug, chatId);
+        sendCommand({
+          text: editedMessage,
+          autoSubmit: true,
+          history: updatedHistory,
+          attachments,
+        });
+        return;
+      }
 
-    if (role === "assistant") {
-      const updatedHistory = [...currentHistory];
-      const targetIdx = currentHistory.findIndex(
-        (msg) => msg.chatId === chatId && msg.role === role
-      );
-      if (targetIdx < 0) return;
-      updatedHistory[targetIdx].content = editedMessage;
-      updateHistory(updatedHistory);
-      await Workspace.updateChatResponse(
+      if (role === "assistant") {
+        const updatedHistory = [...currentHistory];
+        const targetIdx = currentHistory.findIndex(
+          (msg) => msg.chatId === chatId && msg.role === role
+        );
+        if (targetIdx < 0) return;
+        updatedHistory[targetIdx].content = editedMessage;
+        updateHistory(updatedHistory);
+        await Workspace.updateChatResponse(
+          workspace.slug,
+          threadSlug,
+          chatId,
+          editedMessage
+        );
+        return;
+      }
+    },
+    [workspace.slug, threadSlug, sendCommand, updateHistory]
+  );
+
+  const forkThread = useCallback(
+    async (chatId) => {
+      const newThreadSlug = await Workspace.forkThread(
         workspace.slug,
         threadSlug,
-        chatId,
-        editedMessage
+        chatId
       );
-      return;
-    }
-  }, [workspace.slug, threadSlug, sendCommand, updateHistory]);
-
-  const forkThread = useCallback(async (chatId) => {
-    const newThreadSlug = await Workspace.forkThread(
-      workspace.slug,
-      threadSlug,
-      chatId
-    );
-    window.location.href = paths.workspace.thread(workspace.slug, newThreadSlug);
-  }, [workspace.slug, threadSlug]);
+      window.location.href = paths.workspace.thread(
+        workspace.slug,
+        newThreadSlug
+      );
+    },
+    [workspace.slug, threadSlug]
+  );
 
   const compiledHistory = useMemo(
     () =>
@@ -294,20 +303,22 @@ export default function ChatHistory({
           {/* Suggested messages */}
           {workspace?.suggestedMessages?.length > 0 && (
             <div className="chk-welcome-suggestions">
-              {workspace.suggestedMessages.slice(0, 4).map((suggestion, idx) => (
-                <button
-                  key={idx}
-                  onClick={() =>
-                    handleSendSuggestedMessage(
-                      suggestion.heading,
-                      suggestion.message
-                    )
-                  }
-                >
-                  <strong>{suggestion.heading}</strong>
-                  {suggestion.message}
-                </button>
-              ))}
+              {workspace.suggestedMessages
+                .slice(0, 4)
+                .map((suggestion, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() =>
+                      handleSendSuggestedMessage(
+                        suggestion.heading,
+                        suggestion.message
+                      )
+                    }
+                  >
+                    <strong>{suggestion.heading}</strong>
+                    {suggestion.message}
+                  </button>
+                ))}
             </div>
           )}
         </div>
@@ -344,7 +355,10 @@ export default function ChatHistory({
             }}
           >
             {Array.isArray(compiledHistory[virtualRow.index])
-              ? renderStatusResponse(compiledHistory[virtualRow.index], virtualRow.index)
+              ? renderStatusResponse(
+                  compiledHistory[virtualRow.index],
+                  virtualRow.index
+                )
               : compiledHistory[virtualRow.index]}
           </div>
         ))}
@@ -418,7 +432,10 @@ function buildMessages({
 
     if (props.role === "notification") {
       acc.push(
-        <NotificationMessage key={props.uuid || `notif-${index}`} message={props} />
+        <NotificationMessage
+          key={props.uuid || `notif-${index}`}
+          message={props}
+        />
       );
       return acc;
     }
@@ -427,64 +444,79 @@ function buildMessages({
 
     if (props.type === "rechartVisualize" && !!props.content) {
       acc.push(
-      <Chartable key={`chart-${props.uuid}`} workspace={workspace} props={props} />
+        <Chartable
+          key={`chart-${props.uuid}`}
+          workspace={workspace}
+          props={props}
+        />
       );
     } else if (isLastBotReply && props.animate) {
-  const mascotExpr = (!props.content || props.pending)
-    ? MASCOT_EXPRESSIONS.thinking
-    : MASCOT_EXPRESSIONS.explaining;
+      const mascotExpr =
+        !props.content || props.pending
+          ? MASCOT_EXPRESSIONS.thinking
+          : MASCOT_EXPRESSIONS.explaining;
 
-  const hasThought = props.content && THOUGHT_REGEX_OPEN.test(props.content);
+      const hasThought =
+        props.content && THOUGHT_REGEX_OPEN.test(props.content);
 
-  // Strip thought tags so PromptReply only gets the response body
-  const replyContent = hasThought
-    ? props.content
-        .replace(THOUGHT_REGEX_COMPLETE, "")          // remove complete <thought>...</thought>
-        .replace(THOUGHT_REGEX_OPEN, "")              // remove dangling open tags (mid-stream)
-        .replace(THOUGHT_REGEX_CLOSE, "")             // remove dangling close tags
-        .trim()
-    : props.content;
+      // Strip thought tags so PromptReply only gets the response body
+      const replyContent = hasThought
+        ? props.content
+            .replace(THOUGHT_REGEX_COMPLETE, "") // remove complete <thought>...</thought>
+            .replace(THOUGHT_REGEX_OPEN, "") // remove dangling open tags (mid-stream)
+            .replace(THOUGHT_REGEX_CLOSE, "") // remove dangling close tags
+            .trim()
+        : props.content;
 
-  acc.push(
-    <div key={`mascot-reply-${props.uuid}`}>
-      <div className="chk-thinking-inline">
-        <ChikoroMascot expression={mascotExpr} size={36} animate={true} />
-        <MascotSpeechBubble
-          message={mascotExpr === "thinking" ? "Let me think..." : "Here's what I found..."}
-          visible={!props.content}
-          position="right"
-        />
-      </div>
-
-      {hasThought && (
-        <ThoughtChainComponent
-          content={props.content}   // full content — ThoughtChainComponent handles extraction
-          expanded={false}
-        />
-      )}
-
-      <PromptReply
-        uuid={props.uuid}
-        reply={replyContent}        // ✅ thought-stripped content only
-        pending={props.pending}
-        sources={props.sources}
-        error={props.error}
-        workspace={workspace}
-        closed={props.closed}
-      />
-    </div>
-  );
-    } else {
-      const hasThought = props.content && THOUGHT_REGEX_OPEN.test(props.content);
       acc.push(
-         <div
-      key={props.chatId || `msg-${index}`}
-      onClick={() => isClickable && onMessageClick?.(props)}
-      className={isClickable ? "cursor-pointer ring-1 ring-transparent hover:ring-blue-400 rounded-xl transition-all" : ""}
-      title={isClickable ? "Click to reopen" : undefined}
-    >
-      {/* 🧠 Show completed thought chain for assistant messages */}
-      <HistoricalMessage
+        <div key={`mascot-reply-${props.uuid}`}>
+          <div className="chk-thinking-inline">
+            <ChikoroMascot expression={mascotExpr} size={36} animate={true} />
+            <MascotSpeechBubble
+              message={
+                mascotExpr === "thinking"
+                  ? "Let me think..."
+                  : "Here's what I found..."
+              }
+              visible={!props.content}
+              position="right"
+            />
+          </div>
+
+          {hasThought && (
+            <ThoughtChainComponent
+              content={props.content} // full content — ThoughtChainComponent handles extraction
+              expanded={false}
+            />
+          )}
+
+          <PromptReply
+            uuid={props.uuid}
+            reply={replyContent} // ✅ thought-stripped content only
+            pending={props.pending}
+            sources={props.sources}
+            error={props.error}
+            workspace={workspace}
+            closed={props.closed}
+          />
+        </div>
+      );
+    } else {
+      const hasThought =
+        props.content && THOUGHT_REGEX_OPEN.test(props.content);
+      acc.push(
+        <div
+          key={props.chatId || `msg-${index}`}
+          onClick={() => isClickable && onMessageClick?.(props)}
+          className={
+            isClickable
+              ? "cursor-pointer ring-1 ring-transparent hover:ring-blue-400 rounded-xl transition-all"
+              : ""
+          }
+          title={isClickable ? "Click to reopen" : undefined}
+        >
+          {/* 🧠 Show completed thought chain for assistant messages */}
+          <HistoricalMessage
             message={props.content}
             role={props.role}
             workspace={workspace}

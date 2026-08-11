@@ -1,7 +1,6 @@
 import System from "@/models/system";
 import paths from "@/utils/paths";
 import {
-  BookOpen,
   DiscordLogo,
   GithubLogo,
   Briefcase,
@@ -13,17 +12,17 @@ import {
   FacebookLogo,
   LinkedinLogo,
   ChartLine,
-
 } from "@phosphor-icons/react";
 import React, { useEffect, useState } from "react";
 import SettingsButton from "../SettingsButton";
 import { isMobile } from "react-device-detect";
 import { Tooltip } from "react-tooltip";
 import { Link } from "react-router-dom";
+import { API_BASE } from "@/utils/constants";
 
 export const MAX_ICONS = 3;
 export const ICON_COMPONENTS = {
-  ChartLine:ChartLine,
+  ChartLine: ChartLine,
   DiscordLogo: DiscordLogo,
   GithubLogo: GithubLogo,
   Envelope: Envelope,
@@ -39,7 +38,7 @@ export const ICON_COMPONENTS = {
 export default function Footer() {
   const [footerData, setFooterData] = useState(false);
   const student = JSON.parse(localStorage.getItem("chikoroai_user") || "{}");
-  const [reportLink, setReportLink] = useState("/reports");
+  const [reportLink, setReportLink] = useState(null);
 
   useEffect(() => {
     async function fetchFooterData() {
@@ -49,50 +48,37 @@ export default function Footer() {
     fetchFooterData();
   }, []);
 
-useEffect(() => {
-  async function fetchStudentId() {
-    const user = JSON.parse(localStorage.getItem("chikoroai_user") || "{}");
-    console.log("[Footer] user from localStorage:", { id: user?.id, role: user?.role });
-
-    if (!user?.id || user?.role !== "student") {
-      console.log("[Footer] Skipping report link — user is not a student or has no ID");
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem("chikoroai_authToken");
-
-      if (!token) {
-        console.log("[Footer] No auth token found");
+  useEffect(() => {
+    async function fetchStudentId() {
+      const user = JSON.parse(localStorage.getItem("chikoroai_user") || "{}");
+      if (!user?.id || user?.role !== "student") {
         return;
       }
 
-      console.log("[Footer] Fetching /api/system/my-profile...");
-      const res = await fetch(`https://api.chikoro-ai.com/api/system/my-profile`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      try {
+        const token = localStorage.getItem("chikoroai_authToken");
 
-      console.log("[Footer] my-profile response status:", res.status);
-
-      if (res.ok) {
-        const data = await res.json();
-        console.log("[Footer] my-profile data:", data);
-        if (data.success && data.profile?.id) {
-          const link = `/reports/${data.profile.id}`;
-          console.log("[Footer] Setting report link to:", link, "| students.id =", data.profile.id, "| students.user_id =", data.profile.user_id);
-          setReportLink(link);
-        } else {
-          console.warn("[Footer] my-profile returned success=false or no profile.id:", data);
+        if (!token) {
+          return;
         }
-      } else {
-        console.error("[Footer] Failed to fetch student profile, status:", res.status);
+
+        const res = await fetch(`${API_BASE}/system/my-profile`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.profile?.id) {
+            const link = `/reports/${data.profile.id}`;
+            setReportLink(link);
+          }
+        }
+      } catch (err) {
+        console.error("[Footer] Error fetching student profile:", err);
       }
-    } catch (err) {
-      console.error("[Footer] Error fetching student profile:", err);
     }
-  }
-  fetchStudentId();
-}, []);
+    fetchStudentId();
+  }, []);
 
   // wait for some kind of non-false response from footer data first
   // to prevent pop-in.
@@ -102,6 +88,7 @@ useEffect(() => {
     return (
       <div className="flex justify-center mb-2">
         <div className="flex space-x-4">
+          {student?.role === "student" && reportLink && (
           <div className="flex w-fit">
             <Link
               to={paths.facebook()}
@@ -119,20 +106,21 @@ useEffect(() => {
               />
             </Link>
           </div>
-           <div className="flex w-fit">
+          )}
+          <div className="flex w-fit">
             <Link
-  to={reportLink}
-  className="transition-all duration-300 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
-  aria-label="Reports"
-  data-tooltip-id="footer-item"
-  data-tooltip-content="View performance reports"
->
-  <ChartLine
-    weight="fill"
-    className="h-5 w-5"
-    color="var(--theme-sidebar-footer-icon-fill)"
-  />
-</Link>
+              to={reportLink}
+              className="transition-all duration-300 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
+              aria-label="Reports"
+              data-tooltip-id="footer-item"
+              data-tooltip-content="View performance reports"
+            >
+              <ChartLine
+                weight="fill"
+                className="h-5 w-5"
+                color="var(--theme-sidebar-footer-icon-fill)"
+              />
+            </Link>
           </div>
           <div className="flex w-fit">
             <Link

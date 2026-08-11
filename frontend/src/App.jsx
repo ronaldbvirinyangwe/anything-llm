@@ -4,8 +4,11 @@ import { I18nextProvider } from "react-i18next";
 import { AuthProvider } from "@/AuthContext";
 import PrivateRoute, {
   AdminRoute,
+  EducationRoute,
   ManagerRoute,
+  ParentRoute,
   StudentRoute,
+  TeacherRoute,
 } from "@/components/PrivateRoute";
 import { AUTH_TOKEN } from "@/utils/constants";
 import { ToastContainer } from "react-toastify";
@@ -40,13 +43,12 @@ import StudentQuiz from "./components/TeacherTools/StudentQuiz";
 import PaymentHistory from "./components/Payments/PaymentHistory";
 import PaymentManagement from "./components/Payments/PaymentManagement";
 import ParentDashboard from "./components/Parents/ParentDashboard";
-import LinkParent from "./components/Parents/LinkParent"
+import LinkParent from "./components/Parents/LinkParent";
 import GenerateLinkCode from "./components/Parents/GenerateLink";
 import ParentReport from "./components/Parents/ParentReport";
 import ExamPaperUpload from "./components/TeacherTools/ExamPaperUpload";
 import StudentResults from "./components/TeacherTools/StudentResults";
 import StudentResultDetail from "./components/TeacherTools/StudentResultDetail";
-import TeacherStudentResults from "./components/TeacherTools/TeacherStudentResults";
 import TeacherResultDetail from "./components/TeacherTools/TeacherResultDetail";
 import TeacherQuizResults from "./components/TeacherTools/TeacherQuizResults";
 import Pricing from "@/pages/Pricing";
@@ -60,9 +62,12 @@ import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import TermsOfService from "@/pages/TermsofService";
 import ThePowerOfHomeLanguage from "@/pages/Blog/ThePowerOfHomeLanguage";
 import DeleteAccount from "./components/DeleteAccount/DeleteAccount";
+import SeoManager from "@/components/SeoManager";
+import NotFound from "@/pages/404";
 
 const Main = lazy(() => import("@/pages/Main"));
 const EducationDashboard = lazy(() => import("./pages/EducationDashboard"));
+const Courses = lazy(() => import("./pages/Courses"));
 const educationHierarchyEnabled =
   import.meta.env.VITE_ENABLE_EDUCATION_HIERARCHY === "true";
 
@@ -153,6 +158,7 @@ export default function App() {
           <LogoProvider>
             <PfpProvider>
               <I18nextProvider i18n={i18n}>
+                <SeoManager />
                 <Routes>
                   <Route path="/" element={<HomeRoute />} />
                   <Route path="/login" element={<Login />} />
@@ -164,56 +170,166 @@ export default function App() {
                   <Route path="/pricing" element={<Pricing />} />
                   <Route path="/about" element={<About />} />
                   <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-                  <Route path="/terms-of-service" element={<TermsOfService />} />
+                  <Route
+                    path="/terms-of-service"
+                    element={<TermsOfService />}
+                  />
                   <Route path="/blog" element={<Blog />} />
-                  <Route path="/blog/best-ai-tools-homework-help-zimbabwe-2026" element={<BestAiToolsZimbabwe2026 />} />
-                  <Route path="/blog/how-to-pass-zimsec-o-level-maths" element={<HowToPassZimsecOLevelMaths />} />
-                  <Route path="/blog/chikoro-ai-apk-available-on-apk-pure" element={<ChikoroAIApkPure />} />
-                  <Route path="/blog/the-power-of-home-language-learning" element={<ThePowerOfHomeLanguage />} />
+                  <Route
+                    path="/blog/best-ai-tools-homework-help-zimbabwe-2026"
+                    element={<BestAiToolsZimbabwe2026 />}
+                  />
+                  <Route
+                    path="/blog/how-to-pass-zimsec-o-level-maths"
+                    element={<HowToPassZimsecOLevelMaths />}
+                  />
+                  <Route
+                    path="/blog/chikoro-ai-apk-available-on-apk-pure"
+                    element={<ChikoroAIApkPure />}
+                  />
+                  <Route
+                    path="/blog/the-power-of-home-language-learning"
+                    element={<ThePowerOfHomeLanguage />}
+                  />
                   <Route path="/enrol" element={<Enrol />} />
-                  <Route path="/payment" element={<PaymentPage />} />
-                  <Route path="/test" element={<Test />} />
-                  <Route path="/quiz" element={<QuizPage />} />
+                  <Route
+                    path="/payment"
+                    element={<StudentRoute Component={PaymentPage} />}
+                  />
+                  <Route
+                    path="/test"
+                    element={<StudentRoute Component={Test} />}
+                  />
+                  <Route
+                    path="/quiz"
+                    element={<StudentRoute Component={QuizPage} />}
+                  />
                   <Route path="/delete-account" element={<DeleteAccount />} />
-                  <Route path="/reports/:id" element={<Reports />} />
-                   <Route path="/test/result/:id" element={<ViewTest readOnly={true} />} />
-                    <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
-                    <Route path="/teacher-tools/lesson-planner" element={<LessonPlanner />} />
-                    <Route path="/teacher-tools/scheme-creator" element={<SchemeOfWorkCreator />} />
-                    <Route path="/teacher-tools/resource-finder" element={<ResourceFinder />} />
-                    <Route path="/teacher-tools/reports/:id" element={<Reports />} />
-                    <Route path="/teacher/link-student" element={<LinkStudent />} />
-                    <Route path="/join/:classCode" element={<JoinClass />} />
-                   <Route path="/teacher/reports/student/:id" element={<StudentReport />} />
-                    <Route path="/teacher/reports" element={<TeacherReport />} />
-                    <Route path="/teacher-tools/quiz-generator" element={<QuizGenerator />} />
-                    <Route path="/student/quiz/:quizCode" element={<StudentQuiz />} />
-                    <Route path="/payments/manage" element={<PaymentManagement/ >} />
-                    <Route path="/payments/history" element={<PaymentHistory/ >} />
-                    <Route path="parent/dashboard" element={<ParentDashboard/ >} />
-                    <Route path="/link-student" element={<LinkParent/ >} />
-                    <Route
-                      path="/link-parent"
-                      element={<StudentRoute Component={GenerateLinkCode} />}
-                    />
-                    <Route path="/parent/reports/:childId" element={<ParentReport/ >} />
-                    <Route path="/upload-exam" element={<ExamPaperUpload/ >} />
-<Route path="/student/results" element={<StudentResults />} />
-<Route path="/student/result/:resultId" element={<StudentResultDetail />} />
-<Route path="/teacher/reports/student/:studentId" element={<TeacherStudentResults />} />
-<Route path="/teacher/result/:resultId" element={<TeacherResultDetail />} />
-<Route path="/teacher/quiz-results/:quizId" element={<TeacherQuizResults />} />
-<Route path="/teacher/quizzes" element={<TeacherQuizResults />} />
-<Route path="/teacher/quizzes/:quizId" element={<TeacherQuizResults />} />
+                  <Route
+                    path="/reports/:id"
+                    element={<StudentRoute Component={Reports} />}
+                  />
+                  <Route
+                    path="/test/result/:id"
+                    element={
+                      <StudentRoute
+                        Component={() => <ViewTest readOnly={true} />}
+                      />
+                    }
+                  />
+                  <Route
+                    path="/teacher-dashboard"
+                    element={<TeacherRoute Component={TeacherDashboard} />}
+                  />
+                  <Route
+                    path="/teacher-tools/lesson-planner"
+                    element={<TeacherRoute Component={LessonPlanner} />}
+                  />
+                  <Route
+                    path="/teacher-tools/scheme-creator"
+                    element={<TeacherRoute Component={SchemeOfWorkCreator} />}
+                  />
+                  <Route
+                    path="/teacher-tools/resource-finder"
+                    element={<TeacherRoute Component={ResourceFinder} />}
+                  />
+                  <Route
+                    path="/teacher-tools/reports/:id"
+                    element={<TeacherRoute Component={Reports} />}
+                  />
+                  <Route
+                    path="/teacher/link-student"
+                    element={<TeacherRoute Component={LinkStudent} />}
+                  />
+                  <Route
+                    path="/join/:classCode"
+                    element={<StudentRoute Component={JoinClass} />}
+                  />
+                  <Route
+                    path="/teacher/reports/student/:id"
+                    element={<TeacherRoute Component={StudentReport} />}
+                  />
+                  <Route
+                    path="/teacher/reports"
+                    element={<TeacherRoute Component={TeacherReport} />}
+                  />
+                  <Route
+                    path="/teacher-tools/quiz-generator"
+                    element={<TeacherRoute Component={QuizGenerator} />}
+                  />
+                  <Route
+                    path="/student/quiz/:quizCode"
+                    element={<StudentRoute Component={StudentQuiz} />}
+                  />
+                  <Route
+                    path="/payments/manage"
+                    element={<AdminRoute Component={PaymentManagement} />}
+                  />
+                  <Route
+                    path="/payments/history"
+                    element={<AdminRoute Component={PaymentHistory} />}
+                  />
+                  <Route
+                    path="/parent/dashboard"
+                    element={<ParentRoute Component={ParentDashboard} />}
+                  />
+                  <Route
+                    path="/link-student"
+                    element={<ParentRoute Component={LinkParent} />}
+                  />
+                  <Route
+                    path="/link-parent"
+                    element={<StudentRoute Component={GenerateLinkCode} />}
+                  />
+                  <Route
+                    path="/parent/reports/:childId"
+                    element={<ParentRoute Component={ParentReport} />}
+                  />
+                  <Route
+                    path="/upload-exam"
+                    element={<TeacherRoute Component={ExamPaperUpload} />}
+                  />
+                  <Route
+                    path="/student/results"
+                    element={<StudentRoute Component={StudentResults} />}
+                  />
+                  <Route
+                    path="/student/result/:resultId"
+                    element={<StudentRoute Component={StudentResultDetail} />}
+                  />
+                  <Route
+                    path="/teacher/result/:resultId"
+                    element={<TeacherRoute Component={TeacherResultDetail} />}
+                  />
+                  <Route
+                    path="/teacher/quiz-results/:quizId"
+                    element={<TeacherRoute Component={TeacherQuizResults} />}
+                  />
+                  <Route
+                    path="/teacher/quizzes"
+                    element={<TeacherRoute Component={TeacherQuizResults} />}
+                  />
+                  <Route
+                    path="/teacher/quizzes/:quizId"
+                    element={<TeacherRoute Component={TeacherQuizResults} />}
+                  />
+                  <Route
+                    path="/courses"
+                    element={<StudentRoute Component={Courses} />}
+                  />
                   {educationHierarchyEnabled && (
                     <>
                       <Route
                         path="/education"
-                        element={<PrivateRoute Component={EducationDashboard} />}
+                        element={
+                            <EducationRoute Component={EducationDashboard} />
+                        }
                       />
                       <Route
                         path="/education/:scopeType/:scopeId"
-                        element={<PrivateRoute Component={EducationDashboard} />}
+                        element={
+                            <EducationRoute Component={EducationDashboard} />
+                        }
                       />
                     </>
                   )}
@@ -384,6 +500,7 @@ export default function App() {
                     path="/settings/mobile-connections"
                     element={<ManagerRoute Component={MobileConnections} />}
                   />
+                  <Route path="*" element={<NotFound />} />
                 </Routes>
                 <ToastContainer />
                 <KeyboardShortcutsHelp />

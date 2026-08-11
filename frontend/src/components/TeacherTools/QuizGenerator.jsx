@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import DOMPurify from "@/utils/chat/purify";
 import axios from "axios";
 import { Link } from "react-router-dom";
@@ -7,12 +7,28 @@ import "katex/dist/katex.min.css";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import {
-  FiArrowLeft, FiCpu, FiClock, FiLayers, FiHash,
-  FiBook, FiEdit2, FiRefreshCw, FiSave, FiShare2,
-  FiLink, FiCheck, FiX, FiPlus, FiTrash2,
-  FiArrowUp, FiArrowDown, FiFileText, FiSliders,
+  FiArrowLeft,
+  FiCpu,
+  FiClock,
+  FiLayers,
+  FiHash,
+  FiBook,
+  FiEdit2,
+  FiRefreshCw,
+  FiSave,
+  FiShare2,
+  FiLink,
+  FiCheck,
+  FiX,
+  FiPlus,
+  FiTrash2,
+  FiArrowUp,
+  FiArrowDown,
+  FiFileText,
+  FiSliders,
 } from "react-icons/fi";
 import ClassSelectorModal from "./ClassSelectorModal";
+import { API_BASE } from "@/utils/constants";
 
 // ─── Inline styles (replaces quizgenerator.css) ───────────────────────────────
 
@@ -704,29 +720,50 @@ const GLOBAL_CSS = `
 const DRAFT_KEY = "chikoroai_quiz_draft";
 
 const GRADE_OPTIONS = {
-  primary: ["Grade 1","Grade 2","Grade 3","Grade 4","Grade 5","Grade 6","Grade 7"],
-  secondary: ["Form 1","Form 2","Form 3","Form 4","Form 5","Form 6"],
+  primary: [
+    "Grade 1",
+    "Grade 2",
+    "Grade 3",
+    "Grade 4",
+    "Grade 5",
+    "Grade 6",
+    "Grade 7",
+  ],
+  secondary: ["Form 1", "Form 2", "Form 3", "Form 4", "Form 5", "Form 6"],
 };
 
 const DEFAULT_FORM = {
-  subject: "", topic: "", grade: "", difficulty: "medium",
-  numQuestions: 10, tabLimit: 1, timeLimit: 30,
-  questionType: "mixed", curriculum: "ZIMSEC",
+  subject: "",
+  topic: "",
+  grade: "",
+  difficulty: "medium",
+  numQuestions: 10,
+  tabLimit: 1,
+  timeLimit: 30,
+  questionType: "mixed",
+  curriculum: "ZIMSEC",
   customInstructions: "",
-  easyCount: 3, mediumCount: 5, hardCount: 2,
+  easyCount: 3,
+  mediumCount: 5,
+  hardCount: 2,
   useMixedDifficulty: false,
-  schoolName: "", examYear: new Date().getFullYear(),
+  schoolName: "",
+  examYear: new Date().getFullYear(),
   paperStyle: "ZIMSEC",
 };
 
 const saveDraft = (form) => {
-  try { localStorage.setItem(DRAFT_KEY, JSON.stringify(form)); } catch {}
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
+  } catch {}
 };
 const loadDraft = () => {
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
     return raw ? { ...DEFAULT_FORM, ...JSON.parse(raw) } : DEFAULT_FORM;
-  } catch { return DEFAULT_FORM; }
+  } catch {
+    return DEFAULT_FORM;
+  }
 };
 
 // ─── GradeSelector ────────────────────────────────────────────────────────────
@@ -738,15 +775,25 @@ function GradeSelector({ value, onChange }) {
     return null;
   };
   const [level, setLevel] = useState(() => detectLevel(value));
-  useEffect(() => { setLevel(detectLevel(value)); }, [value]);
+  useEffect(() => {
+    setLevel(detectLevel(value));
+  }, [value]);
 
   return (
     <div>
       <div className="qg-toggle-group" style={{ marginBottom: 10 }}>
-        {["primary","secondary"].map((l) => (
-          <button key={l} type="button"
+        {["primary", "secondary"].map((l) => (
+          <button
+            key={l}
+            type="button"
             className={`qg-toggle-btn ${level === l ? "active" : ""}`}
-            onClick={() => { if (level !== l) { setLevel(l); onChange(""); } }}>
+            onClick={() => {
+              if (level !== l) {
+                setLevel(l);
+                onChange("");
+              }
+            }}
+          >
             {l === "primary" ? "🏫 Primary" : "🎓 Secondary"}
           </button>
         ))}
@@ -754,9 +801,14 @@ function GradeSelector({ value, onChange }) {
       {level ? (
         <div className="qg-grade-chips">
           {GRADE_OPTIONS[level].map((g) => (
-            <button key={g} type="button"
+            <button
+              key={g}
+              type="button"
               className={`qg-grade-chip ${value === g ? "selected" : ""}`}
-              onClick={() => onChange(g)}>{g}</button>
+              onClick={() => onChange(g)}
+            >
+              {g}
+            </button>
           ))}
         </div>
       ) : (
@@ -768,14 +820,18 @@ function GradeSelector({ value, onChange }) {
 
 // ─── Math helpers ─────────────────────────────────────────────────────────────
 
-const hasMath = (text) => /\$[^\$\n]+\$|\$\$[\s\S]+?\$\$|\\\(|\\\[/.test(text ?? "");
+const hasMath = (text) =>
+  /\$[^\$\n]+\$|\$\$[\s\S]+?\$\$|\\\(|\\\[/.test(text ?? "");
 
 const normaliseMath = (text) => {
   if (!text) return text;
   let out = text;
   out = out.replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `$${m}$`);
   out = out.replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `$$${m}$$`);
-  out = out.replace(/\(([^()]*?\\[a-zA-Z]+[^()]*?)\)/g, (_, inner) => `$${inner}$`);
+  out = out.replace(
+    /\(([^()]*?\\[a-zA-Z]+[^()]*?)\)/g,
+    (_, inner) => `$${inner}$`
+  );
   return out;
 };
 
@@ -787,12 +843,41 @@ function MathText({ text }) {
     <span style={{ textTransform: "none" }}>
       {parts.map((part, i) => {
         if (part.startsWith("$$") && part.endsWith("$$") && part.length > 4) {
-          try { return <span key={i} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(katex.renderToString(part.slice(2,-2), { displayMode: true, throwOnError: false })) }} />; }
-          catch { return <span key={i}>{part}</span>; }
+          try {
+            return (
+              <span
+                key={i}
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(
+                    katex.renderToString(part.slice(2, -2), {
+                      displayMode: true,
+                      throwOnError: false,
+                    })
+                  ),
+                }}
+              />
+            );
+          } catch {
+            return <span key={i}>{part}</span>;
+          }
         }
         if (part.startsWith("$") && part.endsWith("$") && part.length > 2) {
-          try { return <span key={i} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(katex.renderToString(part.slice(1,-1), { throwOnError: false })) }} />; }
-          catch { return <span key={i}>{part}</span>; }
+          try {
+            return (
+              <span
+                key={i}
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(
+                    katex.renderToString(part.slice(1, -1), {
+                      throwOnError: false,
+                    })
+                  ),
+                }}
+              />
+            );
+          } catch {
+            return <span key={i}>{part}</span>;
+          }
         }
         return <span key={i}>{part}</span>;
       })}
@@ -806,7 +891,9 @@ function MathMarkdown({ children }) {
   return (
     <div>
       {lines.map((line, i) => (
-        <p key={i} style={{ margin: "0.3rem 0" }}><MathText text={line} /></p>
+        <p key={i} style={{ margin: "0.3rem 0" }}>
+          <MathText text={line} />
+        </p>
       ))}
     </div>
   );
@@ -825,7 +912,8 @@ function MathPreview({ text, block = false }) {
 // ─── DifficultyMixer ──────────────────────────────────────────────────────────
 
 function DifficultyMixer({ form, setForm }) {
-  const total = (form.easyCount || 0) + (form.mediumCount || 0) + (form.hardCount || 0);
+  const total =
+    (form.easyCount || 0) + (form.mediumCount || 0) + (form.hardCount || 0);
   const warn = total !== form.numQuestions;
   const set = (key, val) => {
     const n = Math.max(0, parseInt(val) || 0);
@@ -834,22 +922,31 @@ function DifficultyMixer({ form, setForm }) {
   return (
     <div className="qg-mixer">
       {[
-        { key: "easyCount",   label: "Easy",   cls: "easy"   },
+        { key: "easyCount", label: "Easy", cls: "easy" },
         { key: "mediumCount", label: "Medium", cls: "medium" },
-        { key: "hardCount",   label: "Hard",   cls: "hard"   },
+        { key: "hardCount", label: "Hard", cls: "hard" },
       ].map(({ key, label, cls }) => (
         <div className="qg-mixer-row" key={key}>
           <label>{label}</label>
-          <input type="number" min="0" value={form[key]}
-            onChange={(e) => set(key, e.target.value)} />
+          <input
+            type="number"
+            min="0"
+            value={form[key]}
+            onChange={(e) => set(key, e.target.value)}
+          />
           <div className="qg-mixer-track">
-            <div className={`qg-mixer-bar ${cls}`}
-              style={{ width: `${form.numQuestions ? (form[key] / form.numQuestions) * 100 : 0}%` }} />
+            <div
+              className={`qg-mixer-bar ${cls}`}
+              style={{
+                width: `${form.numQuestions ? (form[key] / form.numQuestions) * 100 : 0}%`,
+              }}
+            />
           </div>
         </div>
       ))}
       <p className={`qg-mixer-total ${warn ? "warn" : "ok"}`}>
-        Total: {total} / {form.numQuestions} {warn ? "⚠ Must equal question count" : "✓"}
+        Total: {total} / {form.numQuestions}{" "}
+        {warn ? "⚠ Must equal question count" : "✓"}
       </p>
     </div>
   );
@@ -857,27 +954,80 @@ function DifficultyMixer({ form, setForm }) {
 
 // ─── Question card ────────────────────────────────────────────────────────────
 
-function QuestionActions({ item, idx, isRegenerating, onStartEdit, onRegenerate, onDelete, onMoveUp, onMoveDown, isFirst, isLast }) {
+function QuestionActions({
+  item,
+  idx,
+  isRegenerating,
+  onStartEdit,
+  onRegenerate,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+  isFirst,
+  isLast,
+}) {
   return (
     <div className="qg-q-actions">
-      <button className="qg-qa-btn move" onClick={onMoveUp}  disabled={isFirst}  title="Move up">  <FiArrowUp /></button>
-      <button className="qg-qa-btn move" onClick={onMoveDown} disabled={isLast}  title="Move down"><FiArrowDown /></button>
-      <button className="qg-qa-btn edit"  onClick={() => onStartEdit(idx, item)} disabled={isRegenerating}><FiEdit2 /> Edit</button>
-      <button className="qg-qa-btn regen" onClick={() => onRegenerate(idx, item)} disabled={isRegenerating}>
+      <button
+        className="qg-qa-btn move"
+        onClick={onMoveUp}
+        disabled={isFirst}
+        title="Move up"
+      >
+        {" "}
+        <FiArrowUp />
+      </button>
+      <button
+        className="qg-qa-btn move"
+        onClick={onMoveDown}
+        disabled={isLast}
+        title="Move down"
+      >
+        <FiArrowDown />
+      </button>
+      <button
+        className="qg-qa-btn edit"
+        onClick={() => onStartEdit(idx, item)}
+        disabled={isRegenerating}
+      >
+        <FiEdit2 /> Edit
+      </button>
+      <button
+        className="qg-qa-btn regen"
+        onClick={() => onRegenerate(idx, item)}
+        disabled={isRegenerating}
+      >
         {isRegenerating ? <span className="qg-spinner-sm" /> : <FiRefreshCw />}
         {isRegenerating ? " Regenerating…" : " Regenerate"}
       </button>
-      <button className="qg-qa-btn delete" onClick={() => onDelete(idx)} title="Delete"><FiTrash2 /></button>
+      <button
+        className="qg-qa-btn delete"
+        onClick={() => onDelete(idx)}
+        title="Delete"
+      >
+        <FiTrash2 />
+      </button>
     </div>
   );
 }
 
 function QuestionCard({
-  item, idx, total, editingIndex, editForm, setEditForm,
-  onSaveEdit, onCancelEdit, onStartEdit, onRegenerate,
-  regeneratingIndex, onDelete, onMoveUp, onMoveDown,
+  item,
+  idx,
+  total,
+  editingIndex,
+  editForm,
+  setEditForm,
+  onSaveEdit,
+  onCancelEdit,
+  onStartEdit,
+  onRegenerate,
+  regeneratingIndex,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
 }) {
-  const isEditing     = editingIndex === idx;
+  const isEditing = editingIndex === idx;
   const isRegenerating = regeneratingIndex === idx;
 
   if (isEditing && editForm) {
@@ -886,20 +1036,38 @@ function QuestionCard({
         <div className="qg-q-body">
           <div className="qg-q-header">
             <div className="qg-q-header-left">
-              <span className="qg-q-type-badge editing">Editing Q{idx + 1}</span>
+              <span className="qg-q-type-badge editing">
+                Editing Q{idx + 1}
+              </span>
             </div>
             <div className="qg-marks-edit-row">
               <label>Marks</label>
-              <input type="number" min="1" max="20" value={editForm.marks || 1}
-                onChange={(e) => setEditForm({ ...editForm, marks: parseInt(e.target.value) || 1 })} />
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={editForm.marks || 1}
+                onChange={(e) =>
+                  setEditForm({
+                    ...editForm,
+                    marks: parseInt(e.target.value) || 1,
+                  })
+                }
+              />
             </div>
           </div>
 
           <div className="qg-edit-form">
             <div className="qg-form-group">
               <label>Question Text</label>
-              <textarea className="qg-textarea" rows="3" value={editForm.question}
-                onChange={(e) => setEditForm({ ...editForm, question: e.target.value })} />
+              <textarea
+                className="qg-textarea"
+                rows="3"
+                value={editForm.question}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, question: e.target.value })
+                }
+              />
               <MathPreview text={editForm.question} />
             </div>
 
@@ -909,45 +1077,78 @@ function QuestionCard({
                   <label>Options</label>
                   {editForm.options.map((opt, i) => (
                     <div key={i} style={{ marginBottom: 8 }}>
-                      <input type="text" className="qg-input" value={opt}
-                        placeholder={`Option ${String.fromCharCode(65+i)}`}
+                      <input
+                        type="text"
+                        className="qg-input"
+                        value={opt}
+                        placeholder={`Option ${String.fromCharCode(65 + i)}`}
                         onChange={(e) => {
-                          const o = [...editForm.options]; o[i] = e.target.value;
+                          const o = [...editForm.options];
+                          o[i] = e.target.value;
                           setEditForm({ ...editForm, options: o });
-                        }} />
+                        }}
+                      />
                       <MathPreview text={opt} />
                     </div>
                   ))}
                 </div>
                 <div className="qg-form-group">
                   <label>Correct Answer</label>
-                  <select className="qg-select" value={editForm.answer || "A"}
-                    onChange={(e) => setEditForm({ ...editForm, answer: e.target.value })}>
-                    {["A","B","C","D"].map((l) => <option key={l} value={l}>{l}</option>)}
+                  <select
+                    className="qg-select"
+                    value={editForm.answer || "A"}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, answer: e.target.value })
+                    }
+                  >
+                    {["A", "B", "C", "D"].map((l) => (
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </>
             ) : (
               <div className="qg-form-group">
                 <label>Mark Scheme / Expected Answer</label>
-                <textarea className="qg-textarea" rows="5" value={editForm.markScheme}
-                  onChange={(e) => setEditForm({ ...editForm, markScheme: e.target.value })} />
+                <textarea
+                  className="qg-textarea"
+                  rows="5"
+                  value={editForm.markScheme}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, markScheme: e.target.value })
+                  }
+                />
                 <MathPreview text={editForm.markScheme} block />
               </div>
             )}
 
             <div className="qg-form-group">
               <label>Change Question Type</label>
-              <select className="qg-select" value={editForm.type}
+              <select
+                className="qg-select"
+                value={editForm.type}
                 onChange={(e) => {
                   const newType = e.target.value;
                   setEditForm({
-                    ...editForm, type: newType,
-                    options: newType === "multiple-choice" ? (editForm.options || ["","","",""]) : undefined,
-                    answer:  newType === "multiple-choice" ? (editForm.answer  || "A") : undefined,
-                    markScheme: newType === "structured" ? (editForm.markScheme || "") : undefined,
+                    ...editForm,
+                    type: newType,
+                    options:
+                      newType === "multiple-choice"
+                        ? editForm.options || ["", "", "", ""]
+                        : undefined,
+                    answer:
+                      newType === "multiple-choice"
+                        ? editForm.answer || "A"
+                        : undefined,
+                    markScheme:
+                      newType === "structured"
+                        ? editForm.markScheme || ""
+                        : undefined,
                   });
-                }}>
+                }}
+              >
                 <option value="multiple-choice">Multiple Choice</option>
                 <option value="structured">Structured</option>
               </select>
@@ -955,13 +1156,22 @@ function QuestionCard({
           </div>
         </div>
 
-        <div className="qg-q-actions" style={{ borderTop: "1px solid var(--theme-sidebar-border)" }}>
-          <button className="qg-qa-btn confirm" style={{ flex: 1, justifyContent: "center" }}
-            onClick={() => onSaveEdit(idx)}>
+        <div
+          className="qg-q-actions"
+          style={{ borderTop: "1px solid var(--theme-sidebar-border)" }}
+        >
+          <button
+            className="qg-qa-btn confirm"
+            style={{ flex: 1, justifyContent: "center" }}
+            onClick={() => onSaveEdit(idx)}
+          >
             <FiCheck /> Save
           </button>
-          <button className="qg-qa-btn cancel" style={{ flex: 1, justifyContent: "center" }}
-            onClick={onCancelEdit}>
+          <button
+            className="qg-qa-btn cancel"
+            style={{ flex: 1, justifyContent: "center" }}
+            onClick={onCancelEdit}
+          >
             <FiX /> Cancel
           </button>
         </div>
@@ -970,24 +1180,36 @@ function QuestionCard({
   }
 
   return (
-    <div className={`qg-question-card ${item.type === "structured" ? "structured" : ""}`}>
+    <div
+      className={`qg-question-card ${item.type === "structured" ? "structured" : ""}`}
+    >
       <div className="qg-q-body">
         <div className="qg-q-header">
           <div className="qg-q-header-left">
-            <span className={`qg-q-type-badge ${item.type === "structured" ? "structured" : ""}`}>
-              {item.type === "multiple-choice" ? "Multiple Choice" : "Structured"}
+            <span
+              className={`qg-q-type-badge ${item.type === "structured" ? "structured" : ""}`}
+            >
+              {item.type === "multiple-choice"
+                ? "Multiple Choice"
+                : "Structured"}
             </span>
             <p className="qg-q-title">
               {idx + 1}. <MathText text={item.question} />
             </p>
           </div>
-          <span className="qg-marks-badge">[{item.marks || 1} mark{(item.marks || 1) !== 1 ? "s" : ""}]</span>
+          <span className="qg-marks-badge">
+            [{item.marks || 1} mark{(item.marks || 1) !== 1 ? "s" : ""}]
+          </span>
         </div>
 
         {item.type === "multiple-choice" ? (
           <>
             <ul className="qg-option-list">
-              {item.options.map((opt, i) => <li key={i}><MathText text={opt} /></li>)}
+              {item.options.map((opt, i) => (
+                <li key={i}>
+                  <MathText text={opt} />
+                </li>
+              ))}
             </ul>
             {item.answer && (
               <div className="qg-answer-box">✅ Correct: {item.answer}</div>
@@ -999,7 +1221,10 @@ function QuestionCard({
               <div className="qg-mark-scheme-title">📋 Mark Scheme</div>
               <div className="qg-mark-scheme-content">
                 <MathMarkdown>
-                  {item.markScheme.replace(/```[a-z]*\n?/gi,"").replace(/```/g,"").trim()}
+                  {item.markScheme
+                    .replace(/```[a-z]*\n?/gi, "")
+                    .replace(/```/g, "")
+                    .trim()}
                 </MathMarkdown>
               </div>
             </div>
@@ -1008,10 +1233,16 @@ function QuestionCard({
       </div>
 
       <QuestionActions
-        item={item} idx={idx} isRegenerating={isRegenerating}
-        onStartEdit={onStartEdit} onRegenerate={onRegenerate}
-        onDelete={onDelete} onMoveUp={onMoveUp} onMoveDown={onMoveDown}
-        isFirst={idx === 0} isLast={idx === total - 1}
+        item={item}
+        idx={idx}
+        isRegenerating={isRegenerating}
+        onStartEdit={onStartEdit}
+        onRegenerate={onRegenerate}
+        onDelete={onDelete}
+        onMoveUp={onMoveUp}
+        onMoveDown={onMoveDown}
+        isFirst={idx === 0}
+        isLast={idx === total - 1}
       />
     </div>
   );
@@ -1021,17 +1252,35 @@ function QuestionCard({
 
 const makeBlankQuestion = (type = "multiple-choice") =>
   type === "multiple-choice"
-    ? { type, question: "New question", options: ["A) Option A","B) Option B","C) Option C","D) Option D"], answer: "A", marks: 1, raw: "" }
-    : { type, question: "New question", markScheme: "Mark Scheme: Expected answer here.", marks: 2, raw: "" };
+    ? {
+        type,
+        question: "New question",
+        options: ["A) Option A", "B) Option B", "C) Option C", "D) Option D"],
+        answer: "A",
+        marks: 1,
+        raw: "",
+      }
+    : {
+        type,
+        question: "New question",
+        markScheme: "Mark Scheme: Expected answer here.",
+        marks: 2,
+        raw: "",
+      };
 
 // ─── PDF generation (unchanged logic) ────────────────────────────────────────
 
 const buildExamHTML = ({ form, parsedQuestions, includeAnswers, style }) => {
   const isZim = style === "ZIMSEC";
-  const school = form.schoolName || (isZim ? "ZIMBABWE SCHOOL EXAMINATIONS COUNCIL (ZIMSEC)" : "CAMBRIDGE ASSESSMENT INTERNATIONAL EDUCATION");
+  const school =
+    form.schoolName ||
+    (isZim
+      ? "ZIMBABWE SCHOOL EXAMINATIONS COUNCIL (ZIMSEC)"
+      : "CAMBRIDGE ASSESSMENT INTERNATIONAL EDUCATION");
   const totalMarks = parsedQuestions.reduce((s, q) => s + (q.marks || 1), 0);
 
-  const headerHTML = isZim ? `
+  const headerHTML = isZim
+    ? `
     <div class="zim-header">
       <div class="zim-logo-row">
         <div class="zim-logo-box"><img src="/favicon.png" alt="ChikoroAI Logo" /></div>
@@ -1066,7 +1315,8 @@ const buildExamHTML = ({ form, parsedQuestions, includeAnswers, style }) => {
           ${form.customInstructions ? `<li>${form.customInstructions}</li>` : ""}
         </ul>
       </div>
-    </div>` : `
+    </div>`
+    : `
     <div class="cam-header">
       <div class="cam-top-row">
         <div>
@@ -1098,8 +1348,12 @@ const buildExamHTML = ({ form, parsedQuestions, includeAnswers, style }) => {
       </div>
     </div>`;
 
-  const mcQuestions   = parsedQuestions.filter(q => q.type === "multiple-choice");
-  const structQuestions = parsedQuestions.filter(q => q.type === "structured");
+  const mcQuestions = parsedQuestions.filter(
+    (q) => q.type === "multiple-choice"
+  );
+  const structQuestions = parsedQuestions.filter(
+    (q) => q.type === "structured"
+  );
 
   const renderMCQ = (q, globalIdx) => `
     <div class="question-block mcq">
@@ -1109,7 +1363,7 @@ const buildExamHTML = ({ form, parsedQuestions, includeAnswers, style }) => {
         <span class="q-marks">[${q.marks || 1}]</span>
       </div>
       <div class="options-grid">
-        ${q.options.map((o,i) => `<div class="option-item"><span class="opt-letter">${String.fromCharCode(65+i)}</span>${o.replace(/^[A-D]\)\s*/,"")}</div>`).join("")}
+        ${q.options.map((o, i) => `<div class="option-item"><span class="opt-letter">${String.fromCharCode(65 + i)}</span>${o.replace(/^[A-D]\)\s*/, "")}</div>`).join("")}
       </div>
       ${includeAnswers ? `<p class="answer-reveal">Answer: <strong>${q.answer}</strong></p>` : ""}
     </div>`;
@@ -1121,16 +1375,26 @@ const buildExamHTML = ({ form, parsedQuestions, includeAnswers, style }) => {
         <span class="q-text">${q.question}</span>
         <span class="q-marks">[${q.marks || 1}]</span>
       </div>
-      ${includeAnswers
-        ? `<div class="mark-scheme-reveal"><p class="ms-label">MARK SCHEME</p><p>${q.markScheme?.replace(/^(Mark Scheme|Answer|Expected Answer|Marking Points?):\s*/i,"") || ""}</p></div>`
-        : `<div class="answer-lines">${"<div class='ans-line'></div>".repeat(Math.max(3, (q.marks||1)*2))}</div>`}
+      ${
+        includeAnswers
+          ? `<div class="mark-scheme-reveal"><p class="ms-label">MARK SCHEME</p><p>${q.markScheme?.replace(/^(Mark Scheme|Answer|Expected Answer|Marking Points?):\s*/i, "") || ""}</p></div>`
+          : `<div class="answer-lines">${"<div class='ans-line'></div>".repeat(Math.max(3, (q.marks || 1) * 2))}</div>`
+      }
     </div>`;
 
   const sectioned = mcQuestions.length && structQuestions.length;
-  const questionsHTML = sectioned ? `
-    ${mcQuestions.length ? `<div class="section-header">SECTION A — Multiple Choice (${mcQuestions.reduce((s,q)=>s+(q.marks||1),0)} marks)</div>${mcQuestions.map((q,i) => renderMCQ(q,i)).join("")}` : ""}
-    ${structQuestions.length ? `<div class="section-header">SECTION B — Structured Questions (${structQuestions.reduce((s,q)=>s+(q.marks||1),0)} marks)</div>${structQuestions.map((q,i) => renderStructured(q, mcQuestions.length+i)).join("")}` : ""}
-  ` : parsedQuestions.map((q,i) => q.type === "multiple-choice" ? renderMCQ(q,i) : renderStructured(q,i)).join("");
+  const questionsHTML = sectioned
+    ? `
+    ${mcQuestions.length ? `<div class="section-header">SECTION A — Multiple Choice (${mcQuestions.reduce((s, q) => s + (q.marks || 1), 0)} marks)</div>${mcQuestions.map((q, i) => renderMCQ(q, i)).join("")}` : ""}
+    ${structQuestions.length ? `<div class="section-header">SECTION B — Structured Questions (${structQuestions.reduce((s, q) => s + (q.marks || 1), 0)} marks)</div>${structQuestions.map((q, i) => renderStructured(q, mcQuestions.length + i)).join("")}` : ""}
+  `
+    : parsedQuestions
+        .map((q, i) =>
+          q.type === "multiple-choice"
+            ? renderMCQ(q, i)
+            : renderStructured(q, i)
+        )
+        .join("");
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     *{box-sizing:border-box;margin:0;padding:0}
@@ -1186,39 +1450,47 @@ const buildExamHTML = ({ form, parsedQuestions, includeAnswers, style }) => {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function QuizGenerator() {
-  const [form,              setForm]              = useState(loadDraft);
-  const [quiz,              setQuiz]              = useState("");
-  const [parsedQuestions,   setParsedQuestions]   = useState([]);
-  const [loading,           setLoading]           = useState(false);
-  const [error,             setError]             = useState("");
-  const [classes,           setClasses]           = useState([]);
-  const [editingIndex,      setEditingIndex]      = useState(null);
-  const [editForm,          setEditForm]          = useState(null);
+  const [form, setForm] = useState(loadDraft);
+  const [quiz, setQuiz] = useState("");
+  const [parsedQuestions, setParsedQuestions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [classes, setClasses] = useState([]);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editForm, setEditForm] = useState(null);
   const [regeneratingIndex, setRegeneratingIndex] = useState(null);
-  const [showShareModal,    setShowShareModal]    = useState(false);
-  const [selectedClassIdx,  setSelectedClassIdx]  = useState(null);
-  const [shareNotice,       setShareNotice]       = useState("");
-  const [draftSaved,        setDraftSaved]        = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [selectedClassIdx, setSelectedClassIdx] = useState(null);
+  const [shareNotice, setShareNotice] = useState("");
+  const [draftSaved, setDraftSaved] = useState(false);
 
-  useEffect(() => { saveDraft(form); }, [form]);
+  useEffect(() => {
+    saveDraft(form);
+  }, [form]);
 
   useEffect(() => {
     const fetchClasses = async () => {
       try {
         const token = localStorage.getItem("chikoroai_authToken");
-        const user  = JSON.parse(localStorage.getItem("chikoroai_user"));
-        const res   = await axios.get(
-          `https://api.chikoro-ai.com/api/system/teacher/my-students/${user.id}`,
+        const user = JSON.parse(localStorage.getItem("chikoroai_user"));
+        const res = await axios.get(
+          `${API_BASE}/system/teacher/my-students/${user.id}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (res.data.success) {
-          const uniqueSubjects = [...new Set(res.data.students.map((s) => s.subject))];
-          setClasses(uniqueSubjects.map((subject) => ({
-            subject,
-            students: res.data.students.filter((s) => s.subject === subject),
-          })));
+          const uniqueSubjects = [
+            ...new Set(res.data.students.map((s) => s.subject)),
+          ];
+          setClasses(
+            uniqueSubjects.map((subject) => ({
+              subject,
+              students: res.data.students.filter((s) => s.subject === subject),
+            }))
+          );
         }
-      } catch (err) { console.error(err); }
+      } catch (err) {
+        console.error(err);
+      }
     };
     fetchClasses();
   }, []);
@@ -1236,25 +1508,46 @@ export default function QuizGenerator() {
 
   const parseQuiz = (raw) => {
     const cleaned = cleanQuizText(raw);
-    const blocks  = cleaned.split(/(?=\d+\.\s+)/);
-    const parsed  = [];
+    const blocks = cleaned.split(/(?=\d+\.\s+)/);
+    const parsed = [];
     blocks.forEach((block) => {
       if (!block.trim()) return;
-      const lines  = block.split("\n").filter((l) => l.trim());
+      const lines = block.split("\n").filter((l) => l.trim());
       const qMatch = lines[0].match(/^(\d+)\.\s+(.+)/);
       if (!qMatch) return;
       const hasOptions = lines.some((line) => /^[A-D]\)/.test(line.trim()));
       if (hasOptions) {
         const options = lines.filter((line) => /^[A-D]\)/.test(line.trim()));
-        const ansLine = lines.find((line) => /\*?\*?Answer:\s*([A-D])/i.test(line));
-        parsed.push({ type: "multiple-choice", question: qMatch[2].trim(), options, answer: ansLine?.match(/Answer:\s*([A-D])/i)?.[1], marks: 1, raw: block.trim() });
+        const ansLine = lines.find((line) =>
+          /\*?\*?Answer:\s*([A-D])/i.test(line)
+        );
+        parsed.push({
+          type: "multiple-choice",
+          question: qMatch[2].trim(),
+          options,
+          answer: ansLine?.match(/Answer:\s*([A-D])/i)?.[1],
+          marks: 1,
+          raw: block.trim(),
+        });
       } else {
-        const msIdx = lines.findIndex((line) => /^(Mark Scheme|Answer|Expected Answer|Marking Points?):/i.test(line));
+        const msIdx = lines.findIndex((line) =>
+          /^(Mark Scheme|Answer|Expected Answer|Marking Points?):/i.test(line)
+        );
         parsed.push({
           type: "structured",
-          question: msIdx > 0 ? lines.slice(0, msIdx).join("\n").replace(/^\d+\.\s+/, "") : qMatch[2].trim(),
-          markScheme: msIdx > 0 ? lines.slice(msIdx).join("\n") : lines.slice(1).join("\n") || "No mark scheme provided",
-          marks: 2, raw: block.trim(),
+          question:
+            msIdx > 0
+              ? lines
+                  .slice(0, msIdx)
+                  .join("\n")
+                  .replace(/^\d+\.\s+/, "")
+              : qMatch[2].trim(),
+          markScheme:
+            msIdx > 0
+              ? lines.slice(msIdx).join("\n")
+              : lines.slice(1).join("\n") || "No mark scheme provided",
+          marks: 2,
+          raw: block.trim(),
         });
       }
     });
@@ -1262,18 +1555,27 @@ export default function QuizGenerator() {
   };
 
   const reconstructQuiz = (questions) =>
-    questions.map((q, i) =>
-      q.type === "multiple-choice"
-        ? `${i+1}. ${q.question}\n${q.options.join("\n")}${q.answer ? `\nAnswer: ${q.answer}` : ""}`
-        : `${i+1}. ${q.question}\n${q.markScheme}`
-    ).join("\n\n");
+    questions
+      .map((q, i) =>
+        q.type === "multiple-choice"
+          ? `${i + 1}. ${q.question}\n${q.options.join("\n")}${q.answer ? `\nAnswer: ${q.answer}` : ""}`
+          : `${i + 1}. ${q.question}\n${q.markScheme}`
+      )
+      .join("\n\n");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true); setQuiz(""); setError("");
+    setLoading(true);
+    setQuiz("");
+    setError("");
     try {
-      const token   = localStorage.getItem("chikoroai_authToken");
-      const payload = { ...form, numQuestions: form.numQuestions || 10, tabLimit: form.tabLimit || 1, timeLimit: form.timeLimit || 0 };
+      const token = localStorage.getItem("chikoroai_authToken");
+      const payload = {
+        ...form,
+        numQuestions: form.numQuestions || 10,
+        tabLimit: form.tabLimit || 1,
+        timeLimit: form.timeLimit || 0,
+      };
       if (form.useMixedDifficulty) {
         payload.easyCount = form.easyCount;
         payload.mediumCount = form.mediumCount;
@@ -1281,83 +1583,163 @@ export default function QuizGenerator() {
         delete payload.difficulty;
       }
       const res = await axios.post(
-        "https://api.chikoro-ai.com/api/system/teacher/generate-quiz",
+        `${API_BASE}/system/teacher/generate-quiz`,
         payload,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (res.data.success) setQuiz(res.data.quiz);
       else setError(res.data.error || "Failed to generate quiz.");
-    } catch { setError("Error generating quiz."); }
-    finally { setLoading(false); }
+    } catch {
+      setError("Error generating quiz.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const startEdit = (idx, item) => {
     setEditingIndex(idx);
     setEditForm(
       item.type === "multiple-choice"
-        ? { type: "multiple-choice", question: item.question, options: item.options.map((o) => o.replace(/^[A-D]\)\s*/,"")), answer: item.answer, marks: item.marks || 1 }
-        : { type: "structured", question: item.question, markScheme: item.markScheme.replace(/^(Mark Scheme|Answer|Expected Answer|Marking Points?):\s*/i,""), marks: item.marks || 2 }
+        ? {
+            type: "multiple-choice",
+            question: item.question,
+            options: item.options.map((o) => o.replace(/^[A-D]\)\s*/, "")),
+            answer: item.answer,
+            marks: item.marks || 1,
+          }
+        : {
+            type: "structured",
+            question: item.question,
+            markScheme: item.markScheme.replace(
+              /^(Mark Scheme|Answer|Expected Answer|Marking Points?):\s*/i,
+              ""
+            ),
+            marks: item.marks || 2,
+          }
     );
   };
 
   const handleSaveEdit = (idx) => {
     if (!editForm) return;
     const updated = [...parsedQuestions];
-    updated[idx] = editForm.type === "multiple-choice"
-      ? { ...updated[idx], type: "multiple-choice", question: editForm.question, options: editForm.options.map((o,i) => `${String.fromCharCode(65+i)}) ${o}`), answer: editForm.answer, marks: editForm.marks }
-      : { ...updated[idx], type: "structured", question: editForm.question, markScheme: `Mark Scheme: ${editForm.markScheme}`, marks: editForm.marks };
+    updated[idx] =
+      editForm.type === "multiple-choice"
+        ? {
+            ...updated[idx],
+            type: "multiple-choice",
+            question: editForm.question,
+            options: editForm.options.map(
+              (o, i) => `${String.fromCharCode(65 + i)}) ${o}`
+            ),
+            answer: editForm.answer,
+            marks: editForm.marks,
+          }
+        : {
+            ...updated[idx],
+            type: "structured",
+            question: editForm.question,
+            markScheme: `Mark Scheme: ${editForm.markScheme}`,
+            marks: editForm.marks,
+          };
     setParsedQuestions(updated);
     setQuiz(reconstructQuiz(updated));
-    setEditingIndex(null); setEditForm(null);
+    setEditingIndex(null);
+    setEditForm(null);
   };
 
   const handleRegenerate = async (idx, item) => {
     setRegeneratingIndex(idx);
     try {
       const token = localStorage.getItem("chikoroai_authToken");
-      const res   = await axios.post(
-        "https://api.chikoro-ai.com/api/system/teacher/redo-question",
-        { type: item.type, raw: item.raw, subject: form.subject, topic: form.topic, grade: form.grade, difficulty: form.difficulty },
+      const res = await axios.post(
+        `${API_BASE}/system/teacher/redo-question`,
+        {
+          type: item.type,
+          raw: item.raw,
+          subject: form.subject,
+          topic: form.topic,
+          grade: form.grade,
+          difficulty: form.difficulty,
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (res.data.success && res.data.question) {
-        const updated  = [...parsedQuestions];
+        const updated = [...parsedQuestions];
         const reparsed = parseQuiz(res.data.question);
-        if (reparsed.length) { updated[idx] = { ...reparsed[0], marks: item.marks }; setParsedQuestions(updated); setQuiz(reconstructQuiz(updated)); }
+        if (reparsed.length) {
+          updated[idx] = { ...reparsed[0], marks: item.marks };
+          setParsedQuestions(updated);
+          setQuiz(reconstructQuiz(updated));
+        }
       }
-    } catch (err) { console.error(err); }
-    finally { setRegeneratingIndex(null); }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRegeneratingIndex(null);
+    }
   };
 
-  const handleDelete   = (idx)  => { const u = parsedQuestions.filter((_,i)=>i!==idx); setParsedQuestions(u); setQuiz(reconstructQuiz(u)); };
-  const handleMoveUp   = (idx)  => { if (!idx) return; const u=[...parsedQuestions]; [u[idx-1],u[idx]]=[u[idx],u[idx-1]]; setParsedQuestions(u); setQuiz(reconstructQuiz(u)); };
-  const handleMoveDown = (idx)  => { if (idx===parsedQuestions.length-1) return; const u=[...parsedQuestions]; [u[idx],u[idx+1]]=[u[idx+1],u[idx]]; setParsedQuestions(u); setQuiz(reconstructQuiz(u)); };
-  const handleAddQuestion = (type) => { const u=[...parsedQuestions, makeBlankQuestion(type)]; setParsedQuestions(u); setQuiz(reconstructQuiz(u)); };
+  const handleDelete = (idx) => {
+    const u = parsedQuestions.filter((_, i) => i !== idx);
+    setParsedQuestions(u);
+    setQuiz(reconstructQuiz(u));
+  };
+  const handleMoveUp = (idx) => {
+    if (!idx) return;
+    const u = [...parsedQuestions];
+    [u[idx - 1], u[idx]] = [u[idx], u[idx - 1]];
+    setParsedQuestions(u);
+    setQuiz(reconstructQuiz(u));
+  };
+  const handleMoveDown = (idx) => {
+    if (idx === parsedQuestions.length - 1) return;
+    const u = [...parsedQuestions];
+    [u[idx], u[idx + 1]] = [u[idx + 1], u[idx]];
+    setParsedQuestions(u);
+    setQuiz(reconstructQuiz(u));
+  };
+  const handleAddQuestion = (type) => {
+    const u = [...parsedQuestions, makeBlankQuestion(type)];
+    setParsedQuestions(u);
+    setQuiz(reconstructQuiz(u));
+  };
 
   const exportPDF = async (includeAnswers, filename) => {
-    const html    = buildExamHTML({ form, parsedQuestions, includeAnswers, style: form.paperStyle });
+    const html = buildExamHTML({
+      form,
+      parsedQuestions,
+      includeAnswers,
+      style: form.paperStyle,
+    });
     const tempDiv = document.createElement("div");
-    Object.assign(tempDiv.style, { position:"absolute", left:"-9999px", width:"800px", backgroundColor:"white" });
+    Object.assign(tempDiv.style, {
+      position: "absolute",
+      left: "-9999px",
+      width: "800px",
+      backgroundColor: "white",
+    });
     tempDiv.innerHTML = html;
     document.body.appendChild(tempDiv);
     try {
-      const canvas  = await html2canvas(tempDiv, { scale: 2 });
-      const pdf     = new jsPDF("p","mm","a4");
+      const canvas = await html2canvas(tempDiv, { scale: 2 });
+      const pdf = new jsPDF("p", "mm", "a4");
       const imgData = canvas.toDataURL("image/png");
-      const pageH   = (canvas.height * 210) / canvas.width;
+      const pageH = (canvas.height * 210) / canvas.width;
       let y = 0;
       while (y < pageH) {
         if (y > 0) pdf.addPage();
-        pdf.addImage(imgData,"PNG",0,-y,210,pageH);
+        pdf.addImage(imgData, "PNG", 0, -y, 210, pageH);
         y += 297;
       }
       pdf.save(filename);
-    } finally { document.body.removeChild(tempDiv); }
+    } finally {
+      document.body.removeChild(tempDiv);
+    }
   };
 
   const handleSavePDF = async () => {
     await exportPDF(false, `${form.subject || "Quiz"}_QuestionPaper.pdf`);
-    await exportPDF(true,  `${form.subject || "Quiz"}_MarkScheme.pdf`);
+    await exportPDF(true, `${form.subject || "Quiz"}_MarkScheme.pdf`);
   };
 
   const handleManualSaveDraft = () => {
@@ -1377,30 +1759,56 @@ export default function QuizGenerator() {
         <Link to="/teacher-dashboard" className="qg-back-btn">
           <FiArrowLeft /> Back to Dashboard
         </Link>
-        <button className={`qg-draft-btn ${draftSaved ? "saved" : ""}`} onClick={handleManualSaveDraft}>
-          {draftSaved ? <><FiCheck /> Saved!</> : <><FiSave /> Save Draft</>}
+        <button
+          className={`qg-draft-btn ${draftSaved ? "saved" : ""}`}
+          onClick={handleManualSaveDraft}
+        >
+          {draftSaved ? (
+            <>
+              <FiCheck /> Saved!
+            </>
+          ) : (
+            <>
+              <FiSave /> Save Draft
+            </>
+          )}
         </button>
       </nav>
 
       {/* Header */}
       <header className="qg-header">
-        <h1><FiCpu /> Smart Quiz Builder</h1>
-        <p>Instantly craft custom quizzes and exams with precision difficulty leveling.</p>
+        <h1>
+          <FiCpu /> Smart Quiz Builder
+        </h1>
+        <p>
+          Instantly craft custom quizzes and exams with precision difficulty
+          leveling.
+        </p>
       </header>
 
       {/* Form */}
       <form className="qg-form" onSubmit={handleSubmit}>
         <div className="qg-card">
           <div className="qg-form-grid">
-
             {/* Paper style */}
             <div className="qg-form-group full">
-              <label><FiFileText /> Exam Paper Style</label>
+              <label>
+                <FiFileText /> Exam Paper Style
+              </label>
               <div className="qg-toggle-group">
-                {["ZIMSEC","Cambridge"].map((s) => (
-                  <button key={s} type="button"
+                {["ZIMSEC", "Cambridge"].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
                     className={`qg-toggle-btn ${form.paperStyle === s ? "active" : ""}`}
-                    onClick={() => setForm({ ...form, paperStyle: s, curriculum: s === "Cambridge" ? "Cambridge" : "ZIMSEC" })}>
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        paperStyle: s,
+                        curriculum: s === "Cambridge" ? "Cambridge" : "ZIMSEC",
+                      })
+                    }
+                  >
                     {s === "ZIMSEC" ? "🇿🇼 ZIMSEC" : "🇬🇧 Cambridge"}
                   </button>
                 ))}
@@ -1408,52 +1816,95 @@ export default function QuizGenerator() {
             </div>
 
             <div className="qg-form-group">
-              <label><FiBook /> Subject</label>
-              <input type="text" className="qg-input" placeholder="e.g. Biology"
-                value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+              <label>
+                <FiBook /> Subject
+              </label>
+              <input
+                type="text"
+                className="qg-input"
+                placeholder="e.g. Biology"
+                value={form.subject}
+                onChange={(e) => setForm({ ...form, subject: e.target.value })}
+              />
             </div>
             <div className="qg-form-group">
-              <label><FiLayers /> Topic</label>
-              <input type="text" className="qg-input" placeholder="e.g. Photosynthesis"
-                value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })} />
+              <label>
+                <FiLayers /> Topic
+              </label>
+              <input
+                type="text"
+                className="qg-input"
+                placeholder="e.g. Photosynthesis"
+                value={form.topic}
+                onChange={(e) => setForm({ ...form, topic: e.target.value })}
+              />
             </div>
 
             <div className="qg-form-group">
               <label>School / Institution</label>
-              <input type="text" className="qg-input" placeholder="Optional — appears on header"
-                value={form.schoolName} onChange={(e) => setForm({ ...form, schoolName: e.target.value })} />
+              <input
+                type="text"
+                className="qg-input"
+                placeholder="Optional — appears on header"
+                value={form.schoolName}
+                onChange={(e) =>
+                  setForm({ ...form, schoolName: e.target.value })
+                }
+              />
             </div>
             <div className="qg-form-group">
               <label>Exam Year</label>
-              <input type="number" className="qg-input" value={form.examYear} min="2000" max="2099"
-                onChange={(e) => setForm({ ...form, examYear: e.target.value })} />
+              <input
+                type="number"
+                className="qg-input"
+                value={form.examYear}
+                min="2000"
+                max="2099"
+                onChange={(e) => setForm({ ...form, examYear: e.target.value })}
+              />
             </div>
 
             <div className="qg-form-group full">
               <label>Grade / Form</label>
-              <GradeSelector value={form.grade} onChange={(grade) => setForm({ ...form, grade })} />
+              <GradeSelector
+                value={form.grade}
+                onChange={(grade) => setForm({ ...form, grade })}
+              />
             </div>
 
             {/* Difficulty */}
             <div className="qg-form-group full">
-              <label><FiSliders /> Difficulty</label>
+              <label>
+                <FiSliders /> Difficulty
+              </label>
               <div className="qg-toggle-group" style={{ marginBottom: 10 }}>
-                <button type="button"
+                <button
+                  type="button"
                   className={`qg-toggle-btn ${!form.useMixedDifficulty ? "active" : ""}`}
-                  onClick={() => setForm({ ...form, useMixedDifficulty: false })}>
+                  onClick={() =>
+                    setForm({ ...form, useMixedDifficulty: false })
+                  }
+                >
                   Single Level
                 </button>
-                <button type="button"
+                <button
+                  type="button"
                   className={`qg-toggle-btn ${form.useMixedDifficulty ? "active" : ""}`}
-                  onClick={() => setForm({ ...form, useMixedDifficulty: true })}>
+                  onClick={() => setForm({ ...form, useMixedDifficulty: true })}
+                >
                   Mixed (Easy + Medium + Hard)
                 </button>
               </div>
               {form.useMixedDifficulty ? (
                 <DifficultyMixer form={form} setForm={setForm} />
               ) : (
-                <select className="qg-select" value={form.difficulty}
-                  onChange={(e) => setForm({ ...form, difficulty: e.target.value })}>
+                <select
+                  className="qg-select"
+                  value={form.difficulty}
+                  onChange={(e) =>
+                    setForm({ ...form, difficulty: e.target.value })
+                  }
+                >
                   <option value="easy">Easy</option>
                   <option value="medium">Medium</option>
                   <option value="hard">Hard</option>
@@ -1463,56 +1914,115 @@ export default function QuizGenerator() {
 
             <div className="qg-form-group">
               <label>Curriculum</label>
-              <select className="qg-select" value={form.curriculum}
-                onChange={(e) => setForm({ ...form, curriculum: e.target.value })}>
+              <select
+                className="qg-select"
+                value={form.curriculum}
+                onChange={(e) =>
+                  setForm({ ...form, curriculum: e.target.value })
+                }
+              >
                 <option value="ZIMSEC">ZIMSEC</option>
                 <option value="Cambridge">Cambridge</option>
               </select>
             </div>
             <div className="qg-form-group">
               <label>Question Type</label>
-              <select className="qg-select" value={form.questionType}
-                onChange={(e) => setForm({ ...form, questionType: e.target.value })}>
+              <select
+                className="qg-select"
+                value={form.questionType}
+                onChange={(e) =>
+                  setForm({ ...form, questionType: e.target.value })
+                }
+              >
                 <option value="mixed">Mixed</option>
                 <option value="multiple-choice">Multiple Choice Only</option>
                 <option value="structured">Structured Only</option>
               </select>
             </div>
             <div className="qg-form-group">
-              <label><FiHash /> Question Count</label>
-              <input type="number" className="qg-input" min="1" max="50" value={form.numQuestions}
-                onChange={(e) => setForm({ ...form, numQuestions: parseInt(e.target.value) || "" })} />
+              <label>
+                <FiHash /> Question Count
+              </label>
+              <input
+                type="number"
+                className="qg-input"
+                min="1"
+                max="50"
+                value={form.numQuestions}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    numQuestions: parseInt(e.target.value) || "",
+                  })
+                }
+              />
             </div>
             <div className="qg-form-group">
-              <label><FiClock /> Time Limit (min)</label>
-              <input type="number" className="qg-input" min="0" value={form.timeLimit}
-                onChange={(e) => setForm({ ...form, timeLimit: parseInt(e.target.value) || "" })} />
+              <label>
+                <FiClock /> Time Limit (min)
+              </label>
+              <input
+                type="number"
+                className="qg-input"
+                min="0"
+                value={form.timeLimit}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    timeLimit: parseInt(e.target.value) || "",
+                  })
+                }
+              />
               <span className="qg-helper">0 for unlimited</span>
             </div>
             <div className="qg-form-group">
               <label>Tab Limit</label>
-              <input type="number" className="qg-input" min="1" max="10" value={form.tabLimit}
-                onChange={(e) => setForm({ ...form, tabLimit: parseInt(e.target.value) || "" })} />
+              <input
+                type="number"
+                className="qg-input"
+                min="1"
+                max="10"
+                value={form.tabLimit}
+                onChange={(e) =>
+                  setForm({ ...form, tabLimit: parseInt(e.target.value) || "" })
+                }
+              />
               <span className="qg-helper">Anti-cheating tolerance</span>
             </div>
 
             <div className="qg-form-group full">
               <label>Custom Instructions</label>
-              <textarea className="qg-textarea" rows="2"
+              <textarea
+                className="qg-textarea"
+                rows="2"
                 placeholder="e.g. Show all working. Answer in SI units."
                 value={form.customInstructions}
-                onChange={(e) => setForm({ ...form, customInstructions: e.target.value })} />
+                onChange={(e) =>
+                  setForm({ ...form, customInstructions: e.target.value })
+                }
+              />
             </div>
           </div>
         </div>
 
-        <button className="qg-generate-btn" type="submit" disabled={loading || !form.grade}>
+        <button
+          className="qg-generate-btn"
+          type="submit"
+          disabled={loading || !form.grade}
+        >
           {loading ? <div className="qg-spinner" /> : <FiCpu />}
           {loading ? "Generating Quiz…" : "Generate Quiz"}
         </button>
 
         {!form.grade && (
-          <p style={{ textAlign: "center", marginTop: 8, fontSize: 12, color: "#ca8a04" }}>
+          <p
+            style={{
+              textAlign: "center",
+              marginTop: 8,
+              fontSize: 12,
+              color: "#ca8a04",
+            }}
+          >
             ⚠ Please select a grade before generating.
           </p>
         )}
@@ -1525,10 +2035,17 @@ export default function QuizGenerator() {
           <div className="qg-results-header">
             <h2>Preview Quiz</h2>
             <div className="qg-badges">
-              <span className="qg-badge"><FiClock style={{ marginRight: 4 }} />{form.timeLimit || "∞"}m</span>
-              <span className="qg-badge">{parsedQuestions.length} Questions</span>
+              <span className="qg-badge">
+                <FiClock style={{ marginRight: 4 }} />
+                {form.timeLimit || "∞"}m
+              </span>
+              <span className="qg-badge">
+                {parsedQuestions.length} Questions
+              </span>
               <span className="qg-badge">{totalMarks} Marks</span>
-              <span className={`qg-badge ${form.paperStyle === "Cambridge" ? "cam" : "zim"}`}>
+              <span
+                className={`qg-badge ${form.paperStyle === "Cambridge" ? "cam" : "zim"}`}
+              >
                 {form.paperStyle}
               </span>
             </div>
@@ -1536,10 +2053,18 @@ export default function QuizGenerator() {
 
           {parsedQuestions.map((item, idx) => (
             <QuestionCard
-              key={idx} item={item} idx={idx} total={parsedQuestions.length}
-              editingIndex={editingIndex} editForm={editForm} setEditForm={setEditForm}
+              key={idx}
+              item={item}
+              idx={idx}
+              total={parsedQuestions.length}
+              editingIndex={editingIndex}
+              editForm={editForm}
+              setEditForm={setEditForm}
               onSaveEdit={handleSaveEdit}
-              onCancelEdit={() => { setEditingIndex(null); setEditForm(null); }}
+              onCancelEdit={() => {
+                setEditingIndex(null);
+                setEditForm(null);
+              }}
               onStartEdit={startEdit}
               onRegenerate={handleRegenerate}
               regeneratingIndex={regeneratingIndex}
@@ -1551,40 +2076,73 @@ export default function QuizGenerator() {
 
           <div className="qg-add-row">
             <span className="qg-add-label">Add Question:</span>
-            <button className="qg-add-btn" type="button" onClick={() => handleAddQuestion("multiple-choice")}>
+            <button
+              className="qg-add-btn"
+              type="button"
+              onClick={() => handleAddQuestion("multiple-choice")}
+            >
               <FiPlus /> Multiple Choice
             </button>
-            <button className="qg-add-btn structured" type="button" onClick={() => handleAddQuestion("structured")}>
+            <button
+              className="qg-add-btn structured"
+              type="button"
+              onClick={() => handleAddQuestion("structured")}
+            >
               <FiPlus /> Structured
             </button>
           </div>
 
           <div className="qg-actions-bar">
-            <button className="qg-action-btn save" type="button" onClick={handleSavePDF}>
+            <button
+              className="qg-action-btn save"
+              type="button"
+              onClick={handleSavePDF}
+            >
               <FiSave /> Export PDFs (2)
             </button>
-            <button className="qg-action-btn share" type="button"
+            <button
+              className="qg-action-btn share"
+              type="button"
               onClick={() => {
-                if (!classes.length) { setError("No classes found. Link students first."); return; }
-                setShareNotice(""); setSelectedClassIdx(null); setShowShareModal(true);
-              }}>
+                if (!classes.length) {
+                  setError("No classes found. Link students first.");
+                  return;
+                }
+                setShareNotice("");
+                setSelectedClassIdx(null);
+                setShowShareModal(true);
+              }}
+            >
               <FiShare2 /> Share to Class
             </button>
-            <button className="qg-action-btn link" type="button"
+            <button
+              className="qg-action-btn link"
+              type="button"
               onClick={async () => {
                 try {
                   const token = localStorage.getItem("chikoroai_authToken");
-                  const res   = await axios.post(
-                    "https://api.chikoro-ai.com/api/system/teacher/create-quiz-link",
-                    { quiz, subject: form.subject, topic: form.topic, timeLimit: form.timeLimit, tabLimit: form.tabLimit },
+                  const res = await axios.post(
+                    `${API_BASE}/system/teacher/create-quiz-link`,
+                    {
+                      quiz,
+                      subject: form.subject,
+                      topic: form.topic,
+                      timeLimit: form.timeLimit,
+                      tabLimit: form.tabLimit,
+                    },
                     { headers: { Authorization: `Bearer ${token}` } }
                   );
                   if (res.data.link) {
-                    try { await navigator.clipboard.writeText(res.data.link); } catch {}
+                    try {
+                      await navigator.clipboard.writeText(res.data.link);
+                    } catch {}
                     setShareNotice(`Public link copied: ${res.data.link}`);
                   }
-                } catch { setError("Error generating link."); }
-              }}>
+                } catch {
+                  setError("Error generating link.");
+                }
+              }}
+            >
               <FiLink /> Public Link
             </button>
           </div>
@@ -1595,22 +2153,37 @@ export default function QuizGenerator() {
 
       {showShareModal && (
         <ClassSelectorModal
-          classes={classes} selectedIndex={selectedClassIdx} onSelect={setSelectedClassIdx}
+          classes={classes}
+          selectedIndex={selectedClassIdx}
+          onSelect={setSelectedClassIdx}
           onConfirm={async () => {
             if (selectedClassIdx === null) return;
             const cls = classes[selectedClassIdx];
             setShowShareModal(false);
             try {
               const token = localStorage.getItem("chikoroai_authToken");
-              const res   = await axios.post(
-                "https://api.chikoro-ai.com/api/system/teacher/share-quiz-with-class",
-                { quiz, subject: cls.subject, topic: form.topic, timeLimit: form.timeLimit, tabLimit: form.tabLimit, studentIds: cls.students.map((s) => s.id) },
+              const res = await axios.post(
+                `${API_BASE}/system/teacher/share-quiz-with-class`,
+                {
+                  quiz,
+                  subject: cls.subject,
+                  topic: form.topic,
+                  timeLimit: form.timeLimit,
+                  tabLimit: form.tabLimit,
+                  studentIds: cls.students.map((s) => s.id),
+                },
                 { headers: { Authorization: `Bearer ${token}` } }
               );
-              if (res.data.success) setShareNotice(`Shared with ${cls.subject} (${cls.students.length} students).`);
+              if (res.data.success)
+                setShareNotice(
+                  `Shared with ${cls.subject} (${cls.students.length} students).`
+                );
               else setError(`Failed to share: ${res.data.error}`);
-            } catch { setError("Error sharing quiz."); }
-            finally { setSelectedClassIdx(null); }
+            } catch {
+              setError("Error sharing quiz.");
+            } finally {
+              setSelectedClassIdx(null);
+            }
           }}
           onClose={() => setShowShareModal(false)}
         />
