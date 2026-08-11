@@ -654,6 +654,28 @@
   flex-direction: column;
   align-items: flex-end;
 }
+
+.courses-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--courses-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--courses-accent) 10%, transparent);
+  color: var(--courses-text);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.courses-download:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
 .courses-detail__progress > strong {
   font-size: 38px;
   letter-spacing: -0.05em;

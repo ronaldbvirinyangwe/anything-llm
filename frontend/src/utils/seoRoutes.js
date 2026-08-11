@@ -145,6 +145,20 @@ export const SEO_ROUTES = {
     "Read practical study guides, AI education insights, and ZIMSEC exam tips for Zimbabwean students, parents, and teachers.",
     "CollectionPage"
   ),
+  "/blog/chikoro-ai-august-2026-update": articleMetadata(
+    "/blog/chikoro-ai-august-2026-update",
+    "Chikoro AI August 2026 Update: What's New",
+    "Explore Chikoro AI's Today dashboard, mastery tracking, diagnostics, assignments, offline learning and spaced Mastery Recovery for Zimbabwean learners.",
+    "2026-08-11",
+    {
+      headline:
+        "What Chikoro AI Can Do Now: Today, Offline Learning and Mastery Recovery",
+      about: {
+        "@type": "SoftwareApplication",
+        name: "Chikoro AI connected learning platform",
+      },
+    }
+  ),
   "/blog/chikoro-ai-features-guide": articleMetadata(
     "/blog/chikoro-ai-features-guide",
     "Chikoro AI Features: Complete Guide for Zimbabwe | Chikoro AI",

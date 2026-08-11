@@ -23,6 +23,7 @@ import { LogoProvider } from "./LogoContext";
 import { FullScreenLoader } from "./components/Preloader";
 import { ThemeProvider } from "./ThemeContext";
 import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
+import OfflineStatus from "@/components/OfflineStatus";
 import Register from "@/pages/Auth/Register";
 import Enrol from "@/pages/Enrol/Enrol";
 import PaymentPage from "./pages/PaymentPage/PaymentPage";
@@ -62,6 +63,7 @@ import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import TermsOfService from "@/pages/TermsofService";
 import ThePowerOfHomeLanguage from "@/pages/Blog/ThePowerOfHomeLanguage";
 import {
+  ChikoroAIAugust2026Update,
   ChikoroAIFeaturesGuide,
   ChikoroAIForParents,
   ChikoroAIForSchools,
@@ -75,6 +77,15 @@ import NotFound from "@/pages/404";
 const Main = lazy(() => import("@/pages/Main"));
 const EducationDashboard = lazy(() => import("./pages/EducationDashboard"));
 const Courses = lazy(() => import("./pages/Courses"));
+const Mastery = lazy(() => import("./pages/Mastery"));
+const Diagnostic = lazy(() => import("./pages/Diagnostic"));
+const Review = lazy(() => import("./pages/Review"));
+const TeacherAssignments = lazy(
+  () => import("./pages/Assignments/TeacherAssignments")
+);
+const StudentAssignments = lazy(
+  () => import("./pages/Assignments/StudentAssignments")
+);
 const educationHierarchyEnabled =
   import.meta.env.VITE_ENABLE_EDUCATION_HIERARCHY === "true";
 
@@ -182,6 +193,10 @@ export default function App() {
                     element={<TermsOfService />}
                   />
                   <Route path="/blog" element={<Blog />} />
+                  <Route
+                    path="/blog/chikoro-ai-august-2026-update"
+                    element={<ChikoroAIAugust2026Update />}
+                  />
                   <Route
                     path="/blog/chikoro-ai-features-guide"
                     element={<ChikoroAIFeaturesGuide />}
@@ -343,6 +358,26 @@ export default function App() {
                   <Route
                     path="/courses"
                     element={<StudentRoute Component={Courses} />}
+                  />
+                  <Route
+                    path="/student/mastery"
+                    element={<StudentRoute Component={Mastery} />}
+                  />
+                  <Route
+                    path="/student/diagnostic"
+                    element={<StudentRoute Component={Diagnostic} />}
+                  />
+                  <Route
+                    path="/student/review"
+                    element={<StudentRoute Component={Review} />}
+                  />
+                  <Route
+                    path="/teacher/assignments"
+                    element={<TeacherRoute Component={TeacherAssignments} />}
+                  />
+                  <Route
+                    path="/student/assignments"
+                    element={<StudentRoute Component={StudentAssignments} />}
                   />
                   {educationHierarchyEnabled && (
                     <>
@@ -531,6 +566,7 @@ export default function App() {
                 </Routes>
                 <ToastContainer />
                 <KeyboardShortcutsHelp />
+                <OfflineStatus />
               </I18nextProvider>
             </PfpProvider>
           </LogoProvider>

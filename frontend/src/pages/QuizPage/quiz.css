@@ -8,6 +8,24 @@
   background: var(--color-muted);
 }
 
+.quiz-subject-field {
+  display: grid;
+  gap: 7px;
+  margin: 16px 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.quiz-subject-field select {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--theme-divider, rgba(255, 255, 255, 0.1));
+  border-radius: 9px;
+  background: var(--theme-bg-primary, #0e0f0f);
+  color: var(--theme-text-primary, #fff);
+}
+
 .quiz-header {
   display: flex;
   align-items: center;
@@ -60,8 +78,12 @@
   animation: spin 1s linear infinite;
 }
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* Error */

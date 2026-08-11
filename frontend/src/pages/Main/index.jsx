@@ -5,11 +5,12 @@ import { FullScreenLoader } from "@/components/Preloader";
 import Home from "./Home";
 import DefaultChatContainer from "@/components/DefaultChat";
 import TeacherDashboard from "../../components/TeacherDashboard/TeacherDashboard";
-import ParentDashboard from "../../components/Parents/ParentDashboard"; 
+import ParentDashboard from "../../components/Parents/ParentDashboard";
 import { isMobile } from "react-device-detect";
 import Sidebar, { SidebarMobileHeader } from "@/components/Sidebar";
 import { userFromStorage } from "@/utils/request";
 import EducationHierarchy from "@/models/educationHierarchy";
+import StudentToday from "@/pages/StudentToday";
 
 export default function Main() {
   const { loading, requiresAuth, mode } = usePasswordModal();
@@ -49,9 +50,18 @@ export default function Main() {
   if (user?.role === "teacher") {
     return <TeacherDashboard />;
   }
-  
+
   if (user?.role === "parent") {
     return <ParentDashboard />;
+  }
+
+  if (user?.role === "student") {
+    return (
+      <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
+        {!isMobile ? <Sidebar /> : <SidebarMobileHeader />}
+        <StudentToday />
+      </div>
+    );
   }
 
   // Default layout for admin and other users

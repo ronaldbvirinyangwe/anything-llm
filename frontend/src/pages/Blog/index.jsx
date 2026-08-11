@@ -4,6 +4,16 @@ import PublicSiteShell from "@/components/PublicSiteShell";
 
 const posts = [
   {
+    slug: "chikoro-ai-august-2026-update",
+    title:
+      "What Chikoro AI Can Do Now: Today, Offline Learning and Mastery Recovery",
+    excerpt:
+      "See how the Today dashboard, curriculum mastery, diagnostics, assignments, downloadable learning and spaced review now form one connected learning cycle.",
+    date: "11 August 2026",
+    readTime: "10 min read",
+    tag: "Product Update",
+  },
+  {
     slug: "chikoro-ai-features-guide",
     title:
       "Chikoro AI Features: A Complete Guide for Zimbabwean Learners, Teachers and Families",

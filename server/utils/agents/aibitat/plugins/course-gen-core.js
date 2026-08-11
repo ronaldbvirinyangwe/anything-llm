@@ -2,7 +2,10 @@
 const { PrismaClient } = require("@prisma/client");
 const Provider = require("../providers/ai-provider");
 const { HumanMessage, SystemMessage } = require("@langchain/core/messages");
-const { getOrCreateCourseWorkspace, retrieveSyllabusContext } = require("./course-gen-utils");
+const {
+  getOrCreateCourseWorkspace,
+  retrieveSyllabusContext,
+} = require("./course-gen-utils");
 const { getBaseLLMProviderModel } = require("../../../helpers");
 const prisma = new PrismaClient();
 const { jsonrepair } = require("jsonrepair");
@@ -10,7 +13,9 @@ const { jsonrepair } = require("jsonrepair");
 async function getStudentProfile(userId) {
   if (!userId) return null;
   try {
-    return await prisma.students.findFirst({ where: { user_id: Number(userId) } });
+    return await prisma.students.findFirst({
+      where: { user_id: Number(userId) },
+    });
   } catch (e) {
     return null;
   }
@@ -39,7 +44,7 @@ function buildLessonPrompt({ subject, student, moduleTitle, syllabusContext }) {
       "(use ## headings, **bold** for key terms, > blockquotes for definitions, no tables).",
     "Pitch the content exactly to this student's level — vocabulary and prior knowledge for a " +
       `${student.grade} ${student.curriculum} student aged ${student.age}.`,
-    "IMPORTANT: contentMd must be valid JSON string content — escape all newlines as \\n and all double quotes as \\\". Do not include raw line breaks inside the string.",
+    'IMPORTANT: contentMd must be valid JSON string content — escape all newlines as \\n and all double quotes as \\". Do not include raw line breaks inside the string.',
     "Respond ONLY with JSON, no preamble, no markdown fences, in this exact shape:",
     `{"lessons":[{"position":1,"title":"...","durationMin":45,"contentMd":"..."}]}`,
   ]
@@ -51,7 +56,7 @@ function buildAssignmentPrompt({ subject, student, moduleTitle }) {
   return [
     `You design one practical assignment for the module "${moduleTitle}" in ${student.curriculum} ${student.grade} ${subject}.`,
     "The assignment should require the student to apply what they learned, not just recall it.",
-    "IMPORTANT: escape all newlines as \\n and all double quotes as \\\" inside string values. Do not include raw line breaks inside any string.",
+    'IMPORTANT: escape all newlines as \\n and all double quotes as \\" inside string values. Do not include raw line breaks inside any string.',
     "Respond ONLY with JSON, no preamble, no markdown fences, in this exact shape:",
     `{"title":"...","description":"...","steps":["..."],"etaHours":"2-3h"}`,
   ].join("\n");
@@ -83,8 +88,17 @@ function sanitizeJsonText(raw) {
   return cleaned;
 }
 
-async function callJsonLLM({ provider, model, systemPrompt, userPrompt, signal }) {
-  if (!model) throw new Error(`callJsonLLM: no model provided for provider "${provider}"`);
+async function callJsonLLM({
+  provider,
+  model,
+  systemPrompt,
+  userPrompt,
+  signal,
+}) {
+  if (!model)
+    throw new Error(
+      `callJsonLLM: no model provided for provider "${provider}"`
+    );
 
   const llm = Provider.LangChainChatModel(provider, {
     temperature: 0.4,
@@ -105,7 +119,10 @@ async function callJsonLLM({ provider, model, systemPrompt, userPrompt, signal }
         : "";
 
   if (!text) {
-    console.error(`callJsonLLM: empty text from ${provider}/${model}. Raw:`, JSON.stringify(result, null, 2));
+    console.error(
+      `callJsonLLM: empty text from ${provider}/${model}. Raw:`,
+      JSON.stringify(result, null, 2)
+    );
     throw new Error(`callJsonLLM: empty response from ${provider}/${model}`);
   }
 
@@ -115,10 +132,12 @@ async function callJsonLLM({ provider, model, systemPrompt, userPrompt, signal }
     null;
 
   if (finishReason === "length" || finishReason === "max_tokens") {
-    console.error(`callJsonLLM: response truncated by token limit. Length: ${text.length} chars.`);
+    console.error(
+      `callJsonLLM: response truncated by token limit. Length: ${text.length} chars.`
+    );
     throw new Error(
       `callJsonLLM: ${provider}/${model} response was truncated (hit token limit) before completing valid JSON. ` +
-      `Raise maxTokens or shorten the requested content.`
+        `Raise maxTokens or shorten the requested content.`
     );
   }
 
@@ -136,17 +155,23 @@ async function callJsonLLM({ provider, model, systemPrompt, userPrompt, signal }
       const start = Math.max(0, pos - 40);
       const end = Math.min(cleaned.length, pos + 40);
       const window = cleaned.slice(start, end);
-      const charCodes = [...window].map((c) => `${c === "\n" ? "\\n" : c}(${c.charCodeAt(0)})`).join(" ");
+      const charCodes = [...window]
+        .map((c) => `${c === "\n" ? "\\n" : c}(${c.charCodeAt(0)})`)
+        .join(" ");
       console.error(
         `callJsonLLM: JSON parse failed at position ${pos} and repair also failed.\n` +
-        `Context: ...${window}...\n` +
-        `Char codes: ${charCodes}`
+          `Context: ...${window}...\n` +
+          `Char codes: ${charCodes}`
       );
     } else {
-      console.error(`callJsonLLM: JSON parse failed. Full raw text (${cleaned.length} chars):\n${cleaned}`);
+      console.error(
+        `callJsonLLM: JSON parse failed. Full raw text (${cleaned.length} chars):\n${cleaned}`
+      );
     }
 
-    throw new Error(`callJsonLLM: failed to parse JSON from ${provider}/${model} response: ${cleaned.slice(0, 200)}`);
+    throw new Error(
+      `callJsonLLM: failed to parse JSON from ${provider}/${model} response: ${cleaned.slice(0, 200)}`
+    );
   }
 }
 
@@ -170,15 +195,33 @@ async function planCourse({ subject, student, workspace, llmArgs }) {
  * Generates lessons + assignment for ONE already-created module row.
  * Used both by initial generation (module 1) and by read-ahead (module N+1).
  */
-async function generateModuleContent({ dbModule, student, subject, workspace, llmArgs, onProgress = () => {} }) {
-  await prisma.course_modules.update({ where: { id: dbModule.id }, data: { status: "generating" } });
+async function generateModuleContent({
+  dbModule,
+  student,
+  subject,
+  workspace,
+  llmArgs,
+  onProgress = () => {},
+}) {
+  await prisma.course_modules.update({
+    where: { id: dbModule.id },
+    data: { status: "generating" },
+  });
 
   try {
-    const moduleContext = await retrieveSyllabusContext(workspace, dbModule.title);
+    const moduleContext = await retrieveSyllabusContext(
+      workspace,
+      dbModule.title
+    );
 
     const lessonData = await callJsonLLM({
       ...llmArgs,
-      systemPrompt: buildLessonPrompt({ subject, student, moduleTitle: dbModule.title, syllabusContext: moduleContext }),
+      systemPrompt: buildLessonPrompt({
+        subject,
+        student,
+        moduleTitle: dbModule.title,
+        syllabusContext: moduleContext,
+      }),
       userPrompt: `Write the lessons for "${dbModule.title}" now.`,
     });
     for (const l of lessonData.lessons) {
@@ -195,7 +238,11 @@ async function generateModuleContent({ dbModule, student, subject, workspace, ll
 
     const assignmentData = await callJsonLLM({
       ...llmArgs,
-      systemPrompt: buildAssignmentPrompt({ subject, student, moduleTitle: dbModule.title }),
+      systemPrompt: buildAssignmentPrompt({
+        subject,
+        student,
+        moduleTitle: dbModule.title,
+      }),
       userPrompt: `Design the assignment for "${dbModule.title}" now.`,
     });
     await prisma.course_assignments.create({
@@ -208,11 +255,18 @@ async function generateModuleContent({ dbModule, student, subject, workspace, ll
       },
     });
 
-    await prisma.course_modules.update({ where: { id: dbModule.id }, data: { status: "ready" } });
-    onProgress(`Built "${dbModule.title}" (${lessonData.lessons.length} lessons + 1 assignment).`);
+    await prisma.course_modules.update({
+      where: { id: dbModule.id },
+      data: { status: "ready" },
+    });
+    onProgress(
+      `Built "${dbModule.title}" (${lessonData.lessons.length} lessons + 1 assignment).`
+    );
     return { lessonsCount: lessonData.lessons.length };
   } catch (error) {
-    await prisma.course_modules.update({ where: { id: dbModule.id }, data: { status: "failed" } }).catch(() => {});
+    await prisma.course_modules
+      .update({ where: { id: dbModule.id }, data: { status: "failed" } })
+      .catch(() => {});
     throw error;
   }
 }
@@ -224,12 +278,17 @@ async function generateModuleContent({ dbModule, student, subject, workspace, ll
  */
 async function resolveCourseLLM({ workspace, provider, model }) {
   const defaults = await resolveDefaultLLM();
-  const llmProvider = provider || workspace.agentProvider || workspace.chatProvider || defaults.provider;
-  const llmModel = model || workspace.agentModel || workspace.chatModel || defaults.model;
+  const llmProvider =
+    provider ||
+    workspace.agentProvider ||
+    workspace.chatProvider ||
+    defaults.provider;
+  const llmModel =
+    model || workspace.agentModel || workspace.chatModel || defaults.model;
   if (!llmProvider || !llmModel) {
     throw new Error(
       `resolveCourseLLM: could not resolve an LLM provider/model (provider=${llmProvider}, model=${llmModel}). ` +
-      `Check workspace settings or LLM_PROVIDER env configuration.`
+        `Check workspace settings or LLM_PROVIDER env configuration.`
     );
   }
   return { llmProvider, llmModel };
@@ -262,15 +321,24 @@ async function runCourseGeneration({
   const student = await getStudentProfile(userId);
   if (!student) throw new Error("No student profile found for this user.");
 
-  onProgress(`Generating ${subject} for ${student.name} — ${student.grade}, ${student.curriculum}.`);
+  onProgress(
+    `Generating ${subject} for ${student.name} — ${student.grade}, ${student.curriculum}.`
+  );
 
   let course = await prisma.courses.findFirst({
-    where: { subject, curriculum: student.curriculum, academicLevel: student.academicLevel, grade: student.grade },
+    where: {
+      subject,
+      curriculum: student.curriculum,
+      academicLevel: student.academicLevel,
+      grade: student.grade,
+    },
   });
 
   if (course && course.status === "ready") {
     await prisma.student_courses.upsert({
-      where: { studentId_courseId: { studentId: student.id, courseId: course.id } },
+      where: {
+        studentId_courseId: { studentId: student.id, courseId: course.id },
+      },
       create: { studentId: student.id, courseId: course.id },
       update: {},
     });
@@ -278,34 +346,58 @@ async function runCourseGeneration({
   }
 
   const workspace = await getOrCreateCourseWorkspace({
-    subject, curriculum: student.curriculum, academicLevel: student.academicLevel, grade: student.grade,
+    subject,
+    curriculum: student.curriculum,
+    academicLevel: student.academicLevel,
+    grade: student.grade,
   });
 
-  const { llmProvider, llmModel } = await resolveCourseLLM({ workspace, provider, model });
+  const { llmProvider, llmModel } = await resolveCourseLLM({
+    workspace,
+    provider,
+    model,
+  });
 
   course = await prisma.courses.upsert({
     where: {
       subject_curriculum_academicLevel_grade: {
-        subject, curriculum: student.curriculum, academicLevel: student.academicLevel, grade: student.grade,
+        subject,
+        curriculum: student.curriculum,
+        academicLevel: student.academicLevel,
+        grade: student.grade,
       },
     },
     create: {
-      subject, curriculum: student.curriculum, academicLevel: student.academicLevel, grade: student.grade,
-      status: "generating", workspaceId: workspace.id,
+      subject,
+      curriculum: student.curriculum,
+      academicLevel: student.academicLevel,
+      grade: student.grade,
+      status: "generating",
+      workspaceId: workspace.id,
     },
     update: { status: "generating" },
   });
 
   try {
     const llmArgs = { provider: llmProvider, model: llmModel, signal };
-    const { plan, syllabusContext } = await planCourse({ subject, student, workspace, llmArgs });
+    const { plan, syllabusContext } = await planCourse({
+      subject,
+      student,
+      workspace,
+      llmArgs,
+    });
     onProgress(`Planned ${plan.modules.length} modules.`);
 
     // Create ALL module placeholders up front, not_started.
     const dbModules = [];
     for (const m of plan.modules) {
       const dbModule = await prisma.course_modules.create({
-        data: { courseId: course.id, position: m.position, title: m.title, status: "not_started" },
+        data: {
+          courseId: course.id,
+          position: m.position,
+          title: m.title,
+          status: "not_started",
+        },
       });
       dbModules.push(dbModule);
     }
@@ -313,7 +405,12 @@ async function runCourseGeneration({
     // Only build module 1 now. The rest stay not_started until triggered
     // by read-ahead generation (generateNextModule).
     await generateModuleContent({
-      dbModule: dbModules[0], student, subject, workspace, llmArgs, onProgress,
+      dbModule: dbModules[0],
+      student,
+      subject,
+      workspace,
+      llmArgs,
+      onProgress,
     });
 
     course = await prisma.courses.update({
@@ -322,14 +419,18 @@ async function runCourseGeneration({
     });
 
     await prisma.student_courses.upsert({
-      where: { studentId_courseId: { studentId: student.id, courseId: course.id } },
+      where: {
+        studentId_courseId: { studentId: student.id, courseId: course.id },
+      },
       create: { studentId: student.id, courseId: course.id },
       update: {},
     });
 
     return { course, alreadyExisted: false };
   } catch (error) {
-    await prisma.courses.update({ where: { id: course.id }, data: { status: "failed" } }).catch(() => {});
+    await prisma.courses
+      .update({ where: { id: course.id }, data: { status: "failed" } })
+      .catch(() => {});
     throw error;
   }
 }
@@ -368,15 +469,22 @@ async function generateNextModule({ userId, courseId, onProgress = () => {} }) {
   const llmArgs = { provider: llmProvider, model: llmModel };
 
   await generateModuleContent({
-    dbModule: nextModule, student, subject: course.subject, workspace, llmArgs, onProgress,
+    dbModule: nextModule,
+    student,
+    subject: course.subject,
+    workspace,
+    llmArgs,
+    onProgress,
   });
 
   return { skipped: false, module: nextModule };
 }
 
 module.exports = {
+  callJsonLLM,
   runCourseGeneration,
   generateModuleContent,
   generateNextModule,
   getStudentProfile,
+  resolveDefaultLLM,
 };

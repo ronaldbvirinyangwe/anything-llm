@@ -4,74 +4,182 @@
 
 /* ─── Core Animations ─── */
 @keyframes chk-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
 }
 @keyframes chk-bounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
 }
 @keyframes chk-shake {
-  0%, 100% { transform: rotate(0deg); }
-  25% { transform: rotate(-4deg); }
-  75% { transform: rotate(4deg); }
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-4deg);
+  }
+  75% {
+    transform: rotate(4deg);
+  }
 }
 @keyframes chk-wiggle {
-  0%, 100% { transform: rotate(0deg); }
-  20% { transform: rotate(-3deg); }
-  40% { transform: rotate(3deg); }
-  60% { transform: rotate(-2deg); }
-  80% { transform: rotate(2deg); }
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(-3deg);
+  }
+  40% {
+    transform: rotate(3deg);
+  }
+  60% {
+    transform: rotate(-2deg);
+  }
+  80% {
+    transform: rotate(2deg);
+  }
 }
 @keyframes chk-pulse-anim {
-  0%, 100% { opacity: 0.3; transform: scale(0.8); }
-  50% { opacity: 0.9; transform: scale(1.15); }
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.15);
+  }
 }
 @keyframes chk-zzz-float {
-  0% { opacity: 0; transform: translateY(0) scale(0.5); }
-  50% { opacity: 1; transform: translateY(-10px) scale(1); }
-  100% { opacity: 0; transform: translateY(-20px) scale(0.5); }
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.5);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-10px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.5);
+  }
 }
 @keyframes chk-confetti-fall {
-  0% { transform: translateY(0) rotate(0deg); }
-  100% { transform: translateY(10px) rotate(200deg); }
+  0% {
+    transform: translateY(0) rotate(0deg);
+  }
+  100% {
+    transform: translateY(10px) rotate(200deg);
+  }
 }
 @keyframes chk-explode-anim {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.35); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(1.35);
+  }
 }
 @keyframes chk-bubble-enter {
-  from { opacity: 0; transform: scale(0.85) translateY(6px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 @keyframes chk-fade-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ─── Expression-specific mascot animations ─── */
-.chk-mascot--animated.chk-mascot--thinking   { animation: chk-float 2.5s ease infinite; }
-.chk-mascot--animated.chk-mascot--celebrating { animation: chk-bounce 0.6s ease infinite; }
-.chk-mascot--animated.chk-mascot--mindblown   { animation: chk-shake 0.35s ease infinite; }
-.chk-mascot--animated.chk-mascot--waving      { animation: chk-wiggle 1.2s ease infinite; }
-.chk-mascot--animated.chk-mascot--comeback    { animation: chk-float 3s ease infinite; }
-.chk-mascot--animated.chk-mascot--sleeping    { animation: chk-float 4s ease infinite; filter: brightness(0.85); }
-.chk-mascot--animated.chk-mascot--explaining  { animation: chk-float 3s ease infinite; }
+.chk-mascot--animated.chk-mascot--thinking {
+  animation: chk-float 2.5s ease infinite;
+}
+.chk-mascot--animated.chk-mascot--celebrating {
+  animation: chk-bounce 0.6s ease infinite;
+}
+.chk-mascot--animated.chk-mascot--mindblown {
+  animation: chk-shake 0.35s ease infinite;
+}
+.chk-mascot--animated.chk-mascot--waving {
+  animation: chk-wiggle 1.2s ease infinite;
+}
+.chk-mascot--animated.chk-mascot--comeback {
+  animation: chk-float 3s ease infinite;
+}
+.chk-mascot--animated.chk-mascot--sleeping {
+  animation: chk-float 4s ease infinite;
+  filter: brightness(0.85);
+}
+.chk-mascot--animated.chk-mascot--explaining {
+  animation: chk-float 3s ease infinite;
+}
 
 /* ─── Element-level animations ─── */
-.chk-pulse      { animation: chk-pulse-anim 2s ease infinite; }
-.chk-pulse-d1   { animation: chk-pulse-anim 2s ease infinite 0.3s; }
-.chk-pulse-d2   { animation: chk-pulse-anim 2s ease infinite 0.6s; }
-.chk-zzz1       { animation: chk-zzz-float 2.5s ease infinite; }
-.chk-zzz2       { animation: chk-zzz-float 2.5s ease infinite 0.4s; }
-.chk-zzz3       { animation: chk-zzz-float 2.5s ease infinite 0.8s; }
-.chk-confetti   { animation: chk-confetti-fall 1.2s ease infinite; }
-.chk-cd1        { animation-delay: 0.15s; }
-.chk-cd2        { animation-delay: 0.3s; }
-.chk-cd3        { animation-delay: 0.45s; }
-.chk-cd4        { animation-delay: 0.6s; }
-.chk-cd5        { animation-delay: 0.75s; }
-.chk-explode    { animation: chk-explode-anim 0.6s ease infinite; }
+.chk-pulse {
+  animation: chk-pulse-anim 2s ease infinite;
+}
+.chk-pulse-d1 {
+  animation: chk-pulse-anim 2s ease infinite 0.3s;
+}
+.chk-pulse-d2 {
+  animation: chk-pulse-anim 2s ease infinite 0.6s;
+}
+.chk-zzz1 {
+  animation: chk-zzz-float 2.5s ease infinite;
+}
+.chk-zzz2 {
+  animation: chk-zzz-float 2.5s ease infinite 0.4s;
+}
+.chk-zzz3 {
+  animation: chk-zzz-float 2.5s ease infinite 0.8s;
+}
+.chk-confetti {
+  animation: chk-confetti-fall 1.2s ease infinite;
+}
+.chk-cd1 {
+  animation-delay: 0.15s;
+}
+.chk-cd2 {
+  animation-delay: 0.3s;
+}
+.chk-cd3 {
+  animation-delay: 0.45s;
+}
+.chk-cd4 {
+  animation-delay: 0.6s;
+}
+.chk-cd5 {
+  animation-delay: 0.75s;
+}
+.chk-explode {
+  animation: chk-explode-anim 0.6s ease infinite;
+}
 
 /* ─── Mascot + Bubble Group ─── */
 .chk-mascot-group {
@@ -81,10 +189,22 @@
   animation: chk-fade-in 0.4s ease;
 }
 
+.chk-mascot[role="button"]:focus-visible {
+  outline: 3px solid var(--theme-text-primary, #e2e8f0);
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+
 /* ─── Speech Bubble ─── */
 .chk-bubble {
-  background: rgba(30, 41, 59, 0.95);
-  border: 1.5px solid rgba(34, 197, 94, 0.25);
+  --chk-bubble-bg: color-mix(
+    in srgb,
+    var(--theme-bg-secondary, #1e293b) 96%,
+    transparent
+  );
+  background: var(--chk-bubble-bg);
+  border: 1.5px solid
+    color-mix(in srgb, var(--theme-text-primary, #e2e8f0) 14%, transparent);
   border-radius: 16px;
   padding: 10px 16px;
   max-width: 240px;
@@ -95,7 +215,7 @@
 .chk-bubble p {
   margin: 0;
   font-size: 13px;
-  color: #e2e8f0;
+  color: var(--theme-text-primary, #e2e8f0);
   line-height: 1.5;
 }
 .chk-bubble__tail {
@@ -107,13 +227,13 @@
   height: 0;
   border-top: 8px solid transparent;
   border-bottom: 8px solid transparent;
-  border-right: 8px solid rgba(30, 41, 59, 0.95);
+  border-right: 8px solid var(--chk-bubble-bg);
 }
 .chk-bubble--left .chk-bubble__tail {
   left: auto;
   right: -8px;
   border-right: none;
-  border-left: 8px solid rgba(30, 41, 59, 0.95);
+  border-left: 8px solid var(--chk-bubble-bg);
 }
 .chk-bubble--top {
   position: relative;
@@ -125,7 +245,7 @@
   transform: translateX(-50%);
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
-  border-top: 8px solid rgba(30, 41, 59, 0.95);
+  border-top: 8px solid var(--chk-bubble-bg);
   border-bottom: none;
 }
 
@@ -153,7 +273,7 @@
   bottom: auto;
   transform: translateX(-50%) rotate(180deg);
   border-top: none;
-  border-bottom: 8px solid rgba(30, 41, 59, 0.95);
+  border-bottom: 8px solid var(--chk-bubble-bg);
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
 }
@@ -203,7 +323,7 @@
 }
 .chk-thinking-inline .chk-bubble p {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--theme-text-secondary, #9ca3af);
 }
 
 /* ─── Side Panel Header (Quiz / Flashcards) ─── */
@@ -329,5 +449,20 @@
   }
   .chk-flashcard-mascot-row {
     flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chk-mascot,
+  .chk-mascot *,
+  .chk-mascot-group,
+  .chk-bubble,
+  .chk-results-mascot,
+  .chk-flashcard-complete {
+    animation: none !important;
+  }
+
+  .chk-floating-mascot {
+    transition: none !important;
   }
 }

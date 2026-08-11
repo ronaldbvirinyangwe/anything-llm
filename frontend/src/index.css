@@ -2,6 +2,76 @@
 @tailwind components;
 @tailwind utilities;
 
+.offline-status {
+  position: fixed;
+  z-index: 90;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--theme-divider, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    var(--theme-bg-secondary, #1b1b1e) 94%,
+    transparent
+  );
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  color: var(--theme-text-primary, #fff);
+  font:
+    700 11px/1 plus-jakarta-sans,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  backdrop-filter: blur(14px);
+}
+
+.offline-status span,
+.offline-status button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.offline-status span.is-online {
+  color: #47d98a;
+}
+.offline-status span.is-offline {
+  color: #f5a623;
+}
+.offline-status span.is-sync-error {
+  color: #fb7185;
+}
+.offline-status button {
+  background: var(--theme-home-bg-button, #252626);
+  color: inherit;
+  cursor: pointer;
+}
+
+.offline-status button:hover {
+  background: var(--theme-action-menu-item-hover);
+}
+.offline-status button:focus-visible {
+  outline: 2px solid var(--theme-button-primary, #46c8ff);
+  outline-offset: 2px;
+}
+
+@media (max-width: 620px) {
+  .offline-status {
+    right: 10px;
+    bottom: 10px;
+    max-width: calc(100vw - 20px);
+    overflow-x: auto;
+  }
+}
+
 * {
   -webkit-font-smoothing: antialiased;
 }
@@ -431,7 +501,11 @@ a {
 }
 
 .fade-up-border {
-  background: linear-gradient(to bottom, transparent, var(--theme-bg-sidebar) 90%);
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--theme-bg-sidebar) 90%
+  );
 }
 
 /**

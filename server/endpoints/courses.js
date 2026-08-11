@@ -9,6 +9,7 @@ const { PrismaClient } = require("@prisma/client");
 const {
   runCourseGeneration,
 } = require("../utils/agents/aibitat/plugins/course-gen-core");
+const { getSubjectsFor } = require("../utils/subjects/catalog");
 
 const prisma = new PrismaClient();
 
@@ -20,6 +21,11 @@ router.use(validatedRequest, flexUserRoleValid([ROLES.student]));
 const courseGenState = new Map();
 const STAGES = ["planner", "writer", "assignments", "review"];
 
+function clientOperationId(req) {
+  const value = String(req.get("Idempotency-Key") || "").trim();
+  return value && value.length <= 100 ? value : null;
+}
+
 function stateKey(userId, subject) {
   return `${userId}:${subject}`;
 }
@@ -29,150 +35,18 @@ function setState(userId, subject, patch) {
   courseGenState.set(key, { ...prev, ...patch, updatedAt: Date.now() });
 }
 
-// ── Subject catalog per curriculum/academicLevel ───────────────────────
-// Centralized here so the frontend never hardcodes subjects. Extend as
-// you add more curricula/levels.
-const ZIMSEC_PRIMARY_SUBJECTS = [
-  { id: "math", name: "Mathematics", icon: "📐" },
-  { id: "eng", name: "English Language", icon: "📖" },
-  { id: "indigenous", name: "Indigenous Language", icon: "💬" },
-  { id: "science-tech", name: "Science and Technology", icon: "🔬" },
-  { id: "heritage-social", name: "Heritage-Social Studies", icon: "🏛️" },
-  { id: "agriculture", name: "Agriculture", icon: "🌱" },
-  { id: "ict", name: "Information Technology", icon: "💻" },
-  { id: "pe-arts", name: "Physical Education and Arts", icon: "🎨" },
-];
+function average(values) {
+  if (!values.length) return null;
+  return Math.round(
+    values.reduce((sum, value) => sum + value, 0) / values.length
+  );
+}
 
-const ZIMSEC_SECONDARY_SUBJECTS = [
-  { id: "math", name: "Mathematics", icon: "📐" },
-  { id: "eng", name: "English Language", icon: "📖" },
-  { id: "shona", name: "Shona", icon: "💬" },
-  { id: "ndebele", name: "Ndebele", icon: "💬" },
-  { id: "geo", name: "Geography", icon: "🌍" },
-  { id: "history", name: "History", icon: "🏛️" },
-  { id: "heritage", name: "Heritage Studies", icon: "🇿🇼" },
-  { id: "bio", name: "Biology", icon: "🧬" },
-  { id: "chem", name: "Chemistry", icon: "⚗️" },
-  { id: "physics", name: "Physics", icon: "⚛️" },
-  { id: "combined-science", name: "Combined Science", icon: "🔬" },
-  { id: "agriculture", name: "Agriculture", icon: "🌱" },
-  { id: "commerce", name: "Commerce", icon: "🛒" },
-  { id: "accounts", name: "Principles of Accounting", icon: "🧾" },
-  { id: "business", name: "Business Enterprise Skills", icon: "💼" },
-  { id: "computer-science", name: "Computer Science", icon: "💻" },
-  { id: "literature", name: "Literature in English", icon: "📚" },
-  { id: "frs", name: "Family and Religious Studies", icon: "🤝" },
-  { id: "food-tech", name: "Food Technology and Design", icon: "🍲" },
-  { id: "art-design", name: "Art and Design", icon: "🎨" },
-  { id: "pe", name: "Physical Education, Sport and Mass Displays", icon: "🏃" },
-];
-
-const ZIMSEC_ADVANCED_SUBJECTS = [
-  { id: "pure-math", name: "Pure Mathematics", icon: "📐" },
-  { id: "statistics", name: "Statistics", icon: "📊" },
-  { id: "eng-lit", name: "English Literature", icon: "📚" },
-  { id: "geo", name: "Geography", icon: "🌍" },
-  { id: "history", name: "History", icon: "🏛️" },
-  { id: "heritage", name: "Heritage Studies", icon: "🇿🇼" },
-  { id: "bio", name: "Biology", icon: "🧬" },
-  { id: "chem", name: "Chemistry", icon: "⚗️" },
-  { id: "physics", name: "Physics", icon: "⚛️" },
-  { id: "agriculture", name: "Agriculture", icon: "🌱" },
-  { id: "business", name: "Business Studies", icon: "💼" },
-  { id: "accounts", name: "Accounting", icon: "🧾" },
-  { id: "economics", name: "Economics", icon: "📈" },
-  { id: "computer-science", name: "Computer Science", icon: "💻" },
-  { id: "sociology", name: "Sociology", icon: "👥" },
-  { id: "frs", name: "Family and Religious Studies", icon: "🤝" },
-];
-
-const CAMBRIDGE_PRIMARY_SUBJECTS = [
-  { id: "math", name: "Mathematics", icon: "📐" },
-  { id: "eng", name: "English", icon: "📖" },
-  { id: "science", name: "Science", icon: "🔬" },
-  { id: "computing", name: "Computing", icon: "💻" },
-  { id: "global-perspectives", name: "Global Perspectives", icon: "🌍" },
-];
-
-const CAMBRIDGE_SECONDARY_SUBJECTS = [
-  { id: "math", name: "Mathematics", icon: "📐" },
-  { id: "eng", name: "English Language", icon: "📖" },
-  { id: "literature", name: "Literature in English", icon: "📚" },
-  { id: "geo", name: "Geography", icon: "🌍" },
-  { id: "history", name: "History", icon: "🏛️" },
-  { id: "bio", name: "Biology", icon: "🧬" },
-  { id: "chem", name: "Chemistry", icon: "⚗️" },
-  { id: "physics", name: "Physics", icon: "⚛️" },
-  { id: "combined-science", name: "Combined Science", icon: "🔬" },
-  { id: "agriculture", name: "Agriculture", icon: "🌱" },
-  { id: "business", name: "Business Studies", icon: "💼" },
-  { id: "accounts", name: "Accounting", icon: "🧾" },
-  { id: "economics", name: "Economics", icon: "📈" },
-  { id: "computer-science", name: "Computer Science", icon: "💻" },
-  { id: "ict", name: "Information and Communication Technology", icon: "🖥️" },
-  { id: "environment", name: "Environmental Management", icon: "🌿" },
-  { id: "global-perspectives", name: "Global Perspectives", icon: "🌐" },
-  { id: "art-design", name: "Art and Design", icon: "🎨" },
-  { id: "pe", name: "Physical Education", icon: "🏃" },
-];
-
-const CAMBRIDGE_ADVANCED_SUBJECTS = [
-  { id: "math", name: "Mathematics", icon: "📐" },
-  { id: "further-math", name: "Further Mathematics", icon: "➗" },
-  { id: "eng-lit", name: "Literature in English", icon: "📚" },
-  { id: "geo", name: "Geography", icon: "🌍" },
-  { id: "history", name: "History", icon: "🏛️" },
-  { id: "bio", name: "Biology", icon: "🧬" },
-  { id: "chem", name: "Chemistry", icon: "⚗️" },
-  { id: "physics", name: "Physics", icon: "⚛️" },
-  { id: "business", name: "Business", icon: "💼" },
-  { id: "accounts", name: "Accounting", icon: "🧾" },
-  { id: "economics", name: "Economics", icon: "📈" },
-  { id: "computer-science", name: "Computer Science", icon: "💻" },
-  { id: "sociology", name: "Sociology", icon: "👥" },
-  { id: "psychology", name: "Psychology", icon: "🧠" },
-  {
-    id: "global-perspectives",
-    name: "Global Perspectives and Research",
-    icon: "🌐",
-  },
-];
-
-const SUBJECT_CATALOG = {
-  ZIMSEC: {
-    "Grade 1": ZIMSEC_PRIMARY_SUBJECTS,
-    "Grade 2": ZIMSEC_PRIMARY_SUBJECTS,
-    "Grade 3": ZIMSEC_PRIMARY_SUBJECTS,
-    "Grade 4": ZIMSEC_PRIMARY_SUBJECTS,
-    "Grade 5": ZIMSEC_PRIMARY_SUBJECTS,
-    "Grade 6": ZIMSEC_PRIMARY_SUBJECTS,
-    "Grade 7": ZIMSEC_PRIMARY_SUBJECTS,
-    "Form 1": ZIMSEC_SECONDARY_SUBJECTS,
-    "Form 2": ZIMSEC_SECONDARY_SUBJECTS,
-    "Form 3": ZIMSEC_SECONDARY_SUBJECTS,
-    "Form 4": ZIMSEC_SECONDARY_SUBJECTS,
-    "Lower 6": ZIMSEC_ADVANCED_SUBJECTS,
-    "Upper 6": ZIMSEC_ADVANCED_SUBJECTS,
-  },
-  Cambridge: {
-    "Grade 1": CAMBRIDGE_PRIMARY_SUBJECTS,
-    "Grade 2": CAMBRIDGE_PRIMARY_SUBJECTS,
-    "Grade 3": CAMBRIDGE_PRIMARY_SUBJECTS,
-    "Grade 4": CAMBRIDGE_PRIMARY_SUBJECTS,
-    "Grade 5": CAMBRIDGE_PRIMARY_SUBJECTS,
-    "Grade 6": CAMBRIDGE_PRIMARY_SUBJECTS,
-    "Grade 7": CAMBRIDGE_PRIMARY_SUBJECTS,
-    "Form 1": CAMBRIDGE_SECONDARY_SUBJECTS,
-    "Form 2": CAMBRIDGE_SECONDARY_SUBJECTS,
-    "Form 3": CAMBRIDGE_SECONDARY_SUBJECTS,
-    "Form 4": CAMBRIDGE_SECONDARY_SUBJECTS,
-    "Lower 6": CAMBRIDGE_ADVANCED_SUBJECTS,
-    "Upper 6": CAMBRIDGE_ADVANCED_SUBJECTS,
-  },
-};
-
-function getSubjectsFor(curriculum, grade) {
-  return SUBJECT_CATALOG[curriculum]?.[grade] || [];
+function masteryStatus(score, assessmentCount) {
+  if (score === null || assessmentCount === 0) return "not_assessed";
+  if (score >= 80 && assessmentCount >= 2) return "mastered";
+  if (score >= 60) return "proficient";
+  return "developing";
 }
 
 // ── GET /subjects — subjects available for the logged-in student ───────
@@ -196,6 +70,265 @@ router.get("/subjects", [validatedRequest], async (req, res) => {
   } catch (err) {
     console.error("Error fetching subjects:", err);
     res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+router.get("/mastery", [validatedRequest], async (req, res) => {
+  try {
+    const userId = Number(res.locals.user?.id);
+    if (!userId)
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+
+    const student = await prisma.students.findFirst({
+      where: { user_id: userId },
+      select: {
+        id: true,
+        curriculum: true,
+        academicLevel: true,
+        grade: true,
+      },
+    });
+    if (!student)
+      return res
+        .status(404)
+        .json({ success: false, error: "Student profile not found" });
+
+    const [results, enrolments, recoveryItems] = await Promise.all([
+      prisma.quiz_results.findMany({
+        where: { user_id: userId },
+        select: {
+          subject: true,
+          topic: true,
+          score: true,
+          submitted_at: true,
+          shared_quiz: { select: { topic: true } },
+        },
+        orderBy: { submitted_at: "desc" },
+      }),
+      prisma.student_courses.findMany({
+        where: { studentId: student.id },
+        select: {
+          course: {
+            select: {
+              subject: true,
+              status: true,
+              modules: {
+                orderBy: { position: "asc" },
+                select: {
+                  title: true,
+                  lessons: {
+                    select: {
+                      progress: {
+                        where: { studentId: student.id },
+                        select: { done: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.review_items.findMany({
+        where: { userId },
+        select: {
+          subject: true,
+          topic: true,
+          status: true,
+          step: true,
+          dueOn: true,
+          masteredAt: true,
+        },
+      }),
+    ]);
+
+    const subjectMap = new Map();
+    const ensureSubject = (name, icon = "📘") => {
+      const key = String(name || "General")
+        .trim()
+        .toLowerCase();
+      if (!subjectMap.has(key)) {
+        subjectMap.set(key, {
+          name: String(name || "General").trim(),
+          icon,
+          scores: [],
+          completedLessons: 0,
+          totalLessons: 0,
+          topics: new Map(),
+          courseStatus: null,
+        });
+      }
+      return subjectMap.get(key);
+    };
+    const ensureTopic = (subject, title) => {
+      const name = String(title || "General assessment").trim();
+      const key = name.toLowerCase();
+      if (!subject.topics.has(key)) {
+        subject.topics.set(key, {
+          title: name,
+          scores: [],
+          completedLessons: 0,
+          totalLessons: 0,
+          lastAssessedAt: null,
+          recoveryStep: 0,
+          recoveryDueOn: null,
+          recovered: false,
+          recoveredAt: null,
+        });
+      }
+      return subject.topics.get(key);
+    };
+
+    for (const catalogSubject of getSubjectsFor(
+      student.curriculum,
+      student.grade
+    )) {
+      ensureSubject(catalogSubject.name, catalogSubject.icon);
+    }
+
+    for (const result of results) {
+      const subject = ensureSubject(result.subject);
+      subject.scores.push(result.score);
+      const topic = ensureTopic(
+        subject,
+        result.topic || result.shared_quiz?.topic || "General assessment"
+      );
+      topic.scores.push(result.score);
+      if (!topic.lastAssessedAt) topic.lastAssessedAt = result.submitted_at;
+    }
+
+    for (const { course } of enrolments) {
+      const subject = ensureSubject(course.subject);
+      subject.courseStatus = course.status;
+      for (const module of course.modules) {
+        const topic = ensureTopic(subject, module.title);
+        const completedLessons = module.lessons.filter(
+          (lesson) => lesson.progress[0]?.done
+        ).length;
+        topic.completedLessons += completedLessons;
+        topic.totalLessons += module.lessons.length;
+        subject.completedLessons += completedLessons;
+        subject.totalLessons += module.lessons.length;
+      }
+    }
+
+    for (const item of recoveryItems) {
+      const subject = ensureSubject(item.subject);
+      const topic = ensureTopic(subject, item.topic);
+      topic.recoveryStep = Math.max(topic.recoveryStep, item.step);
+      if (!topic.recoveryDueOn || item.dueOn < topic.recoveryDueOn)
+        topic.recoveryDueOn = item.dueOn;
+      if (item.status === "mastered") {
+        topic.recovered = true;
+        topic.recoveredAt = item.masteredAt;
+      }
+    }
+
+    const subjects = [...subjectMap.values()].map((subject) => {
+      const masteryPercent = average(subject.scores);
+      const topics = [...subject.topics.values()].map((topic) => {
+        const topicMastery = average(topic.scores);
+        return {
+          title: topic.title,
+          masteryPercent: topicMastery,
+          status: topic.recovered
+            ? "mastered"
+            : masteryStatus(topicMastery, topic.scores.length),
+          assessmentCount: topic.scores.length,
+          recoveryStep: topic.recoveryStep,
+          recoveryDueOn: topic.recoveryDueOn,
+          recovered: topic.recovered,
+          recoveredAt: topic.recoveredAt,
+          coveragePercent: topic.totalLessons
+            ? Math.round((topic.completedLessons / topic.totalLessons) * 100)
+            : 0,
+          completedLessons: topic.completedLessons,
+          totalLessons: topic.totalLessons,
+          lastAssessedAt: topic.lastAssessedAt,
+        };
+      });
+      return {
+        name: subject.name,
+        icon: subject.icon,
+        masteryPercent,
+        status: masteryStatus(masteryPercent, subject.scores.length),
+        assessmentCount: subject.scores.length,
+        coveragePercent: subject.totalLessons
+          ? Math.round((subject.completedLessons / subject.totalLessons) * 100)
+          : 0,
+        completedLessons: subject.completedLessons,
+        totalLessons: subject.totalLessons,
+        courseStatus: subject.courseStatus,
+        topics,
+      };
+    });
+
+    const assessed = subjects.filter(
+      (subject) => subject.masteryPercent !== null
+    );
+    const topicCandidates = subjects.flatMap((subject) =>
+      subject.topics.map((topic) => ({ ...topic, subject: subject.name }))
+    );
+    const recommended =
+      topicCandidates
+        .filter(
+          (topic) =>
+            topic.masteryPercent !== null && topic.status !== "mastered"
+        )
+        .sort((a, b) => a.masteryPercent - b.masteryPercent)[0] ||
+      topicCandidates.find((topic) => topic.coveragePercent < 100) ||
+      null;
+
+    return res.json({
+      success: true,
+      profile: {
+        curriculum: student.curriculum,
+        academicLevel: student.academicLevel,
+        grade: student.grade,
+      },
+      summary: {
+        totalSubjects: subjects.length,
+        assessedSubjects: assessed.length,
+        masteredSubjects: subjects.filter(({ status }) => status === "mastered")
+          .length,
+        recoveredTopics: topicCandidates.filter(({ recovered }) => recovered)
+          .length,
+        averageMastery: average(
+          assessed.map(({ masteryPercent }) => masteryPercent)
+        ),
+        coveragePercent: subjects.reduce(
+          (total, subject) => total + subject.totalLessons,
+          0
+        )
+          ? Math.round(
+              (subjects.reduce(
+                (total, subject) => total + subject.completedLessons,
+                0
+              ) /
+                subjects.reduce(
+                  (total, subject) => total + subject.totalLessons,
+                  0
+                )) *
+                100
+            )
+          : 0,
+      },
+      recommendedTopic: recommended
+        ? {
+            subject: recommended.subject,
+            title: recommended.title,
+            masteryPercent: recommended.masteryPercent,
+            status: recommended.status,
+          }
+        : null,
+      subjects,
+    });
+  } catch (error) {
+    console.error("Error fetching mastery map:", error);
+    return res
+      .status(500)
+      .json({ success: false, error: "Unable to load mastery map" });
   }
 });
 
@@ -553,6 +686,11 @@ router.post(
           .json({ success: false, error: "Not enrolled in this course" });
       }
 
+      const existingProgress = await prisma.student_lesson_progress.findUnique({
+        where: { studentId_lessonId: { studentId: student.id, lessonId } },
+      });
+      if (existingProgress?.done) return res.json({ success: true });
+
       await prisma.student_lesson_progress.upsert({
         where: { studentId_lessonId: { studentId: student.id, lessonId } },
         update: { done: true, doneAt: new Date() },
@@ -655,6 +793,7 @@ router.post(
 
       const assignmentId = Number(req.params.assignmentId);
       const { submissionLink } = req.body;
+      const operationId = clientOperationId(req);
       if (!Number.isInteger(assignmentId)) {
         return res
           .status(400)
@@ -698,24 +837,41 @@ router.post(
         where: { studentId: student.id, assignmentId },
       });
 
-      const submission = existing
-        ? await prisma.student_assignment_submissions.update({
-            where: { id: existing.id },
-            data: {
-              submissionLink,
-              status: "submitted",
-              submittedAt: new Date(),
-            },
-          })
-        : await prisma.student_assignment_submissions.create({
-            data: {
-              studentId: student.id,
-              assignmentId,
-              submissionLink,
-              status: "submitted",
-              submittedAt: new Date(),
-            },
-          });
+      if (operationId && existing?.lastClientOperationId === operationId) {
+        return res.json({ success: true, submission: existing });
+      }
+      if (existing?.gradedAt && existing.status !== "needs_revision") {
+        return res
+          .status(409)
+          .json({ success: false, error: "This work has already been graded" });
+      }
+
+      const now = new Date();
+      const submission = await prisma.student_assignment_submissions.upsert({
+        where: {
+          assignmentId_studentId: { assignmentId, studentId: student.id },
+        },
+        update: {
+          submissionLink,
+          status: "submitted",
+          firstSubmittedAt: existing?.firstSubmittedAt || now,
+          submittedAt: now,
+          scorePoints: null,
+          feedback: null,
+          gradedAt: null,
+          gradedByTeacherId: null,
+          lastClientOperationId: operationId,
+        },
+        create: {
+          studentId: student.id,
+          assignmentId,
+          submissionLink,
+          status: "submitted",
+          firstSubmittedAt: now,
+          submittedAt: now,
+          lastClientOperationId: operationId,
+        },
+      });
 
       res.json({ success: true, submission });
     } catch (err) {
@@ -818,20 +974,35 @@ router.get(
     const moduleId = Number(req.params.moduleId);
     const dbModule = await prisma.course_modules.findUnique({
       where: { id: moduleId },
-      include: { lessons: { orderBy: { position: "asc" } }, assignments: true },
+      include: {
+        course: { include: { student_enrolments: true } },
+        lessons: { orderBy: { position: "asc" } },
+        assignments: true,
+      },
     });
     if (!dbModule)
       return res
         .status(404)
         .json({ success: false, error: "Module not found" });
+    const student = await prisma.students.findFirst({
+      where: { user_id: Number(res.locals.user?.id) },
+    });
+    const enrolled = dbModule.course.student_enrolments.some(
+      (enrollment) => enrollment.studentId === student?.id
+    );
+    if (!enrolled)
+      return res
+        .status(403)
+        .json({ success: false, error: "Not enrolled in this course" });
 
     // DB status is authoritative; in-memory state just adds a friendly message while generating.
     const live = moduleGenState.get(moduleStateKey(moduleId));
+    const { course: _course, ...safeModule } = dbModule;
     res.json({
       success: true,
       status: dbModule.status,
       message: live?.message || null,
-      module: dbModule.status === "ready" ? dbModule : null,
+      module: dbModule.status === "ready" ? safeModule : null,
     });
   }
 );

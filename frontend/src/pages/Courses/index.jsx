@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -11,6 +11,7 @@ import {
   FiCheckCircle,
   FiChevronDown,
   FiClock,
+  FiDownload,
   FiExternalLink,
   FiFileText,
   FiLoader,
@@ -474,6 +475,9 @@ function CourseDetail({
   onOpenLesson,
   onOpenAssignment,
   onGenerateModule,
+  onDownload,
+  downloaded,
+  downloading,
 }) {
   const firstModuleId = course.modules?.[0]?.id;
   const [expandedModules, setExpandedModules] = useState(
@@ -517,6 +521,25 @@ function CourseDetail({
             value={progress.percentage}
             label={`${progress.percentage}% course complete`}
           />
+          <button
+            className="courses-download"
+            type="button"
+            onClick={() => onDownload(course)}
+            disabled={downloading}
+          >
+            {downloading ? (
+              <FiLoader className="courses-spin" aria-hidden="true" />
+            ) : downloaded ? (
+              <FiCheckCircle aria-hidden="true" />
+            ) : (
+              <FiDownload aria-hidden="true" />
+            )}
+            {downloading
+              ? "Saving..."
+              : downloaded
+                ? "Available offline"
+                : "Download course"}
+          </button>
         </div>
       </section>
 
@@ -709,13 +732,40 @@ function LessonDrawer({ lessonId, onClose, onCompleted }) {
     return () => controller.abort();
   }, [lessonId]);
 
+  useEffect(() => {
+    const onSettled = (event) => {
+      const settlement = event.detail;
+      if (
+        settlement?.kind !== "lesson-completion" ||
+        String(settlement.resourceId) !== String(lessonId)
+      )
+        return;
+      setLesson((current) =>
+        current
+          ? {
+              ...current,
+              done: settlement.success,
+              pendingSync: false,
+              syncError: settlement.error,
+            }
+          : current
+      );
+    };
+    window.addEventListener("chikoro:sync-settled", onSettled);
+    return () => window.removeEventListener("chikoro:sync-settled", onSettled);
+  }, [lessonId]);
+
   const complete = async () => {
     setSaving(true);
     setError("");
     try {
-      await CoursesModel.completeLesson(lesson.id);
-      setLesson((current) => ({ ...current, done: true }));
-      onCompleted(lesson.id);
+      const result = await CoursesModel.completeLesson(lesson.id);
+      setLesson((current) => ({
+        ...current,
+        done: true,
+        pendingSync: result.queued,
+      }));
+      onCompleted(lesson.id, result.queued);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -742,10 +792,12 @@ function LessonDrawer({ lessonId, onClose, onCompleted }) {
             </span>
             {lesson.done && (
               <span className="courses-complete-label">
-                <FiCheckCircle aria-hidden="true" /> Completed
+                <FiCheckCircle aria-hidden="true" />
+                {lesson.pendingSync ? "Completion queued" : "Completed"}
               </span>
             )}
           </div>
+          {lesson.syncError && <ErrorNotice message={lesson.syncError} />}
           <div className="courses-markdown">
             {lesson.contentMd ? (
               <ReactMarkdown
@@ -803,6 +855,29 @@ function AssignmentDrawer({ assignmentId, onClose, onSubmitted }) {
     return () => controller.abort();
   }, [assignmentId]);
 
+  useEffect(() => {
+    const onSettled = (event) => {
+      const settlement = event.detail;
+      if (
+        settlement?.kind !== "course-assignment-submission" ||
+        String(settlement.resourceId) !== String(assignmentId)
+      )
+        return;
+      setAssignment((current) =>
+        current
+          ? {
+              ...current,
+              status: settlement.success ? "submitted" : "sync_failed",
+              pendingSync: false,
+              syncError: settlement.error,
+            }
+          : current
+      );
+    };
+    window.addEventListener("chikoro:sync-settled", onSettled);
+    return () => window.removeEventListener("chikoro:sync-settled", onSettled);
+  }, [assignmentId]);
+
   const steps = useMemo(() => {
     if (!assignment?.steps) return [];
     return Array.isArray(assignment.steps)
@@ -820,13 +895,14 @@ function AssignmentDrawer({ assignmentId, onClose, onSubmitted }) {
     setSaving(true);
     setError("");
     try {
-      await CoursesModel.submitAssignment(assignment.id, value);
+      const result = await CoursesModel.submitAssignment(assignment.id, value);
       setAssignment((current) => ({
         ...current,
         status: "submitted",
         submissionLink: value,
+        pendingSync: result.queued,
       }));
-      onSubmitted(assignment.id);
+      onSubmitted(assignment.id, result.queued);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -846,12 +922,16 @@ function AssignmentDrawer({ assignmentId, onClose, onSubmitted }) {
         <>
           <div className="courses-detail-meta">
             <StatusBadge status={assignment.status} />
+            {assignment.pendingSync && <span>Waiting to sync</span>}
             {assignment.etaHours && (
               <span>
                 <FiClock aria-hidden="true" /> {assignment.etaHours}
               </span>
             )}
           </div>
+          {assignment.syncError && (
+            <ErrorNotice message={assignment.syncError} />
+          )}
           {assignment.description && (
             <p className="courses-assignment-description">
               {assignment.description}
@@ -952,6 +1032,7 @@ function AssignmentDrawer({ assignmentId, onClose, onSubmitted }) {
 
 export function Courses() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [subjects, setSubjects] = useState([]);
   const [courses, setCourses] = useState([]);
   const [selectedCourseId, setSelectedCourseId] = useState(null);
@@ -962,6 +1043,8 @@ export function Courses() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [downloadedCourses, setDownloadedCourses] = useState(() => new Set());
+  const [downloadingCourseId, setDownloadingCourseId] = useState(null);
 
   const selectedCourse =
     courses.find((course) => course.id === selectedCourseId) || null;
@@ -1029,6 +1112,33 @@ export function Courses() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!courses.length) return;
+    const requestedCourseId = Number(searchParams.get("course"));
+    const requestedLessonId = Number(searchParams.get("lesson"));
+    if (
+      requestedCourseId &&
+      courses.some((course) => course.id === requestedCourseId)
+    ) {
+      setSelectedCourseId(requestedCourseId);
+      if (requestedLessonId) setLessonId(requestedLessonId);
+    }
+  }, [courses, searchParams]);
+
+  useEffect(() => {
+    if (!courses.length) return;
+    Promise.all(
+      courses.map(async (course) => [
+        course.id,
+        await CoursesModel.isDownloaded(course.id),
+      ])
+    ).then((statuses) =>
+      setDownloadedCourses(
+        new Set(statuses.filter(([, saved]) => saved).map(([id]) => id))
+      )
+    );
+  }, [courses]);
 
   const generatingSubjects = Object.entries(generations)
     .filter(([, state]) => state?.status === "generating")
@@ -1163,7 +1273,20 @@ export function Courses() {
     }
   };
 
-  const markLessonComplete = (completedLessonId) => {
+  const downloadCourse = async (course) => {
+    setDownloadingCourseId(course.id);
+    try {
+      await CoursesModel.download(course);
+      setDownloadedCourses((current) => new Set(current).add(course.id));
+      setNotice(`${course.subject} is ready for offline study.`);
+    } catch (requestError) {
+      setNotice(requestError.message);
+    } finally {
+      setDownloadingCourseId(null);
+    }
+  };
+
+  const markLessonComplete = (completedLessonId, queued = false) => {
     setCourses((current) =>
       current.map((course) => ({
         ...course,
@@ -1175,10 +1298,14 @@ export function Courses() {
         })),
       }))
     );
-    setNotice("Lesson marked complete.");
+    setNotice(
+      queued
+        ? "Lesson completion saved. It will sync when you reconnect."
+        : "Lesson marked complete."
+    );
   };
 
-  const markAssignmentSubmitted = (submittedAssignmentId) => {
+  const markAssignmentSubmitted = (submittedAssignmentId, queued = false) => {
     setCourses((current) =>
       current.map((course) => ({
         ...course,
@@ -1192,7 +1319,11 @@ export function Courses() {
         })),
       }))
     );
-    setNotice("Assignment submitted successfully.");
+    setNotice(
+      queued
+        ? "Assignment saved. It will submit when you reconnect."
+        : "Assignment submitted successfully."
+    );
   };
 
   return (
@@ -1242,6 +1373,9 @@ export function Courses() {
               onOpenLesson={setLessonId}
               onOpenAssignment={setAssignmentId}
               onGenerateModule={generateModule}
+              onDownload={downloadCourse}
+              downloaded={downloadedCourses.has(selectedCourse.id)}
+              downloading={downloadingCourseId === selectedCourse.id}
             />
           ) : (
             <Dashboard

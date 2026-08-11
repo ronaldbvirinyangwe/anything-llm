@@ -18,7 +18,7 @@ const { SystemSettings } = require("../models/systemSettings");
 const { User } = require("../models/user");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const fs = require("fs");
-const fsPromises = require('fs').promises; 
+const fsPromises = require("fs").promises;
 const path = require("path");
 const {
   getDefaultFilename,
@@ -43,6 +43,7 @@ const {
 const { fetchPfp, determinePfpFilepath } = require("../utils/files/pfp");
 const { exportChatsAsType } = require("../utils/helpers/chat/convertTo");
 const { EventLogs } = require("../models/eventLogs");
+const { seedReviewItem } = require("../utils/review");
 const {
   ensureProvisionalSchool,
   syncTeacherStudentToEducationClass,
@@ -73,17 +74,18 @@ const { Paynow } = require("paynow");
 const axios = require("axios");
 const crypto = require("crypto");
 const { connectedClients } = require("../utils/websocket");
-const multer = require('multer');
-const pdf = require('pdf-parse');
-const Tesseract = require('tesseract.js');
+const multer = require("multer");
+const pdf = require("pdf-parse");
+const Tesseract = require("tesseract.js");
 // const fs = require('fs').promises;
-const sharp = require('sharp');
-const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
-const fetch = require('node-fetch');
+const sharp = require("sharp");
+const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
+const fetch = require("node-fetch");
 const OpenAI = require("openai");
-const { sendPushNotification } = require('../utils/pushNotifications');
-const { serviceKeyRequest } = require('../utils/middleware/ServiceKeyMiddleware'); // make sure this is imported at the top of your file if not already
-
+const { sendPushNotification } = require("../utils/pushNotifications");
+const {
+  serviceKeyRequest,
+} = require("../utils/middleware/ServiceKeyMiddleware"); // make sure this is imported at the top of your file if not already
 
 const {
   PAYNOW_INTEGRATION_ID,
@@ -93,12 +95,9 @@ const {
 
 // Helper – build a Paynow client
 function makePaynow() {
-  const paynow = new Paynow(
-    PAYNOW_INTEGRATION_ID,
-    PAYNOW_INTEGRATION_KEY
-  );
+  const paynow = new Paynow(PAYNOW_INTEGRATION_ID, PAYNOW_INTEGRATION_KEY);
   paynow.resultUrl = `${process.env.APP_URL || "https://chikoro-ai.com"}/api/payments/result`;
-paynow.returnUrl = `${process.env.APP_URL || "https://chikoro-ai.com"}/payment`;
+  paynow.returnUrl = `${process.env.APP_URL || "https://chikoro-ai.com"}/payment`;
   return paynow;
 }
 
@@ -118,10 +117,12 @@ function systemEndpoints(app) {
         select: { id: true },
       });
       if (!teacher) return false;
-      return Boolean(await prisma.teacher_students.findFirst({
-        where: { teacherId: teacher.id, studentId: student.id },
-        select: { id: true },
-      }));
+      return Boolean(
+        await prisma.teacher_students.findFirst({
+          where: { teacherId: teacher.id, studentId: student.id },
+          select: { id: true },
+        })
+      );
     }
 
     if (user.role === "parent") {
@@ -130,25 +131,32 @@ function systemEndpoints(app) {
         select: { id: true },
       });
       if (!parent) return false;
-      return Boolean(await prisma.parent_students.findFirst({
-        where: { parentId: parent.id, studentId: student.id },
-        select: { id: true },
-      }));
+      return Boolean(
+        await prisma.parent_students.findFirst({
+          where: { parentId: parent.id, studentId: student.id },
+          select: { id: true },
+        })
+      );
     }
 
     return false;
   }
 
   function validAnswerArray(answers, maxItems = 100) {
-    return Array.isArray(answers) &&
+    return (
+      Array.isArray(answers) &&
       answers.length > 0 &&
       answers.length <= maxItems &&
-      answers.every((answer) =>
-        (typeof answer === "string" && answer.length <= 10_000) ||
-        (answer && typeof answer === "object" &&
-          Number.isInteger(Number(answer.questionIndex)) &&
-          typeof answer.answer === "string" && answer.answer.length <= 10_000)
-      );
+      answers.every(
+        (answer) =>
+          (typeof answer === "string" && answer.length <= 10_000) ||
+          (answer &&
+            typeof answer === "object" &&
+            Number.isInteger(Number(answer.questionIndex)) &&
+            typeof answer.answer === "string" &&
+            answer.answer.length <= 10_000)
+      )
+    );
   }
 
   app.get("/ping", (_, response) => {
@@ -166,503 +174,535 @@ function systemEndpoints(app) {
     response.sendStatus(200).end();
   });
 
-  app.post("/system/enrol/student", [
-    validatedRequest,
-    flexUserRoleValid([ROLES.default]),
-  ], async (request, response) => {
-  try {
-    const { name, age, academicLevel, curriculum, grade } = reqBody(request);
-    const sessionUser = await userFromSession(request, response);
-    if (!sessionUser?.id) return response.status(401).json({ error: "Unauthorized" });
-    const parsedAge = Number(age);
-    if (
-      typeof name !== "string" ||
-      !name.trim() ||
-      !Number.isInteger(parsedAge) ||
-      parsedAge < 4 ||
-      parsedAge > 30 ||
-      typeof academicLevel !== "string" ||
-      !academicLevel.trim() ||
-      !["ZIMSEC", "Cambridge"].includes(curriculum) ||
-      typeof grade !== "string" ||
-      !grade.trim()
-    ) {
-      return response.status(400).json({ error: "Invalid student profile." });
+  app.post(
+    "/system/enrol/student",
+    [validatedRequest, flexUserRoleValid([ROLES.default])],
+    async (request, response) => {
+      try {
+        const { name, age, academicLevel, curriculum, grade } =
+          reqBody(request);
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id)
+          return response.status(401).json({ error: "Unauthorized" });
+        const parsedAge = Number(age);
+        if (
+          typeof name !== "string" ||
+          !name.trim() ||
+          !Number.isInteger(parsedAge) ||
+          parsedAge < 4 ||
+          parsedAge > 30 ||
+          typeof academicLevel !== "string" ||
+          !academicLevel.trim() ||
+          !["ZIMSEC", "Cambridge"].includes(curriculum) ||
+          typeof grade !== "string" ||
+          !grade.trim()
+        ) {
+          return response
+            .status(400)
+            .json({ error: "Invalid student profile." });
+        }
+
+        // Prevent duplicate profiles
+        const existing = await prisma.students.findFirst({
+          where: { user_id: sessionUser.id },
+        });
+        if (existing)
+          return response
+            .status(409)
+            .json({ error: "Student profile already exists." });
+
+        const [student, updatedUser] = await prisma.$transaction([
+          prisma.students.create({
+            data: {
+              user_id: sessionUser.id,
+              name,
+              age: parsedAge,
+              academicLevel: academicLevel.trim(),
+              curriculum,
+              grade: grade.trim(),
+            },
+          }),
+          prisma.users.update({
+            where: { id: sessionUser.id },
+            data: { role: "student" },
+          }),
+        ]);
+
+        // ✅ Auto-create "Study" workspace
+        const { workspace: studyWorkspace } = await Workspace.new(
+          "Study",
+          updatedUser.id
+        );
+        if (studyWorkspace) {
+          await Workspace.update(studyWorkspace.id, {
+            slug: `study-${sessionUser.id}`,
+          });
+        }
+
+        // Generate a fresh JWT with updated role
+        const newToken = jwt.sign(
+          {
+            id: updatedUser.id,
+            username: updatedUser.username,
+            role: updatedUser.role,
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: process.env.JWT_EXPIRY || "12h" }
+        );
+
+        await EventLogs.logEvent(
+          "student_enrolled",
+          { username: sessionUser.username },
+          sessionUser.id
+        );
+
+        response.status(200).json({
+          success: true,
+          student,
+          token: newToken,
+          message: "Student enrolled successfully. Token refreshed.",
+        });
+      } catch (err) {
+        console.error("Error enrolling student:", err);
+        response.status(500).json({ error: "Internal server error" });
+      }
     }
+  );
 
-    // Prevent duplicate profiles
-    const existing = await prisma.students.findFirst({ where: { user_id: sessionUser.id } });
-    if (existing) return response.status(409).json({ error: "Student profile already exists." });
+  const EXAMS_DIR = path.join(__dirname, "..", "exams");
+  if (!fs.existsSync(EXAMS_DIR)) fs.mkdirSync(EXAMS_DIR, { recursive: true });
 
-    const [student, updatedUser] = await prisma.$transaction([
-      prisma.students.create({
-        data: {
-          user_id: sessionUser.id,
-          name,
-          age: parsedAge,
-          academicLevel: academicLevel.trim(),
-          curriculum,
-          grade: grade.trim(),
-        },
-      }),
-      prisma.users.update({
-        where: { id: sessionUser.id },
-        data: { role: "student" },
-      }),
-    ]);
+  const upload = multer({
+    dest: EXAMS_DIR,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  });
 
-    // ✅ Auto-create "Study" workspace
-    const { workspace: studyWorkspace } = await Workspace.new("Study", updatedUser.id);
-    if (studyWorkspace) {
-      await Workspace.update(studyWorkspace.id, {
-        slug: `study-${sessionUser.id}`,
+  const textClient = new OpenAI({
+    baseURL: process.env.VLLM_BASE_PATH || "http://localhost:11434/v1",
+    apiKey: "EMPTY",
+  });
+
+  const visionClient = new OpenAI({
+    baseURL: process.env.VLLM_VISION_BASE_PATH || "http://localhost:11435/v1",
+    apiKey: "EMPTY",
+  });
+
+  // ==========================================
+  // VALIDATION FUNCTIONS
+  // ==========================================
+
+  function validateExtractedQuestions(content, options = {}) {
+    const {
+      minQuestions = 1,
+      minCharsPerQuestion = 20,
+      strictNumbering = true,
+    } = options;
+
+    // FIX: match both old format "1. text" and new tagged format "1. [STRUCTURED] text"
+    const questionPattern =
+      /^\d+\.\s+(?:\[(?:STRUCTURED|FILL|DATA|MCQ|ESSAY|MATCH|TRUE_FALSE)\]\s+)?[\w\[]/gm;
+    const matches = [...content.matchAll(questionPattern)];
+    const questionCount = matches.length;
+
+    const issues = [];
+    const warnings = [];
+
+    if (questionCount < minQuestions) {
+      issues.push({
+        severity: "CRITICAL",
+        message: `Only ${questionCount} questions found, expected at least ${minQuestions}`,
+        fixable: false,
       });
     }
 
-    // Generate a fresh JWT with updated role
-    const newToken = jwt.sign(
-      {
-        id: updatedUser.id,
-        username: updatedUser.username,
-        role: updatedUser.role,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRY || "12h" }
-    );
+    if (content.length / Math.max(questionCount, 1) < minCharsPerQuestion) {
+      warnings.push({ message: "Average question length is very short" });
+    }
 
-    await EventLogs.logEvent("student_enrolled", { username: sessionUser.username }, sessionUser.id);
-
-    response.status(200).json({
-      success: true,
-      student,
-      token: newToken,
-      message: "Student enrolled successfully. Token refreshed.",
-    });
-  } catch (err) {
-    console.error("Error enrolling student:", err);
-    response.status(500).json({ error: "Internal server error" });
-  }
-});
-
-const EXAMS_DIR = path.join(__dirname, '..', 'exams');
-if (!fs.existsSync(EXAMS_DIR)) fs.mkdirSync(EXAMS_DIR, { recursive: true });
-
-const upload = multer({
-  dest: EXAMS_DIR,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
-});
-
-const textClient = new OpenAI({
-  baseURL: process.env.VLLM_BASE_PATH || "http://localhost:11434/v1",
-  apiKey: "EMPTY"
-});
-
-const visionClient = new OpenAI({
-  baseURL: process.env.VLLM_VISION_BASE_PATH || "http://localhost:11435/v1",
-  apiKey: "EMPTY"
-});
-
-// ==========================================
-// VALIDATION FUNCTIONS
-// ==========================================
-
-function validateExtractedQuestions(content, options = {}) {
-  const {
-    minQuestions = 1,
-    minCharsPerQuestion = 20,
-    strictNumbering = true
-  } = options;
-
-  // FIX: match both old format "1. text" and new tagged format "1. [STRUCTURED] text"
-  const questionPattern = /^\d+\.\s+(?:\[(?:STRUCTURED|FILL|DATA|MCQ|ESSAY|MATCH|TRUE_FALSE)\]\s+)?[\w\[]/gm;
-  const matches = [...content.matchAll(questionPattern)];
-  const questionCount = matches.length;
-
-  const issues = [];
-  const warnings = [];
-
-  if (questionCount < minQuestions) {
-    issues.push({
-      severity: 'CRITICAL',
-      message: `Only ${questionCount} questions found, expected at least ${minQuestions}`,
-      fixable: false
-    });
+    return {
+      valid: issues.filter((i) => i.severity === "CRITICAL").length === 0,
+      questionCount,
+      issues,
+      warnings,
+      fixedContent: content, // no auto-fix needed for format issues
+    };
   }
 
-  if (content.length / Math.max(questionCount, 1) < minCharsPerQuestion) {
-    warnings.push({ message: 'Average question length is very short' });
-  }
+  function validateSingleQuestion(block, expectedNumber, options) {
+    const { minCharsPerQuestion, requireMarkSchemes } = options;
 
-  return {
-    valid: issues.filter(i => i.severity === 'CRITICAL').length === 0,
-    questionCount,
-    issues,
-    warnings,
-    fixedContent: content  // no auto-fix needed for format issues
-  };
-}
+    const question = {
+      number: expectedNumber,
+      content: block.trim(),
+      issues: [],
+      warnings: [],
+      type: null,
+      hasMarkScheme: false,
+      hasAnswer: false,
+      extractedNumber: null,
+      marks: null,
+    };
 
-function validateSingleQuestion(block, expectedNumber, options) {
-  const {
-    minCharsPerQuestion,
-    requireMarkSchemes
-  } = options;
-
-  const question = {
-    number: expectedNumber,
-    content: block.trim(),
-    issues: [],
-    warnings: [],
-    type: null,
-    hasMarkScheme: false,
-    hasAnswer: false,
-    extractedNumber: null,
-    marks: null
-  };
-
-  const numberMatch = block.match(/^(\d+)\.\s/);
-  if (numberMatch) {
-    question.extractedNumber = parseInt(numberMatch[1]);
-  } else {
-    question.issues.push({
-      type: 'NUMBERING',
-      severity: 'CRITICAL',
-      questionNum: expectedNumber,
-      message: `Question ${expectedNumber}: Missing or malformed question number`,
-      fixable: true
-    });
-  }
-
-  if (block.trim().length < minCharsPerQuestion) {
-    question.issues.push({
-      type: 'LENGTH',
-      severity: 'ERROR',
-      questionNum: expectedNumber,
-      message: `Question ${expectedNumber}: Too short (${block.trim().length} chars). May be incomplete.`,
-      fixable: false
-    });
-  }
-
-  if (block.includes('A)') || block.includes('B)') || block.includes('C)')) {
-    question.type = 'multiple_choice';
-    
-    if (block.includes('**Answer:')) {
-      question.hasAnswer = true;
+    const numberMatch = block.match(/^(\d+)\.\s/);
+    if (numberMatch) {
+      question.extractedNumber = parseInt(numberMatch[1]);
     } else {
       question.issues.push({
-        type: 'ANSWER',
-        severity: 'CRITICAL',
+        type: "NUMBERING",
+        severity: "CRITICAL",
         questionNum: expectedNumber,
-        message: `Question ${expectedNumber}: Multiple choice question missing **Answer:** field`,
-        fixable: false
+        message: `Question ${expectedNumber}: Missing or malformed question number`,
+        fixable: true,
       });
     }
-  } else {
-    question.type = 'structured';
-    
-    if (block.includes('Mark Scheme:')) {
-      question.hasMarkScheme = true;
-    } else if (requireMarkSchemes) {
+
+    if (block.trim().length < minCharsPerQuestion) {
       question.issues.push({
-        type: 'MARK_SCHEME',
-        severity: 'CRITICAL',
+        type: "LENGTH",
+        severity: "ERROR",
         questionNum: expectedNumber,
-        message: `Question ${expectedNumber}: Structured question missing "Mark Scheme:" section`,
-        fixable: false
+        message: `Question ${expectedNumber}: Too short (${block.trim().length} chars). May be incomplete.`,
+        fixable: false,
       });
     }
-  }
 
-  const subQuestionPatterns = [
-    /\(a\)/g, /\(b\)/g, /\(c\)/g, /\(d\)/g,
-    /\(i\)/g, /\(ii\)/g, /\(iii\)/g
-  ];
-  
-  const hasSubQuestions = subQuestionPatterns.some(p => block.match(p));
-  
-  if (hasSubQuestions) {
-    question.type = 'structured_multi_part';
-  }
+    if (block.includes("A)") || block.includes("B)") || block.includes("C)")) {
+      question.type = "multiple_choice";
 
-  return question;
-}
+      if (block.includes("**Answer:")) {
+        question.hasAnswer = true;
+      } else {
+        question.issues.push({
+          type: "ANSWER",
+          severity: "CRITICAL",
+          questionNum: expectedNumber,
+          message: `Question ${expectedNumber}: Multiple choice question missing **Answer:** field`,
+          fixable: false,
+        });
+      }
+    } else {
+      question.type = "structured";
 
-function validateQuestionNumbering(questions) {
-  const issues = [];
-  
-  for (let i = 0; i < questions.length; i++) {
-    const expected = i + 1;
-    const actual = questions[i].extractedNumber;
-    
-    if (actual && actual !== expected) {
-      issues.push({
-        type: 'NUMBERING',
-        severity: 'ERROR',
-        questionNum: expected,
-        message: `Non-sequential numbering: Expected ${expected}, got ${actual}`,
-        fixable: true
-      });
+      if (block.includes("Mark Scheme:")) {
+        question.hasMarkScheme = true;
+      } else if (requireMarkSchemes) {
+        question.issues.push({
+          type: "MARK_SCHEME",
+          severity: "CRITICAL",
+          questionNum: expectedNumber,
+          message: `Question ${expectedNumber}: Structured question missing "Mark Scheme:" section`,
+          fixable: false,
+        });
+      }
     }
-  }
-  
-  return issues;
-}
 
-function generateFixedContent(questions) {
-  return questions.map((q, idx) => {
-    const correctNumber = idx + 1;
-    return q.content.replace(/^\d+\./, `${correctNumber}.`);
-  }).join('\n\n');
-}
+    const subQuestionPatterns = [
+      /\(a\)/g,
+      /\(b\)/g,
+      /\(c\)/g,
+      /\(d\)/g,
+      /\(i\)/g,
+      /\(ii\)/g,
+      /\(iii\)/g,
+    ];
 
-// ==========================================
-// IMAGE PREPROCESSING
-// ==========================================
+    const hasSubQuestions = subQuestionPatterns.some((p) => block.match(p));
 
-async function preprocessImageForOCR(filePath) {
-  try {
-    const outputPath = filePath + '_processed.png';
-    
-    console.log("🎨 Preprocessing image for OCR...");
-    
-    const metadata = await sharp(filePath).metadata();
-    console.log(`Image: ${metadata.width}x${metadata.height}, format: ${metadata.format}`);
-    
-    let pipeline = sharp(filePath);
-    
-    if (metadata.orientation) {
-      pipeline = pipeline.rotate();
+    if (hasSubQuestions) {
+      question.type = "structured_multi_part";
     }
-    
-    const targetWidth = 2480;
-    if (metadata.width < targetWidth) {
-      pipeline = pipeline.resize({
-        width: targetWidth,
-        fit: 'inside',
-        kernel: 'lanczos3'
-      });
-    }
-    
-    await pipeline
-      .grayscale()
-      .normalize()
-      .sharpen({ sigma: 1.5, m1: 1.0, m2: 0.7 })
-      .linear(1.5, 0)
-      .threshold(140)
-      .png({ compressionLevel: 6 })
-      .toFile(outputPath);
-    
-    console.log("✓ Image preprocessed");
-    return outputPath;
-  } catch (error) {
-    console.error('Image preprocessing error:', error);
-    throw new Error('Failed to preprocess image: ' + error.message);
+
+    return question;
   }
-}
 
-// ==========================================
-// VISION MODEL OCR (REPLACES TESSERACT)
-// ==========================================
+  function validateQuestionNumbering(questions) {
+    const issues = [];
 
-async function extractTextFromImage(filePath) {
-  let processedPath = null;
-  
-  try {
-    processedPath = await preprocessImageForOCR(filePath);
-    
-    console.log("🔍 Running OCR with vision model...");
-    
-    const imageBuffer = await fsPromises.readFile(processedPath);
-    const base64Image = imageBuffer.toString('base64');
-    
-    const response = await visionClient.chat.completions.create({
-      model: process.env.OLLAMA_VISION_MODEL || "lightonai/LightOnOCR-2-1B",
-      messages: [{
-        role: "user",
-        content: [
-          { 
-            type: "text", 
-            text: "Extract ALL text from this exam paper. Preserve formatting, question numbers, sub-questions, and structure exactly as shown. Include all text visible in the image." 
-          },
-          { 
-            type: "image_url", 
-            image_url: { url: `data:image/png;base64,${base64Image}` }
-          }
-        ]
-      }],
-      max_tokens: 4000,
-      temperature: 0.1
-    });
-    
-    const extractedText = response.choices[0].message.content;
-    console.log(`✓ OCR completed (${extractedText.length} characters)`);
-    
-    // Cleanup
+    for (let i = 0; i < questions.length; i++) {
+      const expected = i + 1;
+      const actual = questions[i].extractedNumber;
+
+      if (actual && actual !== expected) {
+        issues.push({
+          type: "NUMBERING",
+          severity: "ERROR",
+          questionNum: expected,
+          message: `Non-sequential numbering: Expected ${expected}, got ${actual}`,
+          fixable: true,
+        });
+      }
+    }
+
+    return issues;
+  }
+
+  function generateFixedContent(questions) {
+    return questions
+      .map((q, idx) => {
+        const correctNumber = idx + 1;
+        return q.content.replace(/^\d+\./, `${correctNumber}.`);
+      })
+      .join("\n\n");
+  }
+
+  // ==========================================
+  // IMAGE PREPROCESSING
+  // ==========================================
+
+  async function preprocessImageForOCR(filePath) {
     try {
-      await fsPromises.unlink(processedPath);
-    } catch (e) {
-      console.warn('Could not delete processed image:', e);
+      const outputPath = filePath + "_processed.png";
+
+      console.log("🎨 Preprocessing image for OCR...");
+
+      const metadata = await sharp(filePath).metadata();
+      console.log(
+        `Image: ${metadata.width}x${metadata.height}, format: ${metadata.format}`
+      );
+
+      let pipeline = sharp(filePath);
+
+      if (metadata.orientation) {
+        pipeline = pipeline.rotate();
+      }
+
+      const targetWidth = 2480;
+      if (metadata.width < targetWidth) {
+        pipeline = pipeline.resize({
+          width: targetWidth,
+          fit: "inside",
+          kernel: "lanczos3",
+        });
+      }
+
+      await pipeline
+        .grayscale()
+        .normalize()
+        .sharpen({ sigma: 1.5, m1: 1.0, m2: 0.7 })
+        .linear(1.5, 0)
+        .threshold(140)
+        .png({ compressionLevel: 6 })
+        .toFile(outputPath);
+
+      console.log("✓ Image preprocessed");
+      return outputPath;
+    } catch (error) {
+      console.error("Image preprocessing error:", error);
+      throw new Error("Failed to preprocess image: " + error.message);
     }
-    
-    // Apply cleaning
-    const cleanedText = extractedText
-      .replace(/\d{4}\/\d{2}\/[A-Z]\/[A-Z]\/\d{2}.*?UCLES \d{4}/g, '')
-      .replace(/\[Turn over\]/g, '')
-      .replace(/DO NOT WRITE IN THIS MARGIN/g, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-    
-    return cleanedText;
-  } catch (error) {
-    if (processedPath) {
+  }
+
+  // ==========================================
+  // VISION MODEL OCR (REPLACES TESSERACT)
+  // ==========================================
+
+  async function extractTextFromImage(filePath) {
+    let processedPath = null;
+
+    try {
+      processedPath = await preprocessImageForOCR(filePath);
+
+      console.log("🔍 Running OCR with vision model...");
+
+      const imageBuffer = await fsPromises.readFile(processedPath);
+      const base64Image = imageBuffer.toString("base64");
+
+      const response = await visionClient.chat.completions.create({
+        model: process.env.OLLAMA_VISION_MODEL || "lightonai/LightOnOCR-2-1B",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Extract ALL text from this exam paper. Preserve formatting, question numbers, sub-questions, and structure exactly as shown. Include all text visible in the image.",
+              },
+              {
+                type: "image_url",
+                image_url: { url: `data:image/png;base64,${base64Image}` },
+              },
+            ],
+          },
+        ],
+        max_tokens: 4000,
+        temperature: 0.1,
+      });
+
+      const extractedText = response.choices[0].message.content;
+      console.log(`✓ OCR completed (${extractedText.length} characters)`);
+
+      // Cleanup
       try {
         await fsPromises.unlink(processedPath);
-      } catch (e) {}
+      } catch (e) {
+        console.warn("Could not delete processed image:", e);
+      }
+
+      // Apply cleaning
+      const cleanedText = extractedText
+        .replace(/\d{4}\/\d{2}\/[A-Z]\/[A-Z]\/\d{2}.*?UCLES \d{4}/g, "")
+        .replace(/\[Turn over\]/g, "")
+        .replace(/DO NOT WRITE IN THIS MARGIN/g, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+
+      return cleanedText;
+    } catch (error) {
+      if (processedPath) {
+        try {
+          await fsPromises.unlink(processedPath);
+        } catch (e) {}
+      }
+
+      console.error("Vision model OCR error:", error);
+      throw new Error("Failed to extract text from image: " + error.message);
     }
-    
-    console.error('Vision model OCR error:', error);
-    throw new Error('Failed to extract text from image: ' + error.message);
   }
-}
 
-// ==========================================
-// PDF TEXT EXTRACTION (KEEP YOUR EXISTING)
-// ==========================================
+  // ==========================================
+  // PDF TEXT EXTRACTION (KEEP YOUR EXISTING)
+  // ==========================================
 
-async function extractTextFromPDF(filePath) {
-  // Your existing pdfjs-dist implementation
-  const pdfjs = require('pdfjs-dist/legacy/build/pdf');
-  
-  const data = new Uint8Array(await fsPromises.readFile(filePath));
-  const pdf = await pdfjs.getDocument({ data }).promise;
-  
-  console.log(`📄 Processing ${pdf.numPages} pages...`);
-  
-  let fullText = '';
-  
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const textContent = await page.getTextContent();
-    const pageText = textContent.items.map(item => item.str).join(' ');
-    fullText += pageText + '\n';
-    console.log(`✓ Page ${i}/${pdf.numPages} extracted`);
+  async function extractTextFromPDF(filePath) {
+    // Your existing pdfjs-dist implementation
+    const pdfjs = require("pdfjs-dist/legacy/build/pdf");
+
+    const data = new Uint8Array(await fsPromises.readFile(filePath));
+    const pdf = await pdfjs.getDocument({ data }).promise;
+
+    console.log(`📄 Processing ${pdf.numPages} pages...`);
+
+    let fullText = "";
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item) => item.str).join(" ");
+      fullText += pageText + "\n";
+      console.log(`✓ Page ${i}/${pdf.numPages} extracted`);
+    }
+
+    // Clean
+    const cleanedText = fullText
+      .replace(/\d{4}\/\d{2}\/[A-Z]\/[A-Z]\/\d{2}.*?UCLES \d{4}/g, "")
+      .replace(/\[Turn over\]/g, "")
+      .replace(/DO NOT WRITE IN THIS MARGIN/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
+    return cleanedText;
   }
-  
-  // Clean
-  const cleanedText = fullText
-    .replace(/\d{4}\/\d{2}\/[A-Z]\/[A-Z]\/\d{2}.*?UCLES \d{4}/g, '')
-    .replace(/\[Turn over\]/g, '')
-    .replace(/DO NOT WRITE IN THIS MARGIN/g, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-  
-  return cleanedText;
-}
 
-// ==========================================
-// AI EXTRACTION WITH PROPER ERROR HANDLING
-// ==========================================
+  // ==========================================
+  // AI EXTRACTION WITH PROPER ERROR HANDLING
+  // ==========================================
 
-async function generateExamExtraction(prompt) {
-  try {
-    const response = await textClient.chat.completions.create({
-      model: process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b",
-      messages: [
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.1,
-      max_tokens: 8000
-    });
-    
-    return response.choices[0].message.content;
-  } catch (error) {
-    console.error('AI generation error:', error);
-    throw new Error('Failed to generate exam extraction: ' + error.message);
+  async function generateExamExtraction(prompt) {
+    try {
+      const response = await textClient.chat.completions.create({
+        model: process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 8000,
+      });
+
+      return response.choices[0].message.content;
+    } catch (error) {
+      console.error("AI generation error:", error);
+      throw new Error("Failed to generate exam extraction: " + error.message);
+    }
   }
-}
 
-function chunkTextByQuestions(text, maxCharsPerChunk = 12000) {
-  // Match main question numbers: "1 ", "2 ", etc. (with space after number)
-  const mainQuestionPattern = /(?=^\d+\s+[A-Z(])/gm;
-  const potentialQuestions = text.split(mainQuestionPattern).filter(q => q.trim());
-  
-  const chunks = [];
-  let currentChunk = '';
-  
-  for (const question of potentialQuestions) {
-    // If adding this question exceeds limit AND we have content, push chunk
-    if ((currentChunk + question).length > maxCharsPerChunk && currentChunk) {
+  function chunkTextByQuestions(text, maxCharsPerChunk = 12000) {
+    // Match main question numbers: "1 ", "2 ", etc. (with space after number)
+    const mainQuestionPattern = /(?=^\d+\s+[A-Z(])/gm;
+    const potentialQuestions = text
+      .split(mainQuestionPattern)
+      .filter((q) => q.trim());
+
+    const chunks = [];
+    let currentChunk = "";
+
+    for (const question of potentialQuestions) {
+      // If adding this question exceeds limit AND we have content, push chunk
+      if ((currentChunk + question).length > maxCharsPerChunk && currentChunk) {
+        chunks.push(currentChunk.trim());
+        currentChunk = question;
+      } else {
+        currentChunk += question;
+      }
+    }
+
+    if (currentChunk) {
       chunks.push(currentChunk.trim());
-      currentChunk = question;
-    } else {
-      currentChunk += question;
     }
-  }
-  
-  if (currentChunk) {
-    chunks.push(currentChunk.trim());
-  }
-  
-  // Fallback if no questions detected
-  if (chunks.length === 0) {
-    for (let i = 0; i < text.length; i += maxCharsPerChunk) {
-      chunks.push(text.substring(i, i + maxCharsPerChunk));
+
+    // Fallback if no questions detected
+    if (chunks.length === 0) {
+      for (let i = 0; i < text.length; i += maxCharsPerChunk) {
+        chunks.push(text.substring(i, i + maxCharsPerChunk));
+      }
     }
-  }
-  
-  return chunks;
-}
 
-// ==========================================
-// MODIFIED AI EXTRACTION WITH CHUNKING
-// ==========================================
-
-async function generateExamExtractionChunked(examText, markSchemeText, metadata) {
-    const CHUNK_SIZE = 4000;  // safe limit for input + prompt overhead
-  
-  // Try question-aware split first, fall back to hard split
-  let examChunks = chunkTextByQuestions(examText, CHUNK_SIZE);
-  
-  // Fallback: if it gave us 1 huge chunk, force-split it
-  if (examChunks.length === 1 && examText.length > CHUNK_SIZE) {
-    console.warn('⚠️  chunkTextByQuestions returned 1 chunk — using fallback splitter');
-    examChunks = hardSplitByParagraph(examText, CHUNK_SIZE);
+    return chunks;
   }
-  
-  console.log(`📦 Split exam into ${examChunks.length} chunks`);
-  
-  let allExtractedQuestions = [];
-  let questionOffset = 0;
-  
-  for (let i = 0; i < examChunks.length; i++) {
-    console.log(`🧠 Processing chunk ${i + 1}/${examChunks.length}...`);
-    
-    // Extract question numbers from this chunk
-    const questionNumbers = extractQuestionNumbers(examChunks[i]);
-    
-    // Get relevant mark scheme sections
-    let relevantMarkScheme = '';
-    if (markSchemeText && questionNumbers.length > 0) {
-      relevantMarkScheme = extractRelevantMarkScheme(
-        markSchemeText, 
-        questionNumbers[0], 
-        questionNumbers[questionNumbers.length - 1]
+
+  // ==========================================
+  // MODIFIED AI EXTRACTION WITH CHUNKING
+  // ==========================================
+
+  async function generateExamExtractionChunked(
+    examText,
+    markSchemeText,
+    metadata
+  ) {
+    const CHUNK_SIZE = 4000; // safe limit for input + prompt overhead
+
+    // Try question-aware split first, fall back to hard split
+    let examChunks = chunkTextByQuestions(examText, CHUNK_SIZE);
+
+    // Fallback: if it gave us 1 huge chunk, force-split it
+    if (examChunks.length === 1 && examText.length > CHUNK_SIZE) {
+      console.warn(
+        "⚠️  chunkTextByQuestions returned 1 chunk — using fallback splitter"
       );
+      examChunks = hardSplitByParagraph(examText, CHUNK_SIZE);
     }
-    
-    const subjectLine = metadata.subject 
-  ? `${metadata.subject} exam paper` 
-  : 'an exam paper (infer subject from content)';
 
-   const prompt = `You are an expert at digitising questions from ${subjectLine}.
-Exam board / level: ${metadata.grade || 'unknown'}.
+    console.log(`📦 Split exam into ${examChunks.length} chunks`);
+
+    let allExtractedQuestions = [];
+    let questionOffset = 0;
+
+    for (let i = 0; i < examChunks.length; i++) {
+      console.log(`🧠 Processing chunk ${i + 1}/${examChunks.length}...`);
+
+      // Extract question numbers from this chunk
+      const questionNumbers = extractQuestionNumbers(examChunks[i]);
+
+      // Get relevant mark scheme sections
+      let relevantMarkScheme = "";
+      if (markSchemeText && questionNumbers.length > 0) {
+        relevantMarkScheme = extractRelevantMarkScheme(
+          markSchemeText,
+          questionNumbers[0],
+          questionNumbers[questionNumbers.length - 1]
+        );
+      }
+
+      const subjectLine = metadata.subject
+        ? `${metadata.subject} exam paper`
+        : "an exam paper (infer subject from content)";
+
+      const prompt = `You are an expert at digitising questions from ${subjectLine}.
+Exam board / level: ${metadata.grade || "unknown"}.
 
 EXAM PAPER TEXT (CHUNK ${i + 1}/${examChunks.length}):
 ${examChunks[i]}
 
-${relevantMarkScheme ? `MARK SCHEME:\n${relevantMarkScheme}\n` : ''}
+${relevantMarkScheme ? `MARK SCHEME:\n${relevantMarkScheme}\n` : ""}
 
 OUTPUT FORMAT — prefix every question with its type tag:
 
@@ -707,202 +747,227 @@ CRITICAL RULES:
 
 EXTRACT ALL QUESTIONS NOW:`;
 
-    try {
-      const response = await textClient.chat.completions.create({
-        model: process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1, // Lower for more accuracy
-        max_tokens: 12000  // Increased
-      });
-      
-      let extracted = response.choices[0]?.message?.content;
-
-      if (!extracted) {
-        const finishReason = response.choices[0]?.finish_reason;
-        console.warn(`Chunk ${i + 1} returned null content (finish_reason: ${finishReason})`);
-        allExtractedQuestions.push('');
-        continue;
-      }
-
-      // Clean response
-      extracted = extracted
-        .replace(/^[\s\S]*?(?=\d+[\.\s])/m, '')
-        .replace(/^(Here's|Here is|Sure|Certainly).*?[:.\n]/im, '')
-        .replace(/```[a-z]*\n?/gi, '')
-        .trim();
-      
-      const questionMatches = extracted.match(/^\d+[\.\s]/gm);
-      const questionsInChunk = questionMatches ? questionMatches.length : 0;
-      
-      console.log(`✓ Extracted ${questionsInChunk} questions from chunk ${i + 1}`);
-      
-      allExtractedQuestions.push(extracted);
-      questionOffset += questionsInChunk;
-      
-    } catch (error) {
-      console.error(`Error processing chunk ${i + 1}:`, error.message);
-      throw error;
-    }
-  }
-  
-  // Combine and renumber
-  let combined = allExtractedQuestions
-    .filter(q => q.trim())
-    .join('\n\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  
-  return combined;
-}
-
-function hardSplitByParagraph(text, maxChars) {
-  const chunks = [];
-  let start = 0;
-  while (start < text.length) {
-    let end = start + maxChars;
-    if (end < text.length) {
-      // break at last double newline before the limit
-      const boundary = text.lastIndexOf('\n\n', end);
-      if (boundary > start + maxChars * 0.4) end = boundary;
-    }
-    chunks.push(text.slice(start, Math.min(end, text.length)));
-    start = end;
-  }
-  return chunks;
-}
-
-// Helper functions
-function extractQuestionNumbers(text) {
-  const matches = text.matchAll(/^(?:Q(?:uestion)?\s*)?(\d+)[\.\):\s]/gm);
-  return [...new Set([...matches].map(m => parseInt(m[1])))].sort((a, b) => a - b);
-}
-
-function extractRelevantMarkScheme(markSchemeText, startQ, endQ) {
-  // Try structured header format first
-  const strictPattern = new RegExp(
-    `(?:Question|Q\\.?)\\s*${startQ}[\\s\\S]*?(?=(?:Question|Q\\.?)\\s*${endQ + 1}|$)`, 'i'
-  );
-  const strictMatch = markSchemeText.match(strictPattern);
-  if (strictMatch) return strictMatch[0].substring(0, 4000);
-
-  // Fallback: find the rough position of startQ in the mark scheme and take a slice
-  const roughPattern = new RegExp(`\\b${startQ}\\b`);
-  const roughMatch = roughPattern.exec(markSchemeText);
-  if (roughMatch) {
-    return markSchemeText.substring(roughMatch.index, roughMatch.index + 4000);
-  }
-
-  // Last resort: return the whole mark scheme (truncated)
-  return markSchemeText.substring(0, 4000);
-}
-
-
-// ==========================================
-// MAIN EXTRACTION ROUTE
-// ==========================================
-
-app.post("/teacher/extract-exam-paper",
-  validatedRequest,
-  flexUserRoleValid([ROLES.teacher]),
-  (req, res, next) => {
-    upload.fields([
-      { name: 'examPaper', maxCount: 1 },
-      { name: 'markScheme', maxCount: 1 }
-    ])(req, res, (err) => {
-      if (err) {
-        console.error("Multer error:", err);
-        return res.status(400).json({ success: false, error: err.message || "File upload failed." });
-      }
-      next();
-    });
-  },
-  async (req, res) => {
-    let examFilePath = null;
-    let markSchemeFilePath = null;
-
-    try {
-      const { metadata } = req.body;
-      
-      if (!metadata) {
-        return res.status(400).json({ 
-          success: false, 
-          error: "Metadata is required" 
+      try {
+        const response = await textClient.chat.completions.create({
+          model: process.env.OLLAMA_MODEL_PREF || "openai/gpt-oss-20b",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.1, // Lower for more accuracy
+          max_tokens: 12000, // Increased
         });
-      }
 
-      const parsedMetadata = JSON.parse(metadata);
-      
-      if (!req.files || !req.files.examPaper) {
-        return res.status(400).json({ 
-          success: false, 
-          error: "Exam paper file is required" 
-        });
-      }
+        let extracted = response.choices[0]?.message?.content;
 
-      const examFile = req.files.examPaper[0];
-      examFilePath = examFile.path;
-      
-      const markSchemeFile = req.files.markScheme ? req.files.markScheme[0] : null;
-      if (markSchemeFile) {
-        markSchemeFilePath = markSchemeFile.path;
-      }
-
-      console.log("📄 Extracting exam paper from:", examFile.originalname);
-      console.log("📝 File type:", examFile.mimetype);
-
-      // STEP 1: Extract text from exam paper
-      let examText = '';
-      if (examFile.mimetype === 'application/pdf') {
-        console.log("📖 Processing PDF with pdfjs-dist...");
-        examText = await extractTextFromPDF(examFilePath);
-      } else if (examFile.mimetype.startsWith('image/')) {
-        console.log("🖼️ Processing image with Vision Model OCR...");
-        examText = await extractTextFromImage(examFilePath);
-      } else {
-        return res.status(400).json({ 
-          success: false, 
-          error: "Unsupported file type. Please upload PDF or image (JPG, PNG)." 
-        });
-      }
-
-      console.log(`📝 Extracted ${examText.length} characters from exam paper`);
-
-      if (!examText || examText.trim().length < 100) {
-        return res.status(400).json({ 
-          success: false, 
-          error: "Could not extract sufficient text from the exam paper. Please ensure the file is clear and readable." 
-        });
-      }
-
-      // STEP 2: Extract text from mark scheme if provided
-      let markSchemeText = '';
-      if (markSchemeFile) {
-        console.log("📋 Extracting mark scheme from:", markSchemeFile.originalname);
-        if (markSchemeFile.mimetype === 'application/pdf') {
-          markSchemeText = await extractTextFromPDF(markSchemeFilePath);
-        } else if (markSchemeFile.mimetype.startsWith('image/')) {
-          markSchemeText = await extractTextFromImage(markSchemeFilePath);
+        if (!extracted) {
+          const finishReason = response.choices[0]?.finish_reason;
+          console.warn(
+            `Chunk ${i + 1} returned null content (finish_reason: ${finishReason})`
+          );
+          allExtractedQuestions.push("");
+          continue;
         }
-        console.log(`📝 Extracted ${markSchemeText.length} characters from mark scheme`);
+
+        // Clean response
+        extracted = extracted
+          .replace(/^[\s\S]*?(?=\d+[\.\s])/m, "")
+          .replace(/^(Here's|Here is|Sure|Certainly).*?[:.\n]/im, "")
+          .replace(/```[a-z]*\n?/gi, "")
+          .trim();
+
+        const questionMatches = extracted.match(/^\d+[\.\s]/gm);
+        const questionsInChunk = questionMatches ? questionMatches.length : 0;
+
+        console.log(
+          `✓ Extracted ${questionsInChunk} questions from chunk ${i + 1}`
+        );
+
+        allExtractedQuestions.push(extracted);
+        questionOffset += questionsInChunk;
+      } catch (error) {
+        console.error(`Error processing chunk ${i + 1}:`, error.message);
+        throw error;
       }
+    }
 
-      // STEP 3: Single AI call - Extract questions directly (NO structure analysis)
-      // STEP 3: Build a universal extraction prompt
-const subjectHint = parsedMetadata.subject 
-  ? `Subject: ${parsedMetadata.subject}` 
-  : "Subject: Unknown (infer from content)";
+    // Combine and renumber
+    let combined = allExtractedQuestions
+      .filter((q) => q.trim())
+      .join("\n\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
 
-const extractionPrompt = `You are an expert at digitising exam papers from any subject, exam board, or education level.
+    return combined;
+  }
+
+  function hardSplitByParagraph(text, maxChars) {
+    const chunks = [];
+    let start = 0;
+    while (start < text.length) {
+      let end = start + maxChars;
+      if (end < text.length) {
+        // break at last double newline before the limit
+        const boundary = text.lastIndexOf("\n\n", end);
+        if (boundary > start + maxChars * 0.4) end = boundary;
+      }
+      chunks.push(text.slice(start, Math.min(end, text.length)));
+      start = end;
+    }
+    return chunks;
+  }
+
+  // Helper functions
+  function extractQuestionNumbers(text) {
+    const matches = text.matchAll(/^(?:Q(?:uestion)?\s*)?(\d+)[\.\):\s]/gm);
+    return [...new Set([...matches].map((m) => parseInt(m[1])))].sort(
+      (a, b) => a - b
+    );
+  }
+
+  function extractRelevantMarkScheme(markSchemeText, startQ, endQ) {
+    // Try structured header format first
+    const strictPattern = new RegExp(
+      `(?:Question|Q\\.?)\\s*${startQ}[\\s\\S]*?(?=(?:Question|Q\\.?)\\s*${endQ + 1}|$)`,
+      "i"
+    );
+    const strictMatch = markSchemeText.match(strictPattern);
+    if (strictMatch) return strictMatch[0].substring(0, 4000);
+
+    // Fallback: find the rough position of startQ in the mark scheme and take a slice
+    const roughPattern = new RegExp(`\\b${startQ}\\b`);
+    const roughMatch = roughPattern.exec(markSchemeText);
+    if (roughMatch) {
+      return markSchemeText.substring(
+        roughMatch.index,
+        roughMatch.index + 4000
+      );
+    }
+
+    // Last resort: return the whole mark scheme (truncated)
+    return markSchemeText.substring(0, 4000);
+  }
+
+  // ==========================================
+  // MAIN EXTRACTION ROUTE
+  // ==========================================
+
+  app.post(
+    "/teacher/extract-exam-paper",
+    validatedRequest,
+    flexUserRoleValid([ROLES.teacher]),
+    (req, res, next) => {
+      upload.fields([
+        { name: "examPaper", maxCount: 1 },
+        { name: "markScheme", maxCount: 1 },
+      ])(req, res, (err) => {
+        if (err) {
+          console.error("Multer error:", err);
+          return res
+            .status(400)
+            .json({
+              success: false,
+              error: err.message || "File upload failed.",
+            });
+        }
+        next();
+      });
+    },
+    async (req, res) => {
+      let examFilePath = null;
+      let markSchemeFilePath = null;
+
+      try {
+        const { metadata } = req.body;
+
+        if (!metadata) {
+          return res.status(400).json({
+            success: false,
+            error: "Metadata is required",
+          });
+        }
+
+        const parsedMetadata = JSON.parse(metadata);
+
+        if (!req.files || !req.files.examPaper) {
+          return res.status(400).json({
+            success: false,
+            error: "Exam paper file is required",
+          });
+        }
+
+        const examFile = req.files.examPaper[0];
+        examFilePath = examFile.path;
+
+        const markSchemeFile = req.files.markScheme
+          ? req.files.markScheme[0]
+          : null;
+        if (markSchemeFile) {
+          markSchemeFilePath = markSchemeFile.path;
+        }
+
+        console.log("📄 Extracting exam paper from:", examFile.originalname);
+        console.log("📝 File type:", examFile.mimetype);
+
+        // STEP 1: Extract text from exam paper
+        let examText = "";
+        if (examFile.mimetype === "application/pdf") {
+          console.log("📖 Processing PDF with pdfjs-dist...");
+          examText = await extractTextFromPDF(examFilePath);
+        } else if (examFile.mimetype.startsWith("image/")) {
+          console.log("🖼️ Processing image with Vision Model OCR...");
+          examText = await extractTextFromImage(examFilePath);
+        } else {
+          return res.status(400).json({
+            success: false,
+            error:
+              "Unsupported file type. Please upload PDF or image (JPG, PNG).",
+          });
+        }
+
+        console.log(
+          `📝 Extracted ${examText.length} characters from exam paper`
+        );
+
+        if (!examText || examText.trim().length < 100) {
+          return res.status(400).json({
+            success: false,
+            error:
+              "Could not extract sufficient text from the exam paper. Please ensure the file is clear and readable.",
+          });
+        }
+
+        // STEP 2: Extract text from mark scheme if provided
+        let markSchemeText = "";
+        if (markSchemeFile) {
+          console.log(
+            "📋 Extracting mark scheme from:",
+            markSchemeFile.originalname
+          );
+          if (markSchemeFile.mimetype === "application/pdf") {
+            markSchemeText = await extractTextFromPDF(markSchemeFilePath);
+          } else if (markSchemeFile.mimetype.startsWith("image/")) {
+            markSchemeText = await extractTextFromImage(markSchemeFilePath);
+          }
+          console.log(
+            `📝 Extracted ${markSchemeText.length} characters from mark scheme`
+          );
+        }
+
+        // STEP 3: Single AI call - Extract questions directly (NO structure analysis)
+        // STEP 3: Build a universal extraction prompt
+        const subjectHint = parsedMetadata.subject
+          ? `Subject: ${parsedMetadata.subject}`
+          : "Subject: Unknown (infer from content)";
+
+        const extractionPrompt = `You are an expert at digitising exam papers from any subject, exam board, or education level.
 
 EXAM PAPER TEXT:
 ${examText}
 
-${markSchemeText ? `MARK SCHEME TEXT:\n${markSchemeText}\n` : ''}
+${markSchemeText ? `MARK SCHEME TEXT:\n${markSchemeText}\n` : ""}
 
 METADATA:
 - ${subjectHint}
-- Grade/Level: ${parsedMetadata.grade || 'Unknown'}
-- Topic: ${parsedMetadata.topic || 'Unknown'}
+- Grade/Level: ${parsedMetadata.grade || "Unknown"}
+- Topic: ${parsedMetadata.topic || "Unknown"}
 
 OUTPUT FORMAT — choose the correct type tag for each question:
 
@@ -960,878 +1025,1026 @@ CRITICAL RULES:
 
 NOW EXTRACT ALL QUESTIONS (start with "1." immediately):`;
 
-      console.log("🧠 Extracting questions with AI...");
-     const extractedContent = await generateExamExtractionChunked(
-  examText,           // Pass the extracted text
-  markSchemeText,     // Pass the mark scheme text  
-  parsedMetadata      // Pass the metadata object
-);
+        console.log("🧠 Extracting questions with AI...");
+        const extractedContent = await generateExamExtractionChunked(
+          examText, // Pass the extracted text
+          markSchemeText, // Pass the mark scheme text
+          parsedMetadata // Pass the metadata object
+        );
 
-      
-      // Clean the response aggressively
-      let cleanedContent = extractedContent
-        .replace(/^[\s\S]*?(?=1\.\s)/m, '') // Remove everything before first "1. "
-        .replace(/^(Here's|Here is|Sure|Certainly|Okay|I'll|Let me|Below).*?[:.\n]/im, '')
-        .replace(/```[a-z]*\n?/gi, '')
-        .replace(/```/g, '')
-        .trim();
+        // Clean the response aggressively
+        let cleanedContent = extractedContent
+          .replace(/^[\s\S]*?(?=1\.\s)/m, "") // Remove everything before first "1. "
+          .replace(
+            /^(Here's|Here is|Sure|Certainly|Okay|I'll|Let me|Below).*?[:.\n]/im,
+            ""
+          )
+          .replace(/```[a-z]*\n?/gi, "")
+          .replace(/```/g, "")
+          .trim();
 
-      // Find where questions actually start
-      const firstQuestionMatch = cleanedContent.match(/^1\.\s/m);
-      if (firstQuestionMatch) {
-        cleanedContent = cleanedContent.substring(firstQuestionMatch.index);
+        // Find where questions actually start
+        const firstQuestionMatch = cleanedContent.match(/^1\.\s/m);
+        if (firstQuestionMatch) {
+          cleanedContent = cleanedContent.substring(firstQuestionMatch.index);
+        }
+
+        // Ensure proper spacing
+        cleanedContent = cleanedContent
+          .replace(/\n(\d+\.)/g, "\n\n$1")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+
+        console.log("✅ AI extraction complete");
+        console.log("First 500 chars:", cleanedContent.substring(0, 500));
+
+        // VALIDATION
+        const validationResult = validateExtractedQuestions(cleanedContent, {
+          minQuestions: 1,
+          minCharsPerQuestion: 20,
+          requireMarkSchemes: false, // Set to true if you want strict validation
+          strictNumbering: true,
+        });
+
+        console.log(
+          `📊 Validation: ${validationResult.valid ? "✓ PASSED" : "✗ FAILED"}`
+        );
+        console.log(`📝 Found ${validationResult.questionCount} questions`);
+        console.log(
+          `⚠️  Issues: ${validationResult.issues.length}, Warnings: ${validationResult.warnings.length}`
+        );
+
+        // If critical validation failure
+        const criticalIssues = validationResult.issues.filter(
+          (i) => i.severity === "CRITICAL"
+        );
+        if (criticalIssues.length > 0 && validationResult.questionCount === 0) {
+          console.error("❌ Critical validation errors:", criticalIssues);
+
+          // Clean up files
+          if (examFilePath) await fsPromises.unlink(examFilePath);
+          if (markSchemeFilePath) await fsPromises.unlink(markSchemeFilePath);
+
+          return res.status(422).json({
+            success: false,
+            error: "AI extraction failed validation - no valid questions found",
+            details: {
+              issues: criticalIssues,
+              extractedSample: cleanedContent.substring(0, 1000),
+            },
+            message:
+              "The AI could not properly extract questions. This may be due to poor image quality or unexpected document format. Please try again with a clearer document.",
+          });
+        }
+
+        // Apply auto-fixes
+        if (validationResult.issues.some((i) => i.fixable)) {
+          console.log("🔧 Applying automatic fixes...");
+          cleanedContent = validationResult.fixedContent;
+        }
+
+        console.log(
+          `✅ Successfully extracted ${validationResult.questionCount} questions`
+        );
+
+        // Clean up uploaded files
+        try {
+          if (examFilePath) await fsPromises.unlink(examFilePath);
+          if (markSchemeFilePath) await fsPromises.unlink(markSchemeFilePath);
+        } catch (unlinkError) {
+          console.error(
+            "Warning: Could not delete temporary files:",
+            unlinkError
+          );
+        }
+
+        return res.status(200).json({
+          success: true,
+          extractedQuiz: {
+            content: cleanedContent,
+            questionCount: validationResult.questionCount,
+            metadata: parsedMetadata,
+            hasMarkScheme: !!markSchemeText,
+            extractionMethod:
+              examFile.mimetype === "application/pdf"
+                ? "pdfjs-dist"
+                : "vision-model-ocr",
+          },
+          validation: {
+            passed: validationResult.valid,
+            questionCount: validationResult.questionCount,
+            criticalIssues: criticalIssues.length,
+            errors: validationResult.issues.filter(
+              (i) => i.severity === "ERROR"
+            ).length,
+            warnings: validationResult.warnings.length,
+            issues: validationResult.issues,
+            warnings: validationResult.warnings,
+          },
+          message: `Successfully extracted ${validationResult.questionCount} questions from the exam paper.`,
+        });
+      } catch (err) {
+        console.error("🔥 Exam extraction error:", err);
+
+        // Clean up files on error
+        try {
+          if (examFilePath) await fsPromises.unlink(examFilePath);
+          if (markSchemeFilePath) await fsPromises.unlink(markSchemeFilePath);
+        } catch (unlinkError) {
+          console.error(
+            "Warning: Could not delete temporary files on error:",
+            unlinkError
+          );
+        }
+
+        return res.status(500).json({
+          success: false,
+          error: err.message || "Failed to extract exam paper.",
+          details:
+            process.env.NODE_ENV === "development" ? err.stack : undefined,
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/enrol/teacher",
+    [validatedRequest, flexUserRoleValid([ROLES.default])],
+    async (request, response) => {
+      try {
+        const { name, school } = reqBody(request);
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id)
+          return response.status(401).json({ error: "Unauthorized" });
+        if (
+          typeof name !== "string" ||
+          !name.trim() ||
+          typeof school !== "string" ||
+          !school.trim()
+        ) {
+          return response
+            .status(400)
+            .json({ error: "Invalid teacher profile." });
+        }
+
+        const existing = await prisma.teachers.findFirst({
+          where: { user_id: sessionUser.id },
+        });
+        if (existing)
+          return response
+            .status(409)
+            .json({ error: "Teacher profile already exists." });
+
+        const [teacher, updatedUser] = await prisma.$transaction([
+          prisma.teachers.create({
+            data: {
+              user_id: sessionUser.id,
+              name: name.trim(),
+              school: school.trim(),
+            },
+          }),
+          prisma.users.update({
+            where: { id: sessionUser.id },
+            data: { role: "teacher" },
+          }),
+        ]);
+        try {
+          await ensureProvisionalSchool(teacher);
+        } catch (error) {
+          console.error(
+            "Unable to provision teacher school membership:",
+            error
+          );
+        }
+
+        const newToken = jwt.sign(
+          {
+            id: updatedUser.id,
+            username: updatedUser.username,
+            role: updatedUser.role,
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: process.env.JWT_EXPIRY || "12h" }
+        );
+
+        response.status(200).json({
+          success: true,
+          teacher,
+          token: newToken,
+          message: "Teacher enrolled successfully. Token refreshed.",
+        });
+      } catch (err) {
+        console.error("Error enrolling teacher:", err);
+        response.status(500).json({ error: "Internal server error" });
+      }
+    }
+  );
+
+  app.post(
+    "/system/enrol/parent",
+    [validatedRequest, flexUserRoleValid([ROLES.default])],
+    async (request, response) => {
+      try {
+        const { name, studentName } = reqBody(request);
+        const sessionUser = await userFromSession(request, response);
+
+        if (!sessionUser?.id)
+          return response.status(401).json({ error: "Unauthorized" });
+
+        // ✅ Validate required fields
+        if (!name) {
+          return response.status(400).json({
+            error: "Parent name is required.",
+          });
+        }
+
+        // Prevent duplicate parent profiles
+        const existing = await prisma.parents.findFirst({
+          where: { user_id: sessionUser.id },
+        });
+        if (existing)
+          return response
+            .status(409)
+            .json({ error: "Parent profile already exists." });
+
+        const [parent, updatedUser] = await prisma.$transaction([
+          prisma.parents.create({
+            data: {
+              user_id: sessionUser.id,
+              name: name.trim(),
+            },
+          }),
+          prisma.users.update({
+            where: { id: sessionUser.id },
+            data: { role: "parent" },
+          }),
+        ]);
+
+        // ✅ Issue new JWT token with updated role
+        const jwt = require("jsonwebtoken");
+        const newToken = jwt.sign(
+          {
+            id: updatedUser.id,
+            username: updatedUser.username,
+            role: updatedUser.role,
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: process.env.JWT_EXPIRY || "12h" }
+        );
+
+        await EventLogs.logEvent(
+          "parent_enrolled",
+          { username: sessionUser.username },
+          sessionUser.id
+        );
+
+        response.status(200).json({
+          success: true,
+          parent,
+          token: newToken,
+          message: "Parent enrolled successfully. Token refreshed.",
+        });
+      } catch (err) {
+        console.error("Error enrolling parent:", err);
+        response
+          .status(500)
+          .json({ error: "Internal server error during parent enrolment." });
+      }
+    }
+  );
+
+  app.get(
+    "/system/student/:userId",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = response.locals.user;
+        const userId = Number(request.params.userId);
+
+        if (!Number.isInteger(userId)) {
+          return response.status(400).json({
+            success: false,
+            error: "Invalid userId",
+          });
+        }
+
+        const student = await prisma.students.findFirst({
+          where: { user_id: userId },
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                role: true,
+                pfpFilename: true,
+              },
+            },
+          },
+        });
+
+        if (!student) {
+          return response.status(404).json({
+            success: false,
+            error: "Student not found",
+          });
+        }
+
+        if (!(await canAccessStudent(sessionUser, student)))
+          return response
+            .status(403)
+            .json({ success: false, error: "Access denied" });
+
+        if (
+          student.subscription_expiration_date &&
+          new Date() > student.subscription_expiration_date
+        ) {
+          await prisma.students.update({
+            where: { id: student.id }, // 👈 safer than updateMany
+            data: { subscription_status: "none" },
+          });
+        }
+
+        response.status(200).json({ success: true, student });
+      } catch (err) {
+        console.error("Error fetching student:", err);
+        response
+          .status(500)
+          .json({ success: false, error: "Internal server error" });
+      }
+    }
+  );
+
+  app.get(
+    "/system/teacher/my-quizzes",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const userId = res.locals.user.id;
+
+        // 2. Find Teacher Profile
+        const teacher = await prisma.teachers.findFirst({
+          where: { user_id: parseInt(userId) },
+        });
+
+        if (!teacher) {
+          return res
+            .status(403)
+            .json({ success: false, error: "Teacher profile not found" });
+        }
+
+        // 3. Find ALL quizzes by this teacher
+        const quizzes = await prisma.shared_quizzes.findMany({
+          where: { teacher_id: teacher.id },
+          orderBy: { created_at: "desc" },
+          include: {
+            _count: {
+              select: { quiz_results: true }, // Optional: Count how many students submitted
+            },
+          },
+        });
+
+        // 4. Format for frontend
+        const formattedQuizzes = quizzes.map((q) => ({
+          id: q.id,
+          topic: q.topic,
+          subject: q.subject,
+          difficulty: q.difficulty,
+          quiz_code: q.quiz_code,
+          createdAt: q.created_at,
+          submissionCount: q._count?.quiz_results || 0,
+        }));
+
+        res.json({
+          success: true,
+          quizzes: formattedQuizzes,
+        });
+      } catch (err) {
+        console.error("Error fetching teacher quizzes:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Failed to fetch quizzes" });
+      }
+    }
+  );
+  app.get(
+    "/system/teacher/:userId",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = response.locals.user;
+        const { userId } = request.params;
+        const id = Number(userId);
+
+        if (isNaN(id)) {
+          return response
+            .status(400)
+            .json({ success: false, error: "Invalid teacher ID." });
+        }
+        if (
+          id !== sessionUser.id &&
+          ![ROLES.admin, ROLES.manager].includes(sessionUser.role)
+        )
+          return response
+            .status(403)
+            .json({ success: false, error: "Access denied" });
+
+        const teacher = await prisma.teachers.findFirst({
+          where: { user_id: id },
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                role: true,
+                pfpFilename: true,
+              },
+            },
+          },
+        });
+
+        if (!teacher) {
+          return response
+            .status(404)
+            .json({ success: false, error: "Teacher not found" });
+        }
+
+        response.status(200).json({ success: true, teacher });
+      } catch (err) {
+        console.error("Error fetching teacher:", err);
+        response
+          .status(500)
+          .json({ success: false, error: "Internal server error" });
+      }
+    }
+  );
+
+  app.get(
+    "/system/parent/profile/:userId",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = response.locals.user;
+        const { userId } = request.params;
+        if (
+          Number(userId) !== sessionUser.id &&
+          ![ROLES.admin, ROLES.manager].includes(sessionUser.role)
+        )
+          return response
+            .status(403)
+            .json({ success: false, error: "Access denied" });
+        const parent = await prisma.parents.findFirst({
+          where: { user_id: Number(userId) },
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                role: true,
+                pfpFilename: true,
+              },
+            },
+          },
+        });
+
+        if (!parent) {
+          return response
+            .status(404)
+            .json({ success: false, error: "Parent not found" });
+        }
+
+        response.status(200).json({ success: true, parent });
+      } catch (err) {
+        console.error("Error fetching parent:", err);
+        response
+          .status(500)
+          .json({ success: false, error: "Internal server error" });
+      }
+    }
+  );
+
+  app.get("/system/profile/:userId", [validatedRequest], async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const id = Number(userId);
+      if (isNaN(id)) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Invalid userId parameter." });
+      }
+      const requester = res.locals.user;
+      if (
+        id !== Number(requester.id) &&
+        ![ROLES.admin, ROLES.manager].includes(requester.role)
+      ) {
+        return res.status(403).json({ success: false, error: "Forbidden" });
       }
 
-      // Ensure proper spacing
-      cleanedContent = cleanedContent
-        .replace(/\n(\d+\.)/g, '\n\n$1')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-
-      console.log("✅ AI extraction complete");
-      console.log("First 500 chars:", cleanedContent.substring(0, 500));
-
-      // VALIDATION
-      const validationResult = validateExtractedQuestions(cleanedContent, {
-        minQuestions: 1,
-        minCharsPerQuestion: 20,
-        requireMarkSchemes: false, // Set to true if you want strict validation
-        strictNumbering: true
+      // Find the user first (so we know their role)
+      const user = await prisma.users.findUnique({
+        where: { id },
+        select: { id: true, username: true, role: true },
       });
 
-      console.log(`📊 Validation: ${validationResult.valid ? '✓ PASSED' : '✗ FAILED'}`);
-      console.log(`📝 Found ${validationResult.questionCount} questions`);
-      console.log(`⚠️  Issues: ${validationResult.issues.length}, Warnings: ${validationResult.warnings.length}`);
+      if (!user) {
+        return res
+          .status(404)
+          .json({ success: false, error: "User not found." });
+      }
 
-      // If critical validation failure
-      const criticalIssues = validationResult.issues.filter(i => i.severity === 'CRITICAL');
-      if (criticalIssues.length > 0 && validationResult.questionCount === 0) {
-        console.error('❌ Critical validation errors:', criticalIssues);
-        
-        // Clean up files
-        if (examFilePath) await fsPromises.unlink(examFilePath);
-        if (markSchemeFilePath) await fsPromises.unlink(markSchemeFilePath);
-        
-        return res.status(422).json({
-          success: false,
-          error: 'AI extraction failed validation - no valid questions found',
-          details: {
-            issues: criticalIssues,
-            extractedSample: cleanedContent.substring(0, 1000)
-          },
-          message: 'The AI could not properly extract questions. This may be due to poor image quality or unexpected document format. Please try again with a clearer document.'
+      let profile = null;
+
+      // Fetch from the correct profile table
+      if (user.role === "student") {
+        profile = await prisma.students.findFirst({
+          where: { user_id: id },
+        });
+      } else if (user.role === "teacher") {
+        profile = await prisma.teachers.findFirst({
+          where: { user_id: id },
+        });
+      } else if (user.role === "parent") {
+        profile = await prisma.parents.findFirst({
+          where: { user_id: id },
         });
       }
 
-      // Apply auto-fixes
-      if (validationResult.issues.some(i => i.fixable)) {
-        console.log('🔧 Applying automatic fixes...');
-        cleanedContent = validationResult.fixedContent;
+      if (!profile) {
+        return res.status(404).json({
+          success: false,
+          error: `${user.role || "unknown"} profile not found.`,
+        });
       }
 
-      console.log(`✅ Successfully extracted ${validationResult.questionCount} questions`);
-
-      // Clean up uploaded files
-      try {
-        if (examFilePath) await fsPromises.unlink(examFilePath);
-        if (markSchemeFilePath) await fsPromises.unlink(markSchemeFilePath);
-      } catch (unlinkError) {
-        console.error("Warning: Could not delete temporary files:", unlinkError);
-      }
-
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
-        extractedQuiz: {
-          content: cleanedContent,
-          questionCount: validationResult.questionCount,
-          metadata: parsedMetadata,
-          hasMarkScheme: !!markSchemeText,
-          extractionMethod: examFile.mimetype === 'application/pdf' ? 'pdfjs-dist' : 'vision-model-ocr'
-        },
-        validation: {
-          passed: validationResult.valid,
-          questionCount: validationResult.questionCount,
-          criticalIssues: criticalIssues.length,
-          errors: validationResult.issues.filter(i => i.severity === 'ERROR').length,
-          warnings: validationResult.warnings.length,
-          issues: validationResult.issues,
-          warnings: validationResult.warnings
-        },
-        message: `Successfully extracted ${validationResult.questionCount} questions from the exam paper.`
+        user,
+        profile,
       });
-
     } catch (err) {
-      console.error("🔥 Exam extraction error:", err);
-      
-      // Clean up files on error
-      try {
-        if (examFilePath) await fsPromises.unlink(examFilePath);
-        if (markSchemeFilePath) await fsPromises.unlink(markSchemeFilePath);
-      } catch (unlinkError) {
-        console.error("Warning: Could not delete temporary files on error:", unlinkError);
-      }
-
-      return res.status(500).json({ 
-        success: false, 
-        error: err.message || "Failed to extract exam paper.",
-        details: process.env.NODE_ENV === 'development' ? err.stack : undefined
-      });
-    }
-  }
-);
-
-
-
- app.post("/system/enrol/teacher", [
-  validatedRequest,
-  flexUserRoleValid([ROLES.default]),
- ], async (request, response) => {
-  try {
-    const { name, school } = reqBody(request);
-    const sessionUser = await userFromSession(request, response);
-    if (!sessionUser?.id) return response.status(401).json({ error: "Unauthorized" });
-    if (
-      typeof name !== "string" ||
-      !name.trim() ||
-      typeof school !== "string" ||
-      !school.trim()
-    ) {
-      return response.status(400).json({ error: "Invalid teacher profile." });
-    }
-
-    const existing = await prisma.teachers.findFirst({ where: { user_id: sessionUser.id } });
-    if (existing) return response.status(409).json({ error: "Teacher profile already exists." });
-
-    const [teacher, updatedUser] = await prisma.$transaction([
-      prisma.teachers.create({
-        data: {
-          user_id: sessionUser.id,
-          name: name.trim(),
-          school: school.trim(),
-        },
-      }),
-      prisma.users.update({
-        where: { id: sessionUser.id },
-        data: { role: "teacher" },
-      }),
-    ]);
-    try {
-      await ensureProvisionalSchool(teacher);
-    } catch (error) {
-      console.error("Unable to provision teacher school membership:", error);
-    }
-
-    const newToken = jwt.sign(
-      { id: updatedUser.id, username: updatedUser.username, role: updatedUser.role },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRY || "12h" }
-    );
-
-    response.status(200).json({
-      success: true,
-      teacher,
-      token: newToken,
-      message: "Teacher enrolled successfully. Token refreshed.",
-    });
-  } catch (err) {
-    console.error("Error enrolling teacher:", err);
-    response.status(500).json({ error: "Internal server error" });
-  }
-});
-
-app.post("/system/enrol/parent", [
-  validatedRequest,
-  flexUserRoleValid([ROLES.default]),
-], async (request, response) => {
-  try {
-    const { name, studentName } = reqBody(request);
-    const sessionUser = await userFromSession(request, response);
-
-    if (!sessionUser?.id)
-      return response.status(401).json({ error: "Unauthorized" });
-
-    // ✅ Validate required fields
-    if (!name) {
-      return response.status(400).json({ 
-        error: "Parent name is required." 
-      });
-    }
-
-    // Prevent duplicate parent profiles
-    const existing = await prisma.parents.findFirst({
-      where: { user_id: sessionUser.id },
-    });
-    if (existing)
-      return response
-        .status(409)
-        .json({ error: "Parent profile already exists." });
-
-    const [parent, updatedUser] = await prisma.$transaction([
-      prisma.parents.create({
-        data: {
-          user_id: sessionUser.id,
-          name: name.trim(),
-        },
-      }),
-      prisma.users.update({
-        where: { id: sessionUser.id },
-        data: { role: "parent" },
-      }),
-    ]);
-
-    // ✅ Issue new JWT token with updated role
-    const jwt = require("jsonwebtoken");
-    const newToken = jwt.sign(
-      {
-        id: updatedUser.id,
-        username: updatedUser.username,
-        role: updatedUser.role,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRY || "12h" }
-    );
-
-    await EventLogs.logEvent(
-      "parent_enrolled",
-      { username: sessionUser.username },
-      sessionUser.id
-    );
-
-    response.status(200).json({
-      success: true,
-      parent,
-      token: newToken,
-      message: "Parent enrolled successfully. Token refreshed.",
-    });
-  } catch (err) {
-    console.error("Error enrolling parent:", err);
-    response
-      .status(500)
-      .json({ error: "Internal server error during parent enrolment." });
-  }
-});
-
-app.get("/system/student/:userId", [validatedRequest], async (request, response) => {
-  try {
-    const sessionUser = response.locals.user;
-    const userId = Number(request.params.userId);
-
-    if (!Number.isInteger(userId)) {
-      return response.status(400).json({
+      console.error("Error fetching profile:", err);
+      res.status(500).json({
         success: false,
-        error: "Invalid userId",
+        error: "Internal server error while fetching profile.",
       });
-    }
-
-    const student = await prisma.students.findFirst({
-      where: { user_id: userId },
-      include: { user: { select: { id: true, username: true, role: true, pfpFilename: true } } },
-    });
-
-    if (!student) {
-      return response.status(404).json({
-        success: false,
-        error: "Student not found",
-      });
-    }
-
-    if (!(await canAccessStudent(sessionUser, student)))
-      return response.status(403).json({ success: false, error: "Access denied" });
-
-    if (
-      student.subscription_expiration_date &&
-      new Date() > student.subscription_expiration_date
-    ) {
-      await prisma.students.update({
-        where: { id: student.id }, // 👈 safer than updateMany
-        data: { subscription_status: "none" },
-      });
-    }
-
-    response.status(200).json({ success: true, student });
-  } catch (err) {
-    console.error("Error fetching student:", err);
-    response.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.get("/system/teacher/my-quizzes", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const userId = res.locals.user.id;
-
-    // 2. Find Teacher Profile
-    const teacher = await prisma.teachers.findFirst({
-      where: { user_id: parseInt(userId) }
-    });
-
-    if (!teacher) {
-      return res.status(403).json({ success: false, error: "Teacher profile not found" });
-    }
-
-    // 3. Find ALL quizzes by this teacher
-    const quizzes = await prisma.shared_quizzes.findMany({
-      where: { teacher_id: teacher.id },
-      orderBy: { created_at: 'desc' },
-      include: {
-        _count: {
-          select: { quiz_results: true } // Optional: Count how many students submitted
-        }
-      }
-    });
-
-    // 4. Format for frontend
-    const formattedQuizzes = quizzes.map(q => ({
-      id: q.id,
-      topic: q.topic,
-      subject: q.subject,
-      difficulty: q.difficulty,
-      quiz_code: q.quiz_code,
-      createdAt: q.created_at,
-      submissionCount: q._count?.quiz_results || 0
-    }));
-
-    res.json({
-      success: true,
-      quizzes: formattedQuizzes
-    });
-
-  } catch (err) {
-    console.error("Error fetching teacher quizzes:", err);
-    res.status(500).json({ success: false, error: "Failed to fetch quizzes" });
-  }
-});
-app.get("/system/teacher/:userId", [validatedRequest], async (request, response) => {
-  try {
-    const sessionUser = response.locals.user;
-    const { userId } = request.params;
-    const id = Number(userId);
-
-    if (isNaN(id)) {
-      return response.status(400).json({ success: false, error: "Invalid teacher ID." });
-    }
-    if (id !== sessionUser.id && ![ROLES.admin, ROLES.manager].includes(sessionUser.role))
-      return response.status(403).json({ success: false, error: "Access denied" });
-
-    const teacher = await prisma.teachers.findFirst({
-      where: { user_id: id },
-      include: { user: { select: { id: true, username: true, role: true, pfpFilename: true } } },
-    });
-
-    if (!teacher) {
-      return response.status(404).json({ success: false, error: "Teacher not found" });
-    }
-
-    response.status(200).json({ success: true, teacher });
-  } catch (err) {
-    console.error("Error fetching teacher:", err);
-    response.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-   app.get("/system/parent/profile/:userId", [validatedRequest], async (request, response) => {
-    try {
-      const sessionUser = response.locals.user;
-      const { userId } = request.params;
-      if (Number(userId) !== sessionUser.id && ![ROLES.admin, ROLES.manager].includes(sessionUser.role))
-        return response.status(403).json({ success: false, error: "Access denied" });
-      const parent = await prisma.parents.findFirst({
-        where: { user_id: Number(userId) },
-        include: { user: { select: { id: true, username: true, role: true, pfpFilename: true } } },
-      });
-
-      if (!parent) {
-        return response.status(404).json({ success: false, error: "Parent not found" });
-      }
-
-      response.status(200).json({ success: true, parent });
-    } catch (err) {
-      console.error("Error fetching parent:", err);
-      response.status(500).json({ success: false, error: "Internal server error" });
     }
   });
-
-  app.get("/system/profile/:userId", [validatedRequest], async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const id = Number(userId);
-    if (isNaN(id)) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid userId parameter." });
-    }
-    const requester = res.locals.user;
-    if (
-      id !== Number(requester.id) &&
-      ![ROLES.admin, ROLES.manager].includes(requester.role)
-    ) {
-      return res.status(403).json({ success: false, error: "Forbidden" });
-    }
-
-    // Find the user first (so we know their role)
-    const user = await prisma.users.findUnique({
-      where: { id },
-      select: { id: true, username: true, role: true },
-    });
-
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, error: "User not found." });
-    }
-
-    let profile = null;
-
-    // Fetch from the correct profile table
-    if (user.role === "student") {
-      profile = await prisma.students.findFirst({
-        where: { user_id: id },
-      });
-    } else if (user.role === "teacher") {
-      profile = await prisma.teachers.findFirst({
-        where: { user_id: id },
-      });
-    } else if (user.role === "parent") {
-      profile = await prisma.parents.findFirst({
-        where: { user_id: id },
-      });
-    }
-
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        error: `${user.role || "unknown"} profile not found.`,
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      user,
-      profile,
-    });
-  } catch (err) {
-    console.error("Error fetching profile:", err);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error while fetching profile.",
-    });
-  }
-});
-app.post("/system/refresh-role", [validatedRequest], async (req, res) => {
-  try {
-    const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.id)
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-
-    const updatedUser = await prisma.users.findUnique({
-      where: { id: sessionUser.id },
-    });
-
-    if (!updatedUser)
-      return res
-        .status(404)
-        .json({ success: false, error: "User not found in database." });
-
-    const jwt = require("jsonwebtoken");
-    const newToken = jwt.sign(
-      {
-        id: updatedUser.id,
-        username: updatedUser.username,
-        role: updatedUser.role,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRY || "12h" }
-    );
-
-    return res.json({
-      success: true,
-      token: newToken,
-      role: updatedUser.role, // ✅ include this explicitly
-      message: "JWT refreshed successfully",
-    });
-  } catch (err) {
-    console.error("Error refreshing JWT:", err);
-    res
-      .status(500)
-      .json({ success: false, error: "Internal server error during refresh." });
-  }
-});
-
-app.get("/system/my-profile", [validatedRequest], async (req, res) => {
-  try {
-    const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.id)
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-
-    // Try to find a matching profile in each table
-    let profile = null;
-
-    if (sessionUser.role === "student") {
-      profile = await prisma.students.findFirst({
-        where: { user_id: sessionUser.id },
-      });
-    } else if (sessionUser.role === "teacher") {
-      profile = await prisma.teachers.findFirst({
-        where: { user_id: sessionUser.id },
-      });
-    } else if (sessionUser.role === "parent") {
-      profile = await prisma.parents.findFirst({
-        where: { user_id: sessionUser.id },
-      });
-    }
-
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        error: "Profile not found or user role not set.",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      role: sessionUser.role,
-      profile,
-    });
-  } catch (err) {
-    console.error("Error fetching profile:", err);
-    res.status(500).json({ success: false, error: "Internal server error." });
-  }
-});
-
-app.post(
-  "/system/my-profile/curriculum",
-  [validatedRequest],
-  async (req, res) => {
+  app.post("/system/refresh-role", [validatedRequest], async (req, res) => {
     try {
       const sessionUser = await userFromSession(req, res);
       if (!sessionUser?.id)
         return res.status(401).json({ success: false, error: "Unauthorized" });
-      if (sessionUser.role !== "student")
-        return res.status(403).json({
-          success: false,
-          error: "Curriculum preferences are only available to students.",
-        });
 
-      const curriculum = String(reqBody(req).curriculum || "").trim();
-      if (!["ZIMSEC", "Cambridge"].includes(curriculum))
-        return res.status(400).json({
-          success: false,
-          error: "Select either ZIMSEC or Cambridge.",
-        });
-
-      const updated = await prisma.students.updateMany({
-        where: { user_id: sessionUser.id },
-        data: { curriculum },
+      const updatedUser = await prisma.users.findUnique({
+        where: { id: sessionUser.id },
       });
-      if (updated.count === 0)
+
+      if (!updatedUser)
         return res
           .status(404)
-          .json({ success: false, error: "Student profile not found." });
+          .json({ success: false, error: "User not found in database." });
 
-      return res.status(200).json({ success: true, curriculum });
+      const jwt = require("jsonwebtoken");
+      const newToken = jwt.sign(
+        {
+          id: updatedUser.id,
+          username: updatedUser.username,
+          role: updatedUser.role,
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: process.env.JWT_EXPIRY || "12h" }
+      );
+
+      return res.json({
+        success: true,
+        token: newToken,
+        role: updatedUser.role, // ✅ include this explicitly
+        message: "JWT refreshed successfully",
+      });
     } catch (err) {
-      console.error("Error updating curriculum:", err);
-      return res.status(500).json({
-        success: false,
-        error: "Unable to update curriculum.",
-      });
+      console.error("Error refreshing JWT:", err);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Internal server error during refresh.",
+        });
     }
-  }
-);
+  });
 
-// ==============================================
-// 📊 Teacher Dashboard Stats
-// ==============================================
-app.get("/system/teacher-dashboard/stats/:userId", [
-  validatedRequest,
-  flexUserRoleValid([ROLES.teacher]),
-], async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const id = Number(userId);
-    if (isNaN(id)) return res.status(400).json({ success: false, error: "Invalid user ID." });
-    if (id !== Number(res.locals.user.id))
-      return res.status(403).json({ success: false, error: "Forbidden" });
+  app.get("/system/my-profile", [validatedRequest], async (req, res) => {
+    try {
+      const sessionUser = await userFromSession(req, res);
+      if (!sessionUser?.id)
+        return res.status(401).json({ success: false, error: "Unauthorized" });
 
-    // Fetch the user's profile
-    const user = await prisma.users.findUnique({
-      where: { id },
-      select: { id: true, username: true, role: true },
-    });
+      // Try to find a matching profile in each table
+      let profile = null;
 
-    if (!user) return res.status(404).json({ success: false, error: "User not found." });
-    if (user.role !== "teacher") return res.status(403).json({ success: false, error: "User is not a teacher." });
+      if (sessionUser.role === "student") {
+        profile = await prisma.students.findFirst({
+          where: { user_id: sessionUser.id },
+        });
+      } else if (sessionUser.role === "teacher") {
+        profile = await prisma.teachers.findFirst({
+          where: { user_id: sessionUser.id },
+        });
+      } else if (sessionUser.role === "parent") {
+        profile = await prisma.parents.findFirst({
+          where: { user_id: sessionUser.id },
+        });
+      }
 
-    const teacher = await prisma.teachers.findFirst({ where: { user_id: id } });
-    if (!teacher) return res.status(404).json({ success: false, error: "Teacher profile not found." });
+      if (!profile) {
+        return res.status(404).json({
+          success: false,
+          error: "Profile not found or user role not set.",
+        });
+      }
 
-    // Count UNIQUE students and fetch their user_ids for score calculation
-    const uniqueStudents = await prisma.teacher_students.findMany({
-      where: { teacherId: teacher.id },
-      distinct: ['studentId'],
-      select: { 
-        studentId: true,
-        student: {
-          select: { user_id: true }
+      res.status(200).json({
+        success: true,
+        role: sessionUser.role,
+        profile,
+      });
+    } catch (err) {
+      console.error("Error fetching profile:", err);
+      res.status(500).json({ success: false, error: "Internal server error." });
+    }
+  });
+
+  app.post(
+    "/system/my-profile/curriculum",
+    [validatedRequest],
+    async (req, res) => {
+      try {
+        const sessionUser = await userFromSession(req, res);
+        if (!sessionUser?.id)
+          return res
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        if (sessionUser.role !== "student")
+          return res.status(403).json({
+            success: false,
+            error: "Curriculum preferences are only available to students.",
+          });
+
+        const curriculum = String(reqBody(req).curriculum || "").trim();
+        if (!["ZIMSEC", "Cambridge"].includes(curriculum))
+          return res.status(400).json({
+            success: false,
+            error: "Select either ZIMSEC or Cambridge.",
+          });
+
+        const updated = await prisma.students.updateMany({
+          where: { user_id: sessionUser.id },
+          data: { curriculum },
+        });
+        if (updated.count === 0)
+          return res
+            .status(404)
+            .json({ success: false, error: "Student profile not found." });
+
+        return res.status(200).json({ success: true, curriculum });
+      } catch (err) {
+        console.error("Error updating curriculum:", err);
+        return res.status(500).json({
+          success: false,
+          error: "Unable to update curriculum.",
+        });
+      }
+    }
+  );
+
+  // ==============================================
+  // 📊 Teacher Dashboard Stats
+  // ==============================================
+  app.get(
+    "/system/teacher-dashboard/stats/:userId",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const { userId } = req.params;
+        const id = Number(userId);
+        if (isNaN(id))
+          return res
+            .status(400)
+            .json({ success: false, error: "Invalid user ID." });
+        if (id !== Number(res.locals.user.id))
+          return res.status(403).json({ success: false, error: "Forbidden" });
+
+        // Fetch the user's profile
+        const user = await prisma.users.findUnique({
+          where: { id },
+          select: { id: true, username: true, role: true },
+        });
+
+        if (!user)
+          return res
+            .status(404)
+            .json({ success: false, error: "User not found." });
+        if (user.role !== "teacher")
+          return res
+            .status(403)
+            .json({ success: false, error: "User is not a teacher." });
+
+        const teacher = await prisma.teachers.findFirst({
+          where: { user_id: id },
+        });
+        if (!teacher)
+          return res
+            .status(404)
+            .json({ success: false, error: "Teacher profile not found." });
+
+        // Count UNIQUE students and fetch their user_ids for score calculation
+        const uniqueStudents = await prisma.teacher_students.findMany({
+          where: { teacherId: teacher.id },
+          distinct: ["studentId"],
+          select: {
+            studentId: true,
+            student: {
+              select: { user_id: true },
+            },
+          },
+        });
+        const studentLinks = uniqueStudents.length;
+
+        // ✅ FIX: Calculate students needing attention (average score < 50%)
+        const studentUserIds = uniqueStudents
+          .map((s) => s.student?.user_id)
+          .filter((uid) => uid !== undefined && uid !== null);
+
+        const allScores = await prisma.quiz_results.findMany({
+          where: {
+            user_id: { in: studentUserIds },
+          },
+          select: { user_id: true, score: true },
+        });
+
+        const studentAverages = {};
+
+        allScores.forEach((record) => {
+          if (!studentAverages[record.user_id]) {
+            studentAverages[record.user_id] = { total: 0, count: 0 };
+          }
+          studentAverages[record.user_id].total += parseFloat(record.score);
+          studentAverages[record.user_id].count += 1;
+        });
+
+        let studentsNeedingAttention = 0;
+        Object.values(studentAverages).forEach((stat) => {
+          const avg = stat.total / stat.count;
+          if (avg < 50) {
+            studentsNeedingAttention++;
+          }
+        });
+
+        // Count finalized, shared quizzes instead of AI generation logs
+        const quizzes = await prisma.shared_quizzes.count({
+          where: {
+            teacher_id: teacher.id,
+          },
+        });
+
+        const classes = await prisma.teacher_students.groupBy({
+          by: ["subject"],
+          where: { teacherId: teacher.id },
+        });
+
+        res.json({
+          success: true,
+          teacher,
+          stats: {
+            totalStudents: studentLinks,
+            totalClasses: classes.length,
+            quizzesCreated: quizzes,
+            studentsNeedingAttention: studentsNeedingAttention, // Replaced lessonPlans
+          },
+        });
+      } catch (err) {
+        console.error("Error fetching teacher dashboard stats:", err);
+        res
+          .status(500)
+          .json({
+            success: false,
+            error: "Internal server error while fetching dashboard stats.",
+          });
+      }
+    }
+  );
+
+  app.post(
+    "/payments/initiate",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      try {
+        const sessionUser = res.locals.user;
+        if (!sessionUser?.id) {
+          return res.status(401).json({ error: "Unauthorized" });
         }
-      },
-    });
-    const studentLinks = uniqueStudents.length;
 
-    // ✅ FIX: Calculate students needing attention (average score < 50%)
-    const studentUserIds = uniqueStudents
-      .map(s => s.student?.user_id)
-      .filter(uid => uid !== undefined && uid !== null);
+        const { paymentMethod, phoneNumber } = req.body;
 
-    const allScores = await prisma.quiz_results.findMany({
-      where: { 
-        user_id: { in: studentUserIds } 
-      },
-      select: { user_id: true, score: true }
-    });
+        // sessionUser.id is the users table ID; look up student by user_id
+        const student = await prisma.students.findFirst({
+          where: { user_id: sessionUser.id },
+        });
 
-    const studentAverages = {};
-    
-    allScores.forEach(record => {
-      if (!studentAverages[record.user_id]) {
-        studentAverages[record.user_id] = { total: 0, count: 0 };
-      }
-      studentAverages[record.user_id].total += parseFloat(record.score);
-      studentAverages[record.user_id].count += 1;
-    });
+        if (!student) {
+          return res.status(404).json({ error: "Student not found." });
+        }
 
-    let studentsNeedingAttention = 0;
-    Object.values(studentAverages).forEach(stat => {
-      const avg = stat.total / stat.count;
-      if (avg < 50) {
-        studentsNeedingAttention++;
-      }
-    });
+        // 🧠 Plan and amount
+        const plan = "premium";
+        const amount = 5.0;
 
-    // Count finalized, shared quizzes instead of AI generation logs
-    const quizzes = await prisma.shared_quizzes.count({
-      where: {
-        teacher_id: teacher.id,
-      },
-    });
+        // ✅ Validate payment method
+        if (paymentMethod === "card") {
+          // ok
+        } else if (paymentMethod === "ecocash") {
+          const ECOCASH_REGEX = /^(077|078)\d{7}$/;
+          if (!phoneNumber || !ECOCASH_REGEX.test(phoneNumber)) {
+            return res
+              .status(400)
+              .json({ error: "Valid Ecocash number required (077/078)." });
+          }
+        } else {
+          return res.status(400).json({ error: "Invalid payment method." });
+        }
 
-    const classes = await prisma.teacher_students.groupBy({
-      by: ["subject"],
-      where: { teacherId: teacher.id },
-    });
+        // 🔧 Initialize Paynow payment
+        const paynow = makePaynow();
+        const reference = `ChikoroSub-${student.user_id}-${Date.now()}`;
+        const payment = paynow.createPayment(
+          reference,
+          "ronaldbvirinyangwe@icloud.com"
+        );
+        payment.add(`Chikoro AI ${plan} Subscription`, amount);
 
-    res.json({
-      success: true,
-      teacher,
-      stats: {
-        totalStudents: studentLinks,
-        totalClasses: classes.length,
-        quizzesCreated: quizzes,
-        studentsNeedingAttention: studentsNeedingAttention, // Replaced lessonPlans
-      },
-    });
-  } catch (err) {
-    console.error("Error fetching teacher dashboard stats:", err);
-    res.status(500).json({ success: false, error: "Internal server error while fetching dashboard stats." });
-  }
-});
+        let initResponse;
+        if (paymentMethod === "card") {
+          initResponse = await paynow.send(payment);
+        } else {
+          initResponse = await paynow.sendMobile(
+            payment,
+            phoneNumber,
+            "ecocash"
+          );
+        }
 
-app.post("/payments/initiate", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  try {
-    const sessionUser = res.locals.user;
-    if (!sessionUser?.id) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+        console.log("Paynow init response:", initResponse);
 
-    const { paymentMethod, phoneNumber } = req.body;
+        if (!initResponse?.success) {
+          const reason = initResponse?.error || "Payment initiation failed.";
+          return res.status(400).json({ error: reason });
+        }
 
-    // sessionUser.id is the users table ID; look up student by user_id
-    const student = await prisma.students.findFirst({
-      where: { user_id: sessionUser.id },
-    });
+        // 💾 Persist the pending subscription
+        await prisma.students.update({
+          where: { id: student.id },
+          data: {
+            subscription_status: "pending",
+            subscription_plan: plan,
+            subscription_payment_poll_url: initResponse.pollUrl || null,
+          },
+        });
 
-    if (!student) {
-      return res.status(404).json({ error: "Student not found." });
-    }
-
-    // 🧠 Plan and amount
-    const plan = "premium";
-    const amount = 5.0;
-
-    // ✅ Validate payment method
-    if (paymentMethod === "card") {
-      // ok
-    } else if (paymentMethod === "ecocash") {
-      const ECOCASH_REGEX = /^(077|078)\d{7}$/;
-      if (!phoneNumber || !ECOCASH_REGEX.test(phoneNumber)) {
+        // ✅ Respond
+        if (paymentMethod === "card") {
+          return res.json({
+            success: true,
+            redirectUrl: initResponse.redirectUrl,
+          });
+        } else {
+          return res.json({
+            success: true,
+            instructions:
+              initResponse.instructions || "Approve the payment on your phone.",
+          });
+        }
+      } catch (err) {
+        console.error("Payment Initiation Error:", err);
         return res
-          .status(400)
-          .json({ error: "Valid Ecocash number required (077/078)." });
+          .status(500)
+          .json({ error: "Internal error while initiating payment." });
       }
-    } else {
-      return res.status(400).json({ error: "Invalid payment method." });
     }
-
-    // 🔧 Initialize Paynow payment
-    const paynow = makePaynow();
-    const reference = `ChikoroSub-${student.user_id}-${Date.now()}`;
-    const payment = paynow.createPayment(
-      reference,
-      "ronaldbvirinyangwe@icloud.com"
-    );
-    payment.add(`Chikoro AI ${plan} Subscription`, amount);
-
-    let initResponse;
-    if (paymentMethod === "card") {
-      initResponse = await paynow.send(payment);
-    } else {
-      initResponse = await paynow.sendMobile(payment, phoneNumber, "ecocash");
-    }
-    
-    console.log("Paynow init response:", initResponse);
-    
-    if (!initResponse?.success) {
-      const reason = initResponse?.error || "Payment initiation failed.";
-      return res.status(400).json({ error: reason });
-    }
-
-    // 💾 Persist the pending subscription
-    await prisma.students.update({
-      where: { id: student.id },
-      data: {
-        subscription_status: "pending",
-        subscription_plan: plan,
-        subscription_payment_poll_url: initResponse.pollUrl || null,
-      },
-    });
-
-    // ✅ Respond
-    if (paymentMethod === "card") {
-      return res.json({
-        success: true,
-        redirectUrl: initResponse.redirectUrl,
-      });
-    } else {
-      return res.json({
-        success: true,
-        instructions:
-          initResponse.instructions ||
-          "Approve the payment on your phone.",
-      });
-    }
-  } catch (err) {
-    console.error("Payment Initiation Error:", err);
-    return res
-      .status(500)
-      .json({ error: "Internal error while initiating payment." });
-  }
-});
+  );
   // -----------------------------
   // GET /payments/status
   // -----------------------------
-app.get("/payments/status", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  try {
-    const user = res.locals.user;
-    console.log("🔍 Payment Status Check:");
-    console.log("   User ID:", user?.id);
-    if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+  app.get(
+    "/payments/status",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      try {
+        const user = res.locals.user;
+        console.log("🔍 Payment Status Check:");
+        console.log("   User ID:", user?.id);
+        if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
 
-    // user.id is the users table ID; look up student by user_id
-    const student = await prisma.students.findFirst({
-      where: { user_id: user.id },
-    });
+        // user.id is the users table ID; look up student by user_id
+        const student = await prisma.students.findFirst({
+          where: { user_id: user.id },
+        });
 
-    console.log("   Found Student ID:", student?.id);
-    console.log("   Student Status:", student?.subscription_status);
-    console.log("   Has PollURL:", !!student?.subscription_payment_poll_url);
-    console.log("   PollURL:", student?.subscription_payment_poll_url);
+        console.log("   Found Student ID:", student?.id);
+        console.log("   Student Status:", student?.subscription_status);
+        console.log(
+          "   Has PollURL:",
+          !!student?.subscription_payment_poll_url
+        );
+        console.log("   PollURL:", student?.subscription_payment_poll_url);
 
-    if (!student?.subscription_payment_poll_url) {
-      return res
-        .status(404)
-        .json({ error: "No pending payment transaction found for this user." });
+        if (!student?.subscription_payment_poll_url) {
+          return res
+            .status(404)
+            .json({
+              error: "No pending payment transaction found for this user.",
+            });
+        }
+
+        const paynow = makePaynow();
+        const status = await paynow.pollTransaction(
+          student.subscription_payment_poll_url
+        );
+
+        console.log("   Paynow Status:", status?.status);
+
+        if (status && status.status === "paid") {
+          const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30;
+          const expirationDate = new Date(Date.now() + THIRTY_DAYS_MS);
+
+          const updatedStudent = await prisma.students.update({
+            where: { id: student.id },
+            data: {
+              subscription_status: "paid",
+              subscription_expiration_date: expirationDate,
+              subscription_payment_poll_url: null,
+            },
+          });
+
+          await prisma.payment_logs.create({
+            data: {
+              student_id: student.id,
+              amount: 5.0,
+              payment_method: "paynow",
+              subscription_plan: student.subscription_plan || "premium",
+              subscription_duration_days: 30,
+              recorded_by: student.user_id,
+              notes: "Payment confirmed via Paynow.",
+            },
+          });
+
+          await sendPushNotification(student.user_id, {
+            title: "✅ Payment Confirmed",
+            body: "Your Chikoro AI subscription is now active. Happy learning!",
+            data: { type: "payment_confirmed" },
+          });
+
+          return res.json({
+            success: true,
+            status: "paid",
+            message: "Payment confirmed and subscription activated.",
+            student: updatedStudent,
+          });
+        }
+
+        // If Paynow cancelled the transaction, reset so the student can try again
+        if (status?.status?.toLowerCase() === "cancelled") {
+          await prisma.students.update({
+            where: { id: student.id },
+            data: {
+              subscription_status: "none",
+              subscription_payment_poll_url: null,
+            },
+          });
+
+          await sendPushNotification(student.user_id, {
+            title: "❌ Payment Cancelled",
+            body: "Your payment was cancelled. Please try again to activate your subscription.",
+            data: { type: "payment_cancelled", link: "/payment" },
+          });
+
+          return res.json({
+            success: false,
+            status: "cancelled",
+            message: "Payment was cancelled. Please try again.",
+          });
+        }
+
+        return res.json({
+          success: false,
+          status: status?.status || "pending",
+          message: 'Payment status is not yet "paid".',
+        });
+      } catch (err) {
+        console.error("Payment Status Error:", err);
+        return res
+          .status(500)
+          .json({ error: "Failed to check payment status." });
+      }
     }
-
-    const paynow = makePaynow();
-    const status = await paynow.pollTransaction(
-      student.subscription_payment_poll_url
-    );
-
-    console.log("   Paynow Status:", status?.status);
-
-    if (status && status.status === "paid") {
-      const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30;
-      const expirationDate = new Date(Date.now() + THIRTY_DAYS_MS);
-
-      const updatedStudent = await prisma.students.update({
-        where: { id: student.id },
-        data: {
-          subscription_status: "paid",
-          subscription_expiration_date: expirationDate,
-          subscription_payment_poll_url: null,
-        },
-      });
-
-      await prisma.payment_logs.create({
-        data: {
-          student_id: student.id,
-          amount: 5.0,
-          payment_method: "paynow",
-          subscription_plan: student.subscription_plan || "premium",
-          subscription_duration_days: 30,
-          recorded_by: student.user_id,
-          notes: "Payment confirmed via Paynow.",
-        },
-      });
-
-      await sendPushNotification(student.user_id, {
-        title: '✅ Payment Confirmed',
-        body: 'Your Chikoro AI subscription is now active. Happy learning!',
-        data: { type: 'payment_confirmed' },
-      });
-
-      return res.json({
-        success: true,
-        status: "paid",
-        message: "Payment confirmed and subscription activated.",
-        student: updatedStudent,
-      });
-    }
-
-    // If Paynow cancelled the transaction, reset so the student can try again
-    if (status?.status?.toLowerCase() === "cancelled") {
-      await prisma.students.update({
-        where: { id: student.id },
-        data: {
-          subscription_status: "none",
-          subscription_payment_poll_url: null,
-        },
-      });
-
-      await sendPushNotification(student.user_id, {
-        title: '❌ Payment Cancelled',
-        body: 'Your payment was cancelled. Please try again to activate your subscription.',
-        data: { type: 'payment_cancelled', link: '/payment' },
-      });
-
-      return res.json({
-        success: false,
-        status: "cancelled",
-        message: "Payment was cancelled. Please try again.",
-      });
-    }
-
-    return res.json({
-      success: false,
-      status: status?.status || "pending",
-      message: 'Payment status is not yet "paid".',
-    });
-  } catch (err) {
-    console.error("Payment Status Error:", err);
-    return res.status(500).json({ error: "Failed to check payment status." });
-  }
-});
-
-  
+  );
 
   // -----------------------------
   // POST /api/payments/result
@@ -1863,7 +2076,10 @@ app.get("/payments/status", [validatedRequest, flexUserRoleValid([ROLES.student]
       const userId = parseInt(parts[1]);
 
       if (!userId) {
-        console.error("Paynow webhook: could not extract user_id from reference:", statusResponse.reference);
+        console.error(
+          "Paynow webhook: could not extract user_id from reference:",
+          statusResponse.reference
+        );
         return res.status(200).send("OK");
       }
 
@@ -1906,12 +2122,14 @@ app.get("/payments/status", [validatedRequest, flexUserRoleValid([ROLES.student]
       });
 
       await sendPushNotification(student.user_id, {
-        title: '✅ Payment Confirmed',
-        body: 'Your Chikoro AI subscription is now active. Happy learning!',
-        data: { type: 'payment_confirmed' },
+        title: "✅ Payment Confirmed",
+        body: "Your Chikoro AI subscription is now active. Happy learning!",
+        data: { type: "payment_confirmed" },
       });
 
-      console.log(`✅ Paynow webhook: activated subscription for student ${student.id} (user ${userId})`);
+      console.log(
+        `✅ Paynow webhook: activated subscription for student ${student.id} (user ${userId})`
+      );
       return res.status(200).send("OK");
     } catch (err) {
       console.error("Paynow Result Webhook Error:", err);
@@ -1954,148 +2172,196 @@ app.get("/payments/status", [validatedRequest, flexUserRoleValid([ROLES.student]
   );
 
   // ====================================================
-// 🧠 QUIZ RESULTS ENDPOINTS
-// ====================================================
+  // 🧠 QUIZ RESULTS ENDPOINTS
+  // ====================================================
 
-app.get("/quiz/results", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  try {
-    const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.id)
-      return res.status(401).json({ success: false, error: "Unauthorized" });
+  app.get(
+    "/quiz/results",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      try {
+        const sessionUser = await userFromSession(req, res);
+        if (!sessionUser?.id)
+          return res
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
 
-    // Fetch all quiz results for this user
-    const results = await prisma.quiz_results.findMany({
-      where: { user_id: sessionUser.id },
-      orderBy: { submitted_at: "desc" },
-    });
+        // Fetch all quiz results for this user
+        const results = await prisma.quiz_results.findMany({
+          where: { user_id: sessionUser.id },
+          orderBy: { submitted_at: "desc" },
+        });
 
-    if (!results.length)
-      return res.status(404).json({ success: false, message: "No quiz results found." });
+        if (!results.length)
+          return res
+            .status(404)
+            .json({ success: false, message: "No quiz results found." });
 
-    res.status(200).json({ success: true, results });
-  } catch (err) {
-    console.error("Error fetching quiz results:", err);
-    res.status(500).json({ success: false, error: "Internal server error." });
-  }
-});
-
-app.get("/quiz/result/:id", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  const { id } = req.params;
-  const user = res.locals.user;
-
-  try {
-    const result = await prisma.quiz_results.findUnique({
-      where: { id: Number(id) },
-      include: {
-        user: { select: { username: true, role: true } },
-        feedbacks: true, // ✅ correct relation name (not quiz_feedback)
-      },
-    });
-
-    if (!result) {
-      return res.status(404).json({ success: false, error: "Result not found." });
-    }
-
-    // ✅ Authorization check
-    if (result.user_id !== user.id && user.role !== "admin") {
-      return res.status(403).json({ success: false, error: "Unauthorized access." });
-    }
-
-    // 🧩 Build feedback array
-    const feedback = result.feedbacks.map((f) => ({
-      question: f.question,
-      userAnswer: f.user_answer,
-      correct_answer: f.correct_answer,
-      correct: f.is_correct,
-      feedback: f.feedback,
-    }));
-
-    // 🧠 Return full result with feedback
-    res.json({
-      success: true,
-      result: {
-        id: result.id,
-        subject: result.subject,
-        score: result.score,
-        total_questions: result.total_questions,
-        correct_answers: result.correct_answers,
-        submitted_at: result.submitted_at,
-        user: result.user,
-        feedback,
-      },
-    });
-  } catch (err) {
-    console.error("🔥 Error fetching quiz result:", err);
-    res.status(500).json({ success: false, error: "Failed to fetch quiz result." });
-  }
-});
-
-app.post("/quiz/generate",
-  (req, res, next) => {
-    req.header('X-Service-Key') ? serviceKeyRequest(req, res, next) : validatedRequest(req, res, next);
-  },
-  async (req, res) => {
-    try {
-      if (
-        !req.header("X-Service-Key") &&
-        res.locals.user?.role !== ROLES.student
-      ) {
-        return res
-          .status(403)
-          .json({ success: false, error: "Student access required." });
+        res.status(200).json({ success: true, results });
+      } catch (err) {
+        console.error("Error fetching quiz results:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Internal server error." });
       }
-      const { subject, grade, topic, numQuestions = 10, difficulty = "medium", questionType = "mixed", curriculum } = req.body;
-
-    if (!subject || !grade) {
-      return res.status(400).json({ success: false, error: "Subject and grade are required." });
     }
+  );
 
-    
-    // Use topic if provided, otherwise use subject as the topic
-    const quizTopic = topic || subject;
+  app.get(
+    "/quiz/result/:id",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      const { id } = req.params;
+      const user = res.locals.user;
 
-    const gradeNum2 = parseInt(grade) || 0;
-    const ageRange2 = gradeNum2 <= 2 ? "6-8 years old" : gradeNum2 <= 4 ? "9-10 years old" : gradeNum2 <= 7 ? "11-13 years old" : gradeNum2 <= 9 ? "14-15 years old" : "16-18 years old";
-    const examLevel2 = gradeNum2 >= 11 ? "A-Level" : gradeNum2 >= 9 ? "O-Level" : gradeNum2 >= 7 ? "Upper Primary/Junior Secondary" : "Primary";
-    const curriculumLabel2 = curriculum || "ZIMSEC";
+      try {
+        const result = await prisma.quiz_results.findUnique({
+          where: { id: Number(id) },
+          include: {
+            user: { select: { username: true, role: true } },
+            feedbacks: true, // ✅ correct relation name (not quiz_feedback)
+          },
+        });
 
-    const bloomsLevel2 =
-      difficulty === "easy"
-        ? "Knowledge & Recall — define, state, list, name. No application required."
-        : difficulty === "hard"
-        ? "Analysis & Evaluation — analyse, evaluate, compare, justify, discuss. Require extended reasoning."
-        : "Comprehension & Application — explain, describe, calculate, or apply concepts to a scenario.";
+        if (!result) {
+          return res
+            .status(404)
+            .json({ success: false, error: "Result not found." });
+        }
 
-    const subjectLower2 = (subject || "").toLowerCase();
-    let subjectGuidance2 = "";
-    if (/math|maths|mathematics/.test(subjectLower2)) {
-      subjectGuidance2 = `SUBJECT CONVENTIONS (Mathematics):
+        // ✅ Authorization check
+        if (result.user_id !== user.id && user.role !== "admin") {
+          return res
+            .status(403)
+            .json({ success: false, error: "Unauthorized access." });
+        }
+
+        // 🧩 Build feedback array
+        const feedback = result.feedbacks.map((f) => ({
+          question: f.question,
+          userAnswer: f.user_answer,
+          correct_answer: f.correct_answer,
+          correct: f.is_correct,
+          feedback: f.feedback,
+        }));
+
+        // 🧠 Return full result with feedback
+        res.json({
+          success: true,
+          result: {
+            id: result.id,
+            subject: result.subject,
+            score: result.score,
+            total_questions: result.total_questions,
+            correct_answers: result.correct_answers,
+            submitted_at: result.submitted_at,
+            user: result.user,
+            feedback,
+          },
+        });
+      } catch (err) {
+        console.error("🔥 Error fetching quiz result:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Failed to fetch quiz result." });
+      }
+    }
+  );
+
+  app.post(
+    "/quiz/generate",
+    (req, res, next) => {
+      req.header("X-Service-Key")
+        ? serviceKeyRequest(req, res, next)
+        : validatedRequest(req, res, next);
+    },
+    async (req, res) => {
+      try {
+        if (
+          !req.header("X-Service-Key") &&
+          res.locals.user?.role !== ROLES.student
+        ) {
+          return res
+            .status(403)
+            .json({ success: false, error: "Student access required." });
+        }
+        const {
+          subject,
+          grade,
+          topic,
+          numQuestions = 10,
+          difficulty = "medium",
+          questionType = "mixed",
+          curriculum,
+        } = req.body;
+
+        if (!subject || !grade) {
+          return res
+            .status(400)
+            .json({ success: false, error: "Subject and grade are required." });
+        }
+
+        // Use topic if provided, otherwise use subject as the topic
+        const quizTopic = topic || subject;
+
+        const gradeNum2 = parseInt(grade) || 0;
+        const ageRange2 =
+          gradeNum2 <= 2
+            ? "6-8 years old"
+            : gradeNum2 <= 4
+              ? "9-10 years old"
+              : gradeNum2 <= 7
+                ? "11-13 years old"
+                : gradeNum2 <= 9
+                  ? "14-15 years old"
+                  : "16-18 years old";
+        const examLevel2 =
+          gradeNum2 >= 11
+            ? "A-Level"
+            : gradeNum2 >= 9
+              ? "O-Level"
+              : gradeNum2 >= 7
+                ? "Upper Primary/Junior Secondary"
+                : "Primary";
+        const curriculumLabel2 = curriculum || "ZIMSEC";
+
+        const bloomsLevel2 =
+          difficulty === "easy"
+            ? "Knowledge & Recall — define, state, list, name. No application required."
+            : difficulty === "hard"
+              ? "Analysis & Evaluation — analyse, evaluate, compare, justify, discuss. Require extended reasoning."
+              : "Comprehension & Application — explain, describe, calculate, or apply concepts to a scenario.";
+
+        const subjectLower2 = (subject || "").toLowerCase();
+        let subjectGuidance2 = "";
+        if (/math|maths|mathematics/.test(subjectLower2)) {
+          subjectGuidance2 = `SUBJECT CONVENTIONS (Mathematics):
 - Structured mark schemes must show full working steps, not just the final answer.
 - Award method marks (M) and accuracy marks (A) where appropriate.
 - Include units in answers where applicable.\n`;
-    } else if (/history|geography|civics|humanities/.test(subjectLower2)) {
-      subjectGuidance2 = `SUBJECT CONVENTIONS (Humanities):
+        } else if (/history|geography|civics|humanities/.test(subjectLower2)) {
+          subjectGuidance2 = `SUBJECT CONVENTIONS (Humanities):
 - Structured mark schemes should use "any [X] from" style where multiple valid answers exist.
 - Award marks for evidence/examples cited, not just bare statements.\n`;
-    } else if (/english|literature/.test(subjectLower2)) {
-      subjectGuidance2 = `SUBJECT CONVENTIONS (English/Literature):
+        } else if (/english|literature/.test(subjectLower2)) {
+          subjectGuidance2 = `SUBJECT CONVENTIONS (English/Literature):
 - Reward vocabulary, sentence structure, and clarity in structured answers.
 - For extended writing, include a brief band descriptor.\n`;
-    } else if (/accounts|commerce|business/.test(subjectLower2)) {
-      subjectGuidance2 = `SUBJECT CONVENTIONS (Commerce/Accounts):
+        } else if (/accounts|commerce|business/.test(subjectLower2)) {
+          subjectGuidance2 = `SUBJECT CONVENTIONS (Commerce/Accounts):
 - Show full labelled calculations in mark schemes.
 - Award marks for correct format as well as correct figures.\n`;
-    } else if (/science|biology|chemistry|physics/.test(subjectLower2)) {
-      subjectGuidance2 = `SUBJECT CONVENTIONS (Science):
+        } else if (/science|biology|chemistry|physics/.test(subjectLower2)) {
+          subjectGuidance2 = `SUBJECT CONVENTIONS (Science):
 - Include units in all numerical answers.
 - Award separate marks for correct working and correct answer.\n`;
-    }
+        }
 
-    const mcqCount2 = Math.ceil(numQuestions / 2);
-    const structuredCount2 = numQuestions - mcqCount2;
+        const mcqCount2 = Math.ceil(numQuestions / 2);
+        const structuredCount2 = numQuestions - mcqCount2;
 
-    // Build comprehensive prompt similar to teacher/generate-quiz
-    let prompt = `You are a quiz generator. Generate ONLY the quiz questions with NO introductory text.
+        // Build comprehensive prompt similar to teacher/generate-quiz
+        let prompt = `You are a quiz generator. Generate ONLY the quiz questions with NO introductory text.
 
 GRADE LEVEL: Grade ${grade} (${ageRange2}, ${examLevel2})
 SUBJECT: ${subject}
@@ -2119,8 +2385,8 @@ ${subjectGuidance2}MATH FORMATTING:
 CRITICAL: Start immediately with question 1. No preamble, no explanations, just questions.
 `;
 
-    if (questionType === 'multiple-choice' || questionType === 'MCQ') {
-      prompt += `
+        if (questionType === "multiple-choice" || questionType === "MCQ") {
+          prompt += `
 Format each question EXACTLY like this:
 
 1. What is photosynthesis?
@@ -2137,9 +2403,11 @@ MCQ RULES:
 - Mark correct answer as **Answer: X** immediately after options
 - NO introductory text, NO explanations between questions
 `;
-    }
-    else if (questionType === 'structured' || questionType === 'short-answer') {
-      prompt += `
+        } else if (
+          questionType === "structured" ||
+          questionType === "short-answer"
+        ) {
+          prompt += `
 Format each question EXACTLY like this:
 
 1. Explain the process of photosynthesis. [4 marks]
@@ -2155,9 +2423,8 @@ STRUCTURED RULES:
 - For higher-mark questions (5+), reward extended reasoning, not just recall
 - NO introductory text
 `;
-    }
-    else if (questionType === 'mixed') {
-      prompt += `
+        } else if (questionType === "mixed") {
+          prompt += `
 Generate EXACTLY ${mcqCount2} multiple choice questions and EXACTLY ${structuredCount2} structured questions, alternating MCQ then Structured.
 
 Format:
@@ -2181,75 +2448,83 @@ MIXED RULES:
 - Structured mark schemes: one bullet per mark, or "any X from" for open-ended
 - NO introductory text
 `;
+        }
+
+        prompt += `\n\nREMEMBER: Start with "1." immediately. No preamble or introduction!`;
+
+        console.log("🧠 Generating quiz via AI...");
+
+        const rawQuiz = await generateLessonPlanAI(prompt);
+        const cleanedQuiz = cleanThinkingModelOutput(rawQuiz, "quiz");
+
+        console.log(`✅ Generated quiz for ${subject} - Grade ${grade}`);
+
+        // Return the cleaned quiz content
+        return res.status(200).json({
+          success: true,
+          quiz: cleanedQuiz,
+          metadata: {
+            subject,
+            grade,
+            topic: quizTopic,
+            difficulty,
+            questionType,
+            numQuestions,
+          },
+          message: `Generated ${numQuestions} ${difficulty} ${questionType} questions for ${subject} Grade ${grade}.`,
+        });
+      } catch (err) {
+        console.error("🔥 Quiz generation error:", err);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to generate quiz.",
+          details: err.message,
+        });
+      }
     }
+  );
 
-    prompt += `\n\nREMEMBER: Start with "1." immediately. No preamble or introduction!`;
+  app.post(
+    "/quiz/mark",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      const { quiz, answers } = req.body;
+      const user = res.locals.user;
 
-    console.log("🧠 Generating quiz via AI...");
+      try {
+        if (
+          !user?.id ||
+          !quiz ||
+          !Array.isArray(quiz.questions) ||
+          quiz.questions.length < 1 ||
+          quiz.questions.length > 100 ||
+          !validAnswerArray(answers) ||
+          answers.length !== quiz.questions.length
+        ) {
+          return res
+            .status(400)
+            .json({ success: false, error: "Invalid quiz or answers." });
+        }
+        // ---------- Helper functions ----------
+        const normalize = (s = "") =>
+          String(s || "")
+            .replace(/[^\p{L}\p{N}\s.()-]/gu, "")
+            .toLowerCase()
+            .trim();
 
-    const rawQuiz = await generateLessonPlanAI(prompt);
-    const cleanedQuiz = cleanThinkingModelOutput(rawQuiz, 'quiz');
+        const extractLetter = (val = "") => {
+          const m = String(val || "").match(/\b([ABCD])\b/i);
+          return m ? m[1].toUpperCase() : null;
+        };
 
-    console.log(`✅ Generated quiz for ${subject} - Grade ${grade}`);
-
-    // Return the cleaned quiz content
-    return res.status(200).json({
-      success: true,
-      quiz: cleanedQuiz,
-      metadata: {
-        subject,
-        grade,
-        topic: quizTopic,
-        difficulty,
-        questionType,
-        numQuestions
-      },
-      message: `Generated ${numQuestions} ${difficulty} ${questionType} questions for ${subject} Grade ${grade}.`,
-    });
-
-  } catch (err) {
-    console.error("🔥 Quiz generation error:", err);
-    return res.status(500).json({ 
-      success: false, 
-      error: "Failed to generate quiz.",
-      details: err.message 
-    });
-  }
-});
-
-
-app.post("/quiz/mark", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  const { quiz, answers } = req.body;
-  const user = res.locals.user;
-
-  try {
-    if (
-      !user?.id ||
-      !quiz ||
-      !Array.isArray(quiz.questions) ||
-      quiz.questions.length < 1 ||
-      quiz.questions.length > 100 ||
-      !validAnswerArray(answers) ||
-      answers.length !== quiz.questions.length
-    ) {
-      return res.status(400).json({ success: false, error: "Invalid quiz or answers." });
-    }
-    // ---------- Helper functions ----------
-    const normalize = (s = "") =>
-      String(s || "")
-        .replace(/[^\p{L}\p{N}\s.()-]/gu, "")
-        .toLowerCase()
-        .trim();
-
-    const extractLetter = (val = "") => {
-      const m = String(val || "").match(/\b([ABCD])\b/i);
-      return m ? m[1].toUpperCase() : null;
-    };
-
-    
-    // ---------- AI Feedback Generation ----------
-    const generateMCQFeedback = async (question, userAnswer, correctAnswer, options) => {
-      const prompt = `
+        // ---------- AI Feedback Generation ----------
+        const generateMCQFeedback = async (
+          question,
+          userAnswer,
+          correctAnswer,
+          options
+        ) => {
+          const prompt = `
 You are an encouraging teacher providing feedback on a multiple-choice question.Write ONLY the feedback — nothing else.
 
 Do NOT include any internal reasoning, planning, thinking, or meta-commentary.
@@ -2259,7 +2534,7 @@ Write as if speaking directly to the student. Start immediately with the feedbac
 
 Question: ${question}
 Options:
-${options.map((opt, i) => `${String.fromCharCode(65 + i)}) ${opt}`).join('\n')}
+${options.map((opt, i) => `${String.fromCharCode(65 + i)}) ${opt}`).join("\n")}
 
 Student's Answer: ${userAnswer}
 Correct Answer: ${correctAnswer}
@@ -2275,17 +2550,21 @@ Keep it concise but thorough (3-4 sentences).
 
 `;
 
-      try {
-        const aiFeedback = await generateLessonPlanAI(prompt);
-        return cleanAIResponse(aiFeedback.trim());
-      } catch (error) {
-        console.error("AI feedback generation failed:", error);
-        return "Unable to generate detailed feedback at this time.";
-      }
-    };
+          try {
+            const aiFeedback = await generateLessonPlanAI(prompt);
+            return cleanAIResponse(aiFeedback.trim());
+          } catch (error) {
+            console.error("AI feedback generation failed:", error);
+            return "Unable to generate detailed feedback at this time.";
+          }
+        };
 
-    const generateStructuredFeedback = async (question, userAnswer, modelAnswer) => {
-      const prompt = `
+        const generateStructuredFeedback = async (
+          question,
+          userAnswer,
+          modelAnswer
+        ) => {
+          const prompt = `
 You are an expert teacher grading a structured question answer. Be fair but thorough.Write ONLY the feedback — nothing else.
 
 Do NOT include any internal reasoning, planning, thinking, or meta-commentary.
@@ -2314,253 +2593,279 @@ FEEDBACK: [Your detailed feedback]
 
 `;
 
-      try {
-        const aiGrading = cleanAIResponse(await generateLessonPlanAI(prompt));
+          try {
+            const aiGrading = cleanAIResponse(
+              await generateLessonPlanAI(prompt)
+            );
 
-        // Parse AI response
-        const scoreMatch = aiGrading.match(/SCORE:\s*(\d+)\s*\/\s*(\d+)/i);
-        const feedbackMatch = aiGrading.match(/FEEDBACK:\s*(.+)/is);
+            // Parse AI response
+            const scoreMatch = aiGrading.match(/SCORE:\s*(\d+)\s*\/\s*(\d+)/i);
+            const feedbackMatch = aiGrading.match(/FEEDBACK:\s*(.+)/is);
 
-        return {
-          pointsEarned: scoreMatch ? parseInt(scoreMatch[1]) : 0,
-          pointsPossible: scoreMatch ? parseInt(scoreMatch[2]) : 4,
-          feedback: feedbackMatch ? feedbackMatch[1].trim() : aiGrading
-        };
-      } catch (error) {
-        console.error("AI grading failed:", error);
-        return {
-          pointsEarned: 0,
-          pointsPossible: 4,
-          feedback: "Unable to generate detailed feedback at this time."
-        };
-      }
-    };
-
-    // ---------- Process each question ----------
-    const results = [];
-    let totalPoints = 0;
-    let earnedPoints = 0;
-    let correctCount = 0;
-
-    for (let i = 0; i < quiz.questions.length; i++) {
-      const q = quiz.questions[i];
-      const userAnswer = (answers[i] ?? "").toString().trim();
-      const type = (q.type || "").toLowerCase();
-
-      let result = {
-        questionNumber: i + 1,
-        question: q.question,
-        userAnswer: userAnswer,
-        type: type === "mcq" ? "multiple-choice" : "structured"
-      };
-
-      if (type === "mcq") {
-        // Multiple Choice Question
-        const opts = Array.isArray(q.options) ? q.options : [];
-        const correctLetter = extractLetter(q.correct_answer);
-        const userLetter = extractLetter(userAnswer);
-        
-        const correctIdx = correctLetter ? "ABCD".indexOf(correctLetter) : -1;
-        const userIdx = userLetter ? "ABCD".indexOf(userLetter) : -1;
-        
-        const isCorrect = userLetter && correctLetter && userLetter === correctLetter;
-
-        if (isCorrect) {
-          correctCount++;
-          earnedPoints += 1;
-        }
-        totalPoints += 1;
-
-        // Generate AI-powered feedback
-        const aiFeedback = await generateMCQFeedback(
-          q.question,
-          userAnswer,
-          correctLetter,
-          opts
-        );
-
-        result.isCorrect = isCorrect;
-        result.correctAnswer = correctLetter;
-        result.pointsEarned = isCorrect ? 1 : 0;
-        result.pointsPossible = 1;
-        result.feedback = aiFeedback;
-        result.details = {
-          student_choice: { 
-            letter: userLetter, 
-            text: userIdx >= 0 ? opts[userIdx] : userAnswer 
-          },
-          correct_choice: { 
-            letter: correctLetter, 
-            text: correctIdx >= 0 ? opts[correctIdx] : q.correct_answer 
+            return {
+              pointsEarned: scoreMatch ? parseInt(scoreMatch[1]) : 0,
+              pointsPossible: scoreMatch ? parseInt(scoreMatch[2]) : 4,
+              feedback: feedbackMatch ? feedbackMatch[1].trim() : aiGrading,
+            };
+          } catch (error) {
+            console.error("AI grading failed:", error);
+            return {
+              pointsEarned: 0,
+              pointsPossible: 4,
+              feedback: "Unable to generate detailed feedback at this time.",
+            };
           }
         };
 
-      } else {
-        // Structured/Short Answer Question
-        if (!normalize(userAnswer)) {
-          result.pointsEarned = 0;
-          result.pointsPossible = 4;
-          result.feedback = `❌ No valid answer provided.\n\n**Model Answer:** ${q.correct_answer}`;
-          result.isCorrect = false;
-          totalPoints += 4;
-        } else {
-          const aiGrading = await generateStructuredFeedback(
-            q.question,
-            userAnswer,
-            q.correct_answer
+        // ---------- Process each question ----------
+        const results = [];
+        let totalPoints = 0;
+        let earnedPoints = 0;
+        let correctCount = 0;
+
+        for (let i = 0; i < quiz.questions.length; i++) {
+          const q = quiz.questions[i];
+          const userAnswer = (answers[i] ?? "").toString().trim();
+          const type = (q.type || "").toLowerCase();
+
+          let result = {
+            questionNumber: i + 1,
+            question: q.question,
+            userAnswer: userAnswer,
+            type: type === "mcq" ? "multiple-choice" : "structured",
+          };
+
+          if (type === "mcq") {
+            // Multiple Choice Question
+            const opts = Array.isArray(q.options) ? q.options : [];
+            const correctLetter = extractLetter(q.correct_answer);
+            const userLetter = extractLetter(userAnswer);
+
+            const correctIdx = correctLetter
+              ? "ABCD".indexOf(correctLetter)
+              : -1;
+            const userIdx = userLetter ? "ABCD".indexOf(userLetter) : -1;
+
+            const isCorrect =
+              userLetter && correctLetter && userLetter === correctLetter;
+
+            if (isCorrect) {
+              correctCount++;
+              earnedPoints += 1;
+            }
+            totalPoints += 1;
+
+            // Generate AI-powered feedback
+            const aiFeedback = await generateMCQFeedback(
+              q.question,
+              userAnswer,
+              correctLetter,
+              opts
+            );
+
+            result.isCorrect = isCorrect;
+            result.correctAnswer = correctLetter;
+            result.pointsEarned = isCorrect ? 1 : 0;
+            result.pointsPossible = 1;
+            result.feedback = aiFeedback;
+            result.details = {
+              student_choice: {
+                letter: userLetter,
+                text: userIdx >= 0 ? opts[userIdx] : userAnswer,
+              },
+              correct_choice: {
+                letter: correctLetter,
+                text: correctIdx >= 0 ? opts[correctIdx] : q.correct_answer,
+              },
+            };
+          } else {
+            // Structured/Short Answer Question
+            if (!normalize(userAnswer)) {
+              result.pointsEarned = 0;
+              result.pointsPossible = 4;
+              result.feedback = `❌ No valid answer provided.\n\n**Model Answer:** ${q.correct_answer}`;
+              result.isCorrect = false;
+              totalPoints += 4;
+            } else {
+              const aiGrading = await generateStructuredFeedback(
+                q.question,
+                userAnswer,
+                q.correct_answer
+              );
+
+              earnedPoints += aiGrading.pointsEarned;
+              totalPoints += aiGrading.pointsPossible;
+
+              result.pointsEarned = aiGrading.pointsEarned;
+              result.pointsPossible = aiGrading.pointsPossible;
+              result.feedback = aiGrading.feedback;
+              result.isCorrect =
+                aiGrading.pointsEarned >= aiGrading.pointsPossible * 0.7;
+              result.markScheme = q.correct_answer;
+            }
+          }
+
+          results.push(result);
+        }
+
+        // ---------- Calculate final score ----------
+        const finalScore =
+          totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+
+        const difficultyStr = (quiz.difficulty || "medium").toLowerCase();
+        const difficultyMultiplier =
+          difficultyStr === "hard" ? 2.0 : difficultyStr === "easy" ? 1.0 : 1.5;
+
+        const baseXp = 10; // Reward for completion
+        const scoreXp = Math.round(finalScore / 2); // Up to 50 extra XP for a perfect score
+        const totalXpEarned = Math.round(
+          (baseXp + scoreXp) * difficultyMultiplier
+        );
+
+        // ---------- Save to database ----------
+        const savedResult = await prisma.quiz_results.create({
+          data: {
+            user_id: user.id,
+            subject: quiz.subject,
+            topic: String(quiz.topic || "").trim() || null,
+            score: finalScore,
+            total_questions: quiz.questions.length,
+            correct_answers: correctCount,
+            detailed_feedback: JSON.stringify(results),
+            submitted_at: new Date(),
+          },
+        });
+
+        // Save individual feedback items
+        for (const r of results) {
+          await prisma.quiz_feedback.create({
+            data: {
+              quiz_result_id: savedResult.id,
+              question: r.question,
+              user_answer: r.userAnswer,
+              correct_answer:
+                quiz.questions.find((x) => x.question === r.question)
+                  ?.correct_answer || "",
+              feedback: r.feedback,
+              is_correct: r.isCorrect || false,
+            },
+          });
+        }
+
+        // Log event
+        await EventLogs.logEvent(
+          "quiz_submitted",
+          {
+            subject: quiz.subject,
+            score: finalScore,
+            earnedPoints,
+            totalPoints,
+          },
+          user.id
+        );
+
+        if (totalXpEarned > 0) {
+          await EventLogs.logEvent(
+            "xp_gain",
+            {
+              points: totalXpEarned,
+              source: "quiz_completed",
+              subject: quiz.subject,
+              difficulty: quiz.difficulty,
+            },
+            user.id
           );
-
-          earnedPoints += aiGrading.pointsEarned;
-          totalPoints += aiGrading.pointsPossible;
-
-          result.pointsEarned = aiGrading.pointsEarned;
-          result.pointsPossible = aiGrading.pointsPossible;
-          result.feedback = aiGrading.feedback;
-          result.isCorrect = aiGrading.pointsEarned >= (aiGrading.pointsPossible * 0.7);
-          result.markScheme = q.correct_answer;
         }
+
+        const newStreak = await User.updateStreak(user.id);
+
+        // ---------- Return comprehensive response ----------
+        res.json({
+          success: true,
+          resultId: savedResult.id,
+          score: finalScore,
+          earnedPoints,
+          totalPoints,
+          xpEarned: totalXpEarned, // 👈 Added to response so the UI can animate it
+          feedback: results,
+          streak: newStreak,
+          summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`,
+        });
+      } catch (err) {
+        console.error("🔥 Quiz marking error:", err);
+        res.status(500).json({ success: false, error: "Marking failed" });
       }
-
-      results.push(result);
     }
+  );
 
-    // ---------- Calculate final score ----------
-    const finalScore = totalPoints > 0 
-      ? Math.round((earnedPoints / totalPoints) * 100) 
-      : 0;
+  const { sendLowScoreAlert } = require("../utils/Parentnotifications");
 
-      const difficultyStr = (quiz.difficulty || "medium").toLowerCase();
-    const difficultyMultiplier = difficultyStr === "hard" ? 2.0 : (difficultyStr === "easy" ? 1.0 : 1.5);
-    
-    const baseXp = 10; // Reward for completion
-    const scoreXp = Math.round(finalScore / 2); // Up to 50 extra XP for a perfect score
-    const totalXpEarned = Math.round((baseXp + scoreXp) * difficultyMultiplier);
-
-    // ---------- Save to database ----------
-    const savedResult = await prisma.quiz_results.create({
-      data: {
-        user_id: user.id,
-        subject: quiz.subject,
-        score: finalScore,
-        total_questions: quiz.questions.length,
-        correct_answers: correctCount,
-        detailed_feedback: JSON.stringify(results),
-        submitted_at: new Date(),
-      },
-    });
-
-    // Save individual feedback items
-    for (const r of results) {
-      await prisma.quiz_feedback.create({
-        data: {
-          quiz_result_id: savedResult.id,
-          question: r.question,
-          user_answer: r.userAnswer,
-          correct_answer: quiz.questions.find((x) => x.question === r.question)?.correct_answer || "",
-          feedback: r.feedback,
-          is_correct: r.isCorrect || false,
-        },
-      });
-    }
-
-    // Log event
-    await EventLogs.logEvent("quiz_submitted", {
-      subject: quiz.subject,
-      score: finalScore,
-      earnedPoints,
-      totalPoints
-    }, user.id);
-
-    if (totalXpEarned > 0) {
-      await EventLogs.logEvent(
-        "xp_gain",
-        { 
-          points: totalXpEarned, 
-          source: "quiz_completed", 
-          subject: quiz.subject,
-          difficulty: quiz.difficulty 
-        },
-        user.id
-      );
-    }
-
-    const newStreak = await User.updateStreak(user.id);
-
-    // ---------- Return comprehensive response ----------
-   res.json({
-      success: true,
-      resultId: savedResult.id,
-      score: finalScore,
-      earnedPoints,
-      totalPoints,
-      xpEarned: totalXpEarned, // 👈 Added to response so the UI can animate it
-      feedback: results,
-      streak: newStreak,
-      summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`
-    });
-
-  } catch (err) {
-    console.error("🔥 Quiz marking error:", err);
-    res.status(500).json({ success: false, error: "Marking failed" });
-  }
-});
-
-const { sendLowScoreAlert } = require("../utils/Parentnotifications");
-
-app.post("/quiz/submit", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  try {
-    // 1. Auth
-    const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.id) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    // 2. Extract payload
-    const { quiz, answers } = reqBody(req);
-
-    if (
-      !quiz ||
-      !Array.isArray(quiz.questions) ||
-      quiz.questions.length < 1 ||
-      quiz.questions.length > 100 ||
-      !validAnswerArray(answers) ||
-      answers.length !== quiz.questions.length
-    ) {
-      return res.status(400).json({ success: false, error: "Missing or invalid quiz payload." });
-    }
-
-    const detailedFeedback = [];
-    let correctCount = 0;
-    let totalPoints = 0;
-    let earnedPoints = 0;
-
-    // 3. Grade each question
-    for (let i = 0; i < quiz.questions.length; i++) {
-      const question = quiz.questions[i];
-      const studentAnswer = answers[i] || "";
-
-      const questionPoints =
-        question.points ||
-        (question.type === "mcq" || question.type === "multiple-choice" ? 1 : 4);
-
-      let feedbackObj = {
-        questionNumber: i + 1,
-        question: question.question,
-        studentAnswer,
-        type: question.type,
-      };
-
-      if (question.type === "mcq" || question.type === "multiple-choice") {
-        const studentLetter = studentAnswer.trim().charAt(0).toUpperCase();
-        const isCorrect = studentLetter === question.correct_answer;
-
-        if (isCorrect) {
-          correctCount++;
-          earnedPoints += questionPoints;
+  app.post(
+    "/quiz/submit",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      try {
+        // 1. Auth
+        const sessionUser = await userFromSession(req, res);
+        if (!sessionUser?.id) {
+          return res
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
         }
-        totalPoints += questionPoints;
 
-        const mcFeedbackPrompt = `You are a teacher writing feedback directly to a student. Write ONLY the feedback — nothing else.
+        // 2. Extract payload
+        const { quiz, answers } = reqBody(req);
+
+        if (
+          !quiz ||
+          !Array.isArray(quiz.questions) ||
+          quiz.questions.length < 1 ||
+          quiz.questions.length > 100 ||
+          !validAnswerArray(answers) ||
+          answers.length !== quiz.questions.length
+        ) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              error: "Missing or invalid quiz payload.",
+            });
+        }
+
+        const detailedFeedback = [];
+        let correctCount = 0;
+        let totalPoints = 0;
+        let earnedPoints = 0;
+
+        // 3. Grade each question
+        for (let i = 0; i < quiz.questions.length; i++) {
+          const question = quiz.questions[i];
+          const studentAnswer = answers[i] || "";
+
+          const questionPoints =
+            question.points ||
+            (question.type === "mcq" || question.type === "multiple-choice"
+              ? 1
+              : 4);
+
+          let feedbackObj = {
+            questionNumber: i + 1,
+            question: question.question,
+            studentAnswer,
+            type: question.type,
+          };
+
+          if (question.type === "mcq" || question.type === "multiple-choice") {
+            const studentLetter = studentAnswer.trim().charAt(0).toUpperCase();
+            const isCorrect = studentLetter === question.correct_answer;
+
+            if (isCorrect) {
+              correctCount++;
+              earnedPoints += questionPoints;
+            }
+            totalPoints += questionPoints;
+
+            const mcFeedbackPrompt = `You are a teacher writing feedback directly to a student. Write ONLY the feedback — nothing else.
 
 Do NOT include any internal reasoning, planning, thinking, or meta-commentary.
 Do NOT write phrases like "We need to", "Let's", "The student answered", "Provide feedback", or "3-4 sentences".
@@ -2580,16 +2885,15 @@ Write 3-4 sentences that:
 
 BEGIN YOUR FEEDBACK NOW:`;
 
-        const aiFeedback = await generateLessonPlanAI(mcFeedbackPrompt);
+            const aiFeedback = await generateLessonPlanAI(mcFeedbackPrompt);
 
-        feedbackObj.isCorrect = isCorrect;
-        feedbackObj.correctAnswer = question.correct_answer;
-        feedbackObj.feedback = cleanAIResponse(aiFeedback);
-        feedbackObj.pointsEarned = isCorrect ? questionPoints : 0;
-        feedbackObj.pointsPossible = questionPoints;
-
-      } else {
-        const structuredGradingPrompt = `You are a teacher grading a student's answer. You must respond in EXACTLY this format and nothing else.
+            feedbackObj.isCorrect = isCorrect;
+            feedbackObj.correctAnswer = question.correct_answer;
+            feedbackObj.feedback = cleanAIResponse(aiFeedback);
+            feedbackObj.pointsEarned = isCorrect ? questionPoints : 0;
+            feedbackObj.pointsPossible = questionPoints;
+          } else {
+            const structuredGradingPrompt = `You are a teacher grading a student's answer. You must respond in EXACTLY this format and nothing else.
 
 Do NOT include any internal reasoning, planning, thinking, or meta-commentary before or after your response.
 
@@ -2619,178 +2923,201 @@ Student's Answer: ${studentAnswer}
 
 Remember: Start your response with "SCORE:" immediately. No preamble.`;
 
-        const aiGrading = await generateLessonPlanAI(structuredGradingPrompt);
-        const cleanedGrading = cleanAIResponse(aiGrading);
+            const aiGrading = await generateLessonPlanAI(
+              structuredGradingPrompt
+            );
+            const cleanedGrading = cleanAIResponse(aiGrading);
 
-        const scoreMatch = cleanedGrading.match(/SCORE:\s*(\d+\.?\d*)\s*\/\s*(\d+)/i);
-        const feedbackMatch = cleanedGrading.match(/SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*\n+([\s\S]*)/i);
+            const scoreMatch = cleanedGrading.match(
+              /SCORE:\s*(\d+\.?\d*)\s*\/\s*(\d+)/i
+            );
+            const feedbackMatch = cleanedGrading.match(
+              /SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*\n+([\s\S]*)/i
+            );
 
-        let pointsEarnedStructured;
-        let pointsPossibleStructured;
+            let pointsEarnedStructured;
+            let pointsPossibleStructured;
 
-        if (scoreMatch) {
-          pointsEarnedStructured = parseFloat(scoreMatch[1]);
-          pointsPossibleStructured = parseInt(scoreMatch[2]);
-        } else {
-          console.warn(`⚠️ Question ${i + 1}: AI did not return a parseable SCORE. Defaulting to 0/${questionPoints}.`);
-          pointsEarnedStructured = 0;
-          pointsPossibleStructured = questionPoints;
+            if (scoreMatch) {
+              pointsEarnedStructured = parseFloat(scoreMatch[1]);
+              pointsPossibleStructured = parseInt(scoreMatch[2]);
+            } else {
+              console.warn(
+                `⚠️ Question ${i + 1}: AI did not return a parseable SCORE. Defaulting to 0/${questionPoints}.`
+              );
+              pointsEarnedStructured = 0;
+              pointsPossibleStructured = questionPoints;
+            }
+
+            earnedPoints += pointsEarnedStructured;
+            totalPoints += pointsPossibleStructured;
+
+            const isCorrect =
+              pointsEarnedStructured >= pointsPossibleStructured * 0.5;
+            if (isCorrect) correctCount++;
+
+            feedbackObj.isCorrect = isCorrect;
+            feedbackObj.pointsEarned = pointsEarnedStructured;
+            feedbackObj.pointsPossible = pointsPossibleStructured;
+            feedbackObj.feedback = feedbackMatch
+              ? feedbackMatch[1].replace(/^FEEDBACK:\s*/i, "").trim()
+              : cleanedGrading
+                  .replace(/^SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*/i, "")
+                  .replace(/^FEEDBACK:\s*/i, "")
+                  .trim();
+          }
+
+          detailedFeedback.push(feedbackObj);
         }
 
-        earnedPoints += pointsEarnedStructured;
-        totalPoints += pointsPossibleStructured;
+        // 4. Final score
+        const finalScore =
+          totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
 
-        const isCorrect = pointsEarnedStructured >= pointsPossibleStructured * 0.5;
-        if (isCorrect) correctCount++;
+        const difficultyStr = (quiz.difficulty || "medium").toLowerCase();
+        const difficultyMultiplier =
+          difficultyStr === "hard" ? 2.0 : difficultyStr === "easy" ? 1.0 : 1.5;
 
-        feedbackObj.isCorrect = isCorrect;
-        feedbackObj.pointsEarned = pointsEarnedStructured;
-        feedbackObj.pointsPossible = pointsPossibleStructured;
-        feedbackObj.feedback = feedbackMatch
-          ? feedbackMatch[1].replace(/^FEEDBACK:\s*/i, "").trim()
-          : cleanedGrading.replace(/^SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*/i, "").replace(/^FEEDBACK:\s*/i, "").trim();
-      }
+        const baseXp = 10;
+        const scoreXp = Math.round(finalScore / 2);
+        const totalXpEarned = Math.round(
+          (baseXp + scoreXp) * difficultyMultiplier
+        );
 
-      detailedFeedback.push(feedbackObj);
-    }
-
-    // 4. Final score
-    const finalScore = totalPoints > 0
-      ? Math.round((earnedPoints / totalPoints) * 100)
-      : 0;
-
-    const difficultyStr = (quiz.difficulty || "medium").toLowerCase();
-    const difficultyMultiplier = difficultyStr === "hard" ? 2.0 : (difficultyStr === "easy" ? 1.0 : 1.5);
-
-    const baseXp = 10;
-    const scoreXp = Math.round(finalScore / 2);
-    const totalXpEarned = Math.round((baseXp + scoreXp) * difficultyMultiplier);
-
-    // 5. DB insert
-    const result = await prisma.quiz_results.create({
-      data: {
-        user_id: sessionUser.id,
-        subject: quiz.subject || "General Practice",
-        score: finalScore,
-        total_questions: quiz.questions.length,
-        correct_answers: correctCount,
-        detailed_feedback: JSON.stringify(detailedFeedback),
-        submitted_at: new Date(),
-      },
-    });
-
-    // 6. Log activity
-    await EventLogs.logEvent(
-      "quiz_submitted",
-      { subject: quiz.subject, score: finalScore },
-      sessionUser.id
-    );
-
-    const newStreak = await User.updateStreak(sessionUser.id);
-
-    if (totalXpEarned > 0) {
-      await EventLogs.logEvent(
-        "xp_gain",
-        {
-          points: totalXpEarned,
-          source: "quiz_completed",
-          subject: quiz.subject,
-          difficulty: quiz.difficulty
-        },
-        sessionUser.id
-      );
-    }
-
-    // 🔔 Parent notification for low scores (non-blocking)
-   prisma.students.findFirst({ where: { user_id: sessionUser.id }, select: { id: true, name: true } })
-  .then((student) => {
-    return sendLowScoreAlert({
-      childId: student?.id ?? sessionUser.id,
-      childName: student?.name || "Your child",
-      subject: quiz.subject,
-      score: finalScore,
-      quizId: result.id,
-    });
-  })
-  .catch(console.error);
-
-    // 7. Response
-    return res.status(201).json({
-      success: true,
-      resultId: result.id,
-      score: finalScore,
-      earnedPoints,
-      totalPoints,
-      xpEarned: totalXpEarned,
-      feedback: detailedFeedback,
-      summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`,
-    });
-
-  } catch (err) {
-    console.error("Error submitting quiz:", err);
-    return res.status(500).json({ success: false, error: "Failed to submit quiz." });
-  }
-});
-
-async function generateLessonPlanAI(prompt) {
-  try {
-    const ollamaUrl = "http://192.168.1.128:11434/v1/completions";
-
-    const response = await axios.post(ollamaUrl, {
-      model: "openai/gpt-oss-20b",
-      prompt,
-      max_tokens: 8192,   // 🔥 IMPORTANT
-      temperature: 0.7,
-      stream: false
-    });
-
-
-    // OpenAI-style completion
-    if (response.data?.choices?.length) {
-      return response.data.choices
-        .map(c => c.text || "")
-        .join("")
-        .trim();
-    }
-
-    throw new Error("Unexpected Ollama response shape");
-  } catch (err) {
-    console.error("AI generation failed:", err.response?.data || err.message);
-    throw new Error("AI model is unavailable or misconfigured.");
-  }
-}
-app.post(
-  "/system/teacher-tools/generate-lesson-plan", (req, res, next) => {
-  req.header('X-Service-Key') ? serviceKeyRequest(req, res, next) : validatedRequest(req, res, next);
-}, 
-  async (request, response) => {
-    try {
-      const sessionUser = await userFromSession(request, response);
-      if (!sessionUser?.id) {
-        return response
-          .status(401)
-          .json({ success: false, error: "Unauthorized" });
-      }
-      if (
-        !request.header("X-Service-Key") &&
-        sessionUser.role !== ROLES.teacher
-      ) {
-        return response
-          .status(403)
-          .json({ success: false, error: "Teacher access required." });
-      }
-
-      const { subject, topic, grade, duration, objectives } = request.body;
-
-      if (!subject || !topic || !grade) {
-        return response.status(400).json({
-          success: false,
-          error: "Subject, topic, and grade are required.",
+        // 5. DB insert
+        const result = await prisma.quiz_results.create({
+          data: {
+            user_id: sessionUser.id,
+            subject: quiz.subject || "General Practice",
+            topic: String(quiz.topic || "").trim() || null,
+            score: finalScore,
+            total_questions: quiz.questions.length,
+            correct_answers: correctCount,
+            detailed_feedback: JSON.stringify(detailedFeedback),
+            submitted_at: new Date(),
+          },
         });
+
+        // 6. Log activity
+        await EventLogs.logEvent(
+          "quiz_submitted",
+          { subject: quiz.subject, score: finalScore },
+          sessionUser.id
+        );
+
+        const newStreak = await User.updateStreak(sessionUser.id);
+
+        if (totalXpEarned > 0) {
+          await EventLogs.logEvent(
+            "xp_gain",
+            {
+              points: totalXpEarned,
+              source: "quiz_completed",
+              subject: quiz.subject,
+              difficulty: quiz.difficulty,
+            },
+            sessionUser.id
+          );
+        }
+
+        // 🔔 Parent notification for low scores (non-blocking)
+        prisma.students
+          .findFirst({
+            where: { user_id: sessionUser.id },
+            select: { id: true, name: true },
+          })
+          .then((student) => {
+            return sendLowScoreAlert({
+              childId: student?.id ?? sessionUser.id,
+              childName: student?.name || "Your child",
+              subject: quiz.subject,
+              score: finalScore,
+              quizId: result.id,
+            });
+          })
+          .catch(console.error);
+
+        // 7. Response
+        return res.status(201).json({
+          success: true,
+          resultId: result.id,
+          score: finalScore,
+          earnedPoints,
+          totalPoints,
+          xpEarned: totalXpEarned,
+          feedback: detailedFeedback,
+          summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`,
+        });
+      } catch (err) {
+        console.error("Error submitting quiz:", err);
+        return res
+          .status(500)
+          .json({ success: false, error: "Failed to submit quiz." });
+      }
+    }
+  );
+
+  async function generateLessonPlanAI(prompt) {
+    try {
+      const ollamaUrl = "http://192.168.1.128:11434/v1/completions";
+
+      const response = await axios.post(ollamaUrl, {
+        model: "openai/gpt-oss-20b",
+        prompt,
+        max_tokens: 8192, // 🔥 IMPORTANT
+        temperature: 0.7,
+        stream: false,
+      });
+
+      // OpenAI-style completion
+      if (response.data?.choices?.length) {
+        return response.data.choices
+          .map((c) => c.text || "")
+          .join("")
+          .trim();
       }
 
-      // 🧠 AI Prompt
-     const prompt = `
+      throw new Error("Unexpected Ollama response shape");
+    } catch (err) {
+      console.error("AI generation failed:", err.response?.data || err.message);
+      throw new Error("AI model is unavailable or misconfigured.");
+    }
+  }
+  app.post(
+    "/system/teacher-tools/generate-lesson-plan",
+    (req, res, next) => {
+      req.header("X-Service-Key")
+        ? serviceKeyRequest(req, res, next)
+        : validatedRequest(req, res, next);
+    },
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id) {
+          return response
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        }
+        if (
+          !request.header("X-Service-Key") &&
+          sessionUser.role !== ROLES.teacher
+        ) {
+          return response
+            .status(403)
+            .json({ success: false, error: "Teacher access required." });
+        }
+
+        const { subject, topic, grade, duration, objectives } = request.body;
+
+        if (!subject || !topic || !grade) {
+          return response.status(400).json({
+            success: false,
+            error: "Subject, topic, and grade are required.",
+          });
+        }
+
+        // 🧠 AI Prompt
+        const prompt = `
 You are a professional ${subject} teacher preparing a detailed lesson plan for ${grade} students.
 
 Topic: ${topic}
@@ -2823,183 +3150,196 @@ ${objectives ? `Base the objectives on the teacher's stated objectives: "${objec
 BEGIN YOUR RESPONSE WITH "## Lesson Title:" - NO OTHER TEXT BEFORE THIS.
 `;
 
-      // 🧩 Generate the AI lesson plan
-      const rawResponse = await generateLessonPlanAI(prompt);
-      
-      // ✅ Clean thinking model output
-      const cleanedLessonPlan = cleanThinkingModelOutput(rawResponse);
+        // 🧩 Generate the AI lesson plan
+        const rawResponse = await generateLessonPlanAI(prompt);
 
-      // 🧾 Log & respond
-      await EventLogs.logEvent(
-        "lesson_plan_generated",
-        { subject, topic },
-        sessionUser.id
-      );
+        // ✅ Clean thinking model output
+        const cleanedLessonPlan = cleanThinkingModelOutput(rawResponse);
 
-      response.status(200).json({
-        success: true,
-        lessonPlan: cleanedLessonPlan,
-      });
-    } catch (err) {
-      console.error("Error generating lesson plan:", err);
-      response.status(500).json({
-        success: false,
-        error: "Internal server error while generating lesson plan.",
-      });
-    }
-  }
-);
+        // 🧾 Log & respond
+        await EventLogs.logEvent(
+          "lesson_plan_generated",
+          { subject, topic },
+          sessionUser.id
+        );
 
-// // ✅ ADD THIS HELPER FUNCTION (if not already added from the quiz route)
-// function cleanThinkingModelOutput(rawText) {
-//   // Remove thinking blocks with various markers
-//   let cleaned = rawText
-//     // Remove explicit thinking tags
-//     .replace(/<think>[\s\S]*?<\/think>/gi, '')
-//     .replace(/\[THINKING\][\s\S]*?\[\/THINKING\]/gi, '')
-    
-//     // Remove markdown code blocks
-//     .replace(/```(?:markdown|md)?[\s\S]*?```/g, '')
-    
-//     // Remove meta-commentary
-//     .replace(/^.*?(?:let me|i'll|i will|i should|first|okay|alright|sure|certainly).*?(?:create|generate|make|produce|prepare).*?(?:lesson plan|plan).*$/gim, '')
-//     .replace(/^.*?(?:here'?s?|here is|here are).*?(?:lesson plan|plan).*?:?$/gim, '')
-    
-//     // Remove thinking indicators
-//     .replace(/^(?:thinking|analysis|approach|strategy|plan|note|observation)[:.].*$/gim, '')
-    
-//     // Remove step-by-step reasoning that isn't content
-//     .replace(/^(?:step|phase|stage)\s+\d+[:.].*$/gim, '')
-    
-//     // Clean up multiple newlines
-//     .replace(/\n{3,}/g, '\n\n')
-    
-//     .trim();
-  
-//   // Extract content after delimiter if present
-//   const delimiterMatch = cleaned.match(/===LESSON PLAN===\s*([\s\S]+)/);
-//   if (delimiterMatch) {
-//     cleaned = delimiterMatch[1].trim();
-//   }
-  
-//   // Find where actual lesson plan starts (typically with # or ## for title)
-//   const lessonStartMatch = cleaned.match(/(^#+\s+[\s\S]+)/m);
-//   if (lessonStartMatch) {
-//     const startIndex = lessonStartMatch.index;
-//     cleaned = cleaned.substring(startIndex);
-//   }
-  
-//   // Remove any remaining preamble before first markdown heading
-//   cleaned = cleaned.replace(/^[^#]*?(#+\s+)/, '$1');
-  
-//   return cleaned;
-// }
-
-// ✅ At module scope — OUTSIDE any app.post() / route handler
-function extractRelevantSyllabusContent(text, maxChars = 6000) {
-  const topicKeywords = [
-    /topic[s]?\s*:/i,
-    /content\s*:/i,
-    /scheme of work/i,
-    /syllabus content/i,
-    /term \d/i,
-    /unit \d/i,
-    /chapter \d/i
-  ];
-
-  let startIndex = 0;
-  for (const pattern of topicKeywords) {
-    const match = text.search(pattern);
-    if (match > 0 && match < text.length * 0.4) {
-      startIndex = Math.max(0, match - 200);
-      break;
-    }
-  }
-
-  return text.substring(startIndex, startIndex + maxChars);
-}
-
-
-app.post(
-  "/system/teacher-tools/generate-scheme-of-work",
-  validatedRequest,
-  flexUserRoleValid([ROLES.teacher]),
-  (req, res, next) => {
-    upload.fields([
-      { name: "syllabus", maxCount: 1 }
-    ])(req, res, (err) => {
-      if (err) {
-        console.error("Multer error:", err);
-        return res.status(400).json({ success: false, error: err.message || "File upload failed." });
-      }
-      next();
-    });
-  },
-  async (request, response) => {
-    let syllabusFilePath = null;
-
-    try {
-      const sessionUser = await userFromSession(request, response);
-      if (!sessionUser?.id)
-        return response.status(401).json({ success: false, error: "Unauthorized" });
-
-      // Parse body — comes as multipart now
-      const { subject, grade, term, weeks, curriculum, notes, holidayWeeks } = 
-        request.body.metadata 
-          ? JSON.parse(request.body.metadata) 
-          : request.body;
-
-      if (!subject || !grade || !term)
-        return response.status(400).json({ success: false, error: "Missing required fields" });
-
-      // ── Extract syllabus PDF if uploaded ──
-      let syllabusContext = "";
-    if (request.files?.syllabus?.[0]) {
-  const syllabusFile = request.files.syllabus[0];
-  syllabusFilePath = syllabusFile.path;
-  console.log("📄 Extracting syllabus from:", syllabusFile.originalname);
-
-  if (syllabusFile.mimetype === "application/pdf") {
-    const rawSyllabusText = await extractTextFromPDF(syllabusFilePath);
-    console.log(`📝 Extracted ${rawSyllabusText.length} characters from syllabus`);
-    
-    // ✅ Call is inside the handler where syllabusContext is in scope
-    syllabusContext = extractRelevantSyllabusContent(rawSyllabusText);
-    console.log(`✂️ Trimmed syllabus to ${syllabusContext.length} characters`);
-  } else {
-    return response.status(400).json({
-      success: false,
-      error: "Syllabus must be a PDF file."
-    });
-  }
-}
-
-      // ── Build holiday-aware week list ──
-      let parsedHolidayWeeks = [];
-if (holidayWeeks) {
-  try {
-    const parsed = JSON.parse(holidayWeeks);
-    parsedHolidayWeeks = Array.isArray(parsed) ? parsed : [];
-  } catch {
-    // Fallback: handle comma-separated string e.g. "1,3,5"
-    parsedHolidayWeeks = String(holidayWeeks)
-      .split(",")
-      .map(n => parseInt(n.trim()))
-      .filter(n => !isNaN(n));
-  }
-}
-
-      const totalWeeks = parseInt(weeks) || 8;
-      const activeWeeks = [];
-      for (let i = 1; i <= totalWeeks; i++) {
-        activeWeeks.push({
-          week: i,
-          isHoliday: parsedHolidayWeeks.includes(i)
+        response.status(200).json({
+          success: true,
+          lessonPlan: cleanedLessonPlan,
+        });
+      } catch (err) {
+        console.error("Error generating lesson plan:", err);
+        response.status(500).json({
+          success: false,
+          error: "Internal server error while generating lesson plan.",
         });
       }
+    }
+  );
 
-      // ── Build prompt ──
-      const prompt = `IMPORTANT: You must respond with ONLY a valid JSON object. Do not write any explanation, preamble, or markdown. Start your response with "{" and end with "}".
+  // // ✅ ADD THIS HELPER FUNCTION (if not already added from the quiz route)
+  // function cleanThinkingModelOutput(rawText) {
+  //   // Remove thinking blocks with various markers
+  //   let cleaned = rawText
+  //     // Remove explicit thinking tags
+  //     .replace(/<think>[\s\S]*?<\/think>/gi, '')
+  //     .replace(/\[THINKING\][\s\S]*?\[\/THINKING\]/gi, '')
+
+  //     // Remove markdown code blocks
+  //     .replace(/```(?:markdown|md)?[\s\S]*?```/g, '')
+
+  //     // Remove meta-commentary
+  //     .replace(/^.*?(?:let me|i'll|i will|i should|first|okay|alright|sure|certainly).*?(?:create|generate|make|produce|prepare).*?(?:lesson plan|plan).*$/gim, '')
+  //     .replace(/^.*?(?:here'?s?|here is|here are).*?(?:lesson plan|plan).*?:?$/gim, '')
+
+  //     // Remove thinking indicators
+  //     .replace(/^(?:thinking|analysis|approach|strategy|plan|note|observation)[:.].*$/gim, '')
+
+  //     // Remove step-by-step reasoning that isn't content
+  //     .replace(/^(?:step|phase|stage)\s+\d+[:.].*$/gim, '')
+
+  //     // Clean up multiple newlines
+  //     .replace(/\n{3,}/g, '\n\n')
+
+  //     .trim();
+
+  //   // Extract content after delimiter if present
+  //   const delimiterMatch = cleaned.match(/===LESSON PLAN===\s*([\s\S]+)/);
+  //   if (delimiterMatch) {
+  //     cleaned = delimiterMatch[1].trim();
+  //   }
+
+  //   // Find where actual lesson plan starts (typically with # or ## for title)
+  //   const lessonStartMatch = cleaned.match(/(^#+\s+[\s\S]+)/m);
+  //   if (lessonStartMatch) {
+  //     const startIndex = lessonStartMatch.index;
+  //     cleaned = cleaned.substring(startIndex);
+  //   }
+
+  //   // Remove any remaining preamble before first markdown heading
+  //   cleaned = cleaned.replace(/^[^#]*?(#+\s+)/, '$1');
+
+  //   return cleaned;
+  // }
+
+  // ✅ At module scope — OUTSIDE any app.post() / route handler
+  function extractRelevantSyllabusContent(text, maxChars = 6000) {
+    const topicKeywords = [
+      /topic[s]?\s*:/i,
+      /content\s*:/i,
+      /scheme of work/i,
+      /syllabus content/i,
+      /term \d/i,
+      /unit \d/i,
+      /chapter \d/i,
+    ];
+
+    let startIndex = 0;
+    for (const pattern of topicKeywords) {
+      const match = text.search(pattern);
+      if (match > 0 && match < text.length * 0.4) {
+        startIndex = Math.max(0, match - 200);
+        break;
+      }
+    }
+
+    return text.substring(startIndex, startIndex + maxChars);
+  }
+
+  app.post(
+    "/system/teacher-tools/generate-scheme-of-work",
+    validatedRequest,
+    flexUserRoleValid([ROLES.teacher]),
+    (req, res, next) => {
+      upload.fields([{ name: "syllabus", maxCount: 1 }])(req, res, (err) => {
+        if (err) {
+          console.error("Multer error:", err);
+          return res
+            .status(400)
+            .json({
+              success: false,
+              error: err.message || "File upload failed.",
+            });
+        }
+        next();
+      });
+    },
+    async (request, response) => {
+      let syllabusFilePath = null;
+
+      try {
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id)
+          return response
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+
+        // Parse body — comes as multipart now
+        const { subject, grade, term, weeks, curriculum, notes, holidayWeeks } =
+          request.body.metadata
+            ? JSON.parse(request.body.metadata)
+            : request.body;
+
+        if (!subject || !grade || !term)
+          return response
+            .status(400)
+            .json({ success: false, error: "Missing required fields" });
+
+        // ── Extract syllabus PDF if uploaded ──
+        let syllabusContext = "";
+        if (request.files?.syllabus?.[0]) {
+          const syllabusFile = request.files.syllabus[0];
+          syllabusFilePath = syllabusFile.path;
+          console.log(
+            "📄 Extracting syllabus from:",
+            syllabusFile.originalname
+          );
+
+          if (syllabusFile.mimetype === "application/pdf") {
+            const rawSyllabusText = await extractTextFromPDF(syllabusFilePath);
+            console.log(
+              `📝 Extracted ${rawSyllabusText.length} characters from syllabus`
+            );
+
+            // ✅ Call is inside the handler where syllabusContext is in scope
+            syllabusContext = extractRelevantSyllabusContent(rawSyllabusText);
+            console.log(
+              `✂️ Trimmed syllabus to ${syllabusContext.length} characters`
+            );
+          } else {
+            return response.status(400).json({
+              success: false,
+              error: "Syllabus must be a PDF file.",
+            });
+          }
+        }
+
+        // ── Build holiday-aware week list ──
+        let parsedHolidayWeeks = [];
+        if (holidayWeeks) {
+          try {
+            const parsed = JSON.parse(holidayWeeks);
+            parsedHolidayWeeks = Array.isArray(parsed) ? parsed : [];
+          } catch {
+            // Fallback: handle comma-separated string e.g. "1,3,5"
+            parsedHolidayWeeks = String(holidayWeeks)
+              .split(",")
+              .map((n) => parseInt(n.trim()))
+              .filter((n) => !isNaN(n));
+          }
+        }
+
+        const totalWeeks = parseInt(weeks) || 8;
+        const activeWeeks = [];
+        for (let i = 1; i <= totalWeeks; i++) {
+          activeWeeks.push({
+            week: i,
+            isHoliday: parsedHolidayWeeks.includes(i),
+          });
+        }
+
+        // ── Build prompt ──
+        const prompt = `IMPORTANT: You must respond with ONLY a valid JSON object. Do not write any explanation, preamble, or markdown. Start your response with "{" and end with "}".
 You are a professional ${subject} teacher creating a Scheme of Work.
 
 DETAILS:
@@ -3007,14 +3347,16 @@ DETAILS:
 - Curriculum: ${curriculum || "ZIMSEC"}
 - Term: ${term}
 - Total Weeks: ${totalWeeks}
-- Active Teaching Weeks: ${activeWeeks.filter(w => !w.isHoliday).length}
+- Active Teaching Weeks: ${activeWeeks.filter((w) => !w.isHoliday).length}
 - Holiday/Non-Teaching Weeks: ${parsedHolidayWeeks.length > 0 ? parsedHolidayWeeks.join(", ") : "None"}
 ${notes ? `- Teacher Notes: ${notes}` : ""}
 
-${syllabusContext 
-  ? `OFFICIAL SYLLABUS CONTENT (use this as the source of truth for topics and objectives):
-${syllabusContext.substring(0, 8000)}` 
-  : "Generate appropriate topics for this subject, grade and curriculum."}
+${
+  syllabusContext
+    ? `OFFICIAL SYLLABUS CONTENT (use this as the source of truth for topics and objectives):
+${syllabusContext.substring(0, 8000)}`
+    : "Generate appropriate topics for this subject, grade and curriculum."
+}
 
 INSTRUCTIONS:
 - Generate one entry per week for all ${totalWeeks} weeks
@@ -3045,133 +3387,136 @@ Return ONLY a valid JSON object, no markdown, no preamble. Schema:
   ]
 }`;
 
-      console.log("🧠 Generating scheme of work...");
-      const rawResponse = await generateLessonPlanAI(prompt);
+        console.log("🧠 Generating scheme of work...");
+        const rawResponse = await generateLessonPlanAI(prompt);
 
-      // ── Parse JSON response ──
-    let schemeData;
-try {
-  // Strip markdown fences
-  let cleaned = rawResponse
-    .replace(/```json\n?/gi, "")
-    .replace(/```/g, "")
-    .trim();
-
-  // If there's text before the JSON object, find where it starts
-  const jsonStart = cleaned.indexOf("{");
-  const jsonEnd = cleaned.lastIndexOf("}");
-
-  if (jsonStart === -1 || jsonEnd === -1) {
-    throw new Error("No JSON object found in response");
-  }
-
-  cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
-  schemeData = JSON.parse(cleaned);
-
-} catch (parseErr) {
-  console.error("JSON parse failed:", parseErr);
-  console.error("Raw AI response (first 500 chars):", rawResponse?.substring(0, 500));
-  return response.status(500).json({
-    success: false,
-    error: "AI returned malformed data. Please try again."
-  });
-}
-
-      // ── Cleanup temp file ──
-      if (syllabusFilePath) {
+        // ── Parse JSON response ──
+        let schemeData;
         try {
-          await fsPromises.unlink(syllabusFilePath);
-        } catch (e) {
-          console.error("Could not delete syllabus temp file:", e);
+          // Strip markdown fences
+          let cleaned = rawResponse
+            .replace(/```json\n?/gi, "")
+            .replace(/```/g, "")
+            .trim();
+
+          // If there's text before the JSON object, find where it starts
+          const jsonStart = cleaned.indexOf("{");
+          const jsonEnd = cleaned.lastIndexOf("}");
+
+          if (jsonStart === -1 || jsonEnd === -1) {
+            throw new Error("No JSON object found in response");
+          }
+
+          cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+          schemeData = JSON.parse(cleaned);
+        } catch (parseErr) {
+          console.error("JSON parse failed:", parseErr);
+          console.error(
+            "Raw AI response (first 500 chars):",
+            rawResponse?.substring(0, 500)
+          );
+          return response.status(500).json({
+            success: false,
+            error: "AI returned malformed data. Please try again.",
+          });
         }
-      }
 
-      console.log(`✅ Scheme generated — ${schemeData.weeks?.length} weeks`);
-      return response.status(200).json({ success: true, scheme: schemeData });
+        // ── Cleanup temp file ──
+        if (syllabusFilePath) {
+          try {
+            await fsPromises.unlink(syllabusFilePath);
+          } catch (e) {
+            console.error("Could not delete syllabus temp file:", e);
+          }
+        }
 
-    } catch (err) {
-      console.error("Error generating scheme of work:", err);
+        console.log(`✅ Scheme generated — ${schemeData.weeks?.length} weeks`);
+        return response.status(200).json({ success: true, scheme: schemeData });
+      } catch (err) {
+        console.error("Error generating scheme of work:", err);
 
-      if (syllabusFilePath) {
-        try { await fsPromises.unlink(syllabusFilePath); } catch (_) {}
-      }
+        if (syllabusFilePath) {
+          try {
+            await fsPromises.unlink(syllabusFilePath);
+          } catch (_) {}
+        }
 
-      return response.status(500).json({
-        success: false,
-        error: "Internal error generating scheme of work."
-      });
-    }
-  }
-);
-
-async function searchDuckDuckGo(query) {
-  const encodedQuery = encodeURIComponent(query);
-  // DuckDuckGo's Instant Answer API endpoint
-  const url = `http://api.duckduckgo.com/?q=${encodedQuery}&format=json&pretty=1&no_html=1&skip_disambig=1`;
-
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const data = await response.json();
-
-    // The RelatedTopics array often contains web links (called FirstURL)
-    const results = data.RelatedTopics.filter(t => t.FirstURL).map(t => ({
-      title: t.Text.split(' - ')[0], // Simple extraction
-      url: t.FirstURL
-    }));
-
-    return results;
-  } catch (error) {
-    console.error("DuckDuckGo API search error:", error);
-    return []; // Return empty array on failure
-  }
-}
-
-app.post(
-  "/system/teacher-tools/resource-finder",
-  [validatedRequest, flexUserRoleValid([ROLES.teacher])],
-  async (request, response) => {
-    try {
-      const sessionUser = await userFromSession(request, response);
-      if (!sessionUser?.id) {
-        return response
-          .status(401)
-          .json({ success: false, error: "Unauthorized" });
-      }
-
-      const { subject, topic, grade, curriculum, notes } = request.body;
-
-      if (!subject || !topic) {
-        return response.status(400).json({
+        return response.status(500).json({
           success: false,
-          error: "Subject and topic are required fields.",
+          error: "Internal error generating scheme of work.",
         });
       }
+    }
+  );
 
-      // 🔍 1. Build an optimized search query
-      const searchQuery = `${subject} ${topic} teaching resources ${curriculum || 'ZIMSEC'} Grade ${grade || ''}`;
-      
-      // 🌐 2. Call the DuckDuckGo search function
-      const webSearchResults = await searchDuckDuckGo(searchQuery);
+  async function searchDuckDuckGo(query) {
+    const encodedQuery = encodeURIComponent(query);
+    // DuckDuckGo's Instant Answer API endpoint
+    const url = `http://api.duckduckgo.com/?q=${encodedQuery}&format=json&pretty=1&no_html=1&skip_disambig=1`;
 
-      // 📝 3. Format results for the AI prompt
-      const formattedResults = webSearchResults.length > 0
-        ? webSearchResults.map(result => 
-            `- [${result.title}](${result.url})`
-          ).join('\n')
-        : "None found on the web for direct inclusion.";
-      
-      const externalResourcesBlock = `
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+
+      // The RelatedTopics array often contains web links (called FirstURL)
+      const results = data.RelatedTopics.filter((t) => t.FirstURL).map((t) => ({
+        title: t.Text.split(" - ")[0], // Simple extraction
+        url: t.FirstURL,
+      }));
+
+      return results;
+    } catch (error) {
+      console.error("DuckDuckGo API search error:", error);
+      return []; // Return empty array on failure
+    }
+  }
+
+  app.post(
+    "/system/teacher-tools/resource-finder",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id) {
+          return response
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        }
+
+        const { subject, topic, grade, curriculum, notes } = request.body;
+
+        if (!subject || !topic) {
+          return response.status(400).json({
+            success: false,
+            error: "Subject and topic are required fields.",
+          });
+        }
+
+        // 🔍 1. Build an optimized search query
+        const searchQuery = `${subject} ${topic} teaching resources ${curriculum || "ZIMSEC"} Grade ${grade || ""}`;
+
+        // 🌐 2. Call the DuckDuckGo search function
+        const webSearchResults = await searchDuckDuckGo(searchQuery);
+
+        // 📝 3. Format results for the AI prompt
+        const formattedResults =
+          webSearchResults.length > 0
+            ? webSearchResults
+                .map((result) => `- [${result.title}](${result.url})`)
+                .join("\n")
+            : "None found on the web for direct inclusion.";
+
+        const externalResourcesBlock = `
 --- External Search Results (Use these as inspiration or direct resources) ---
 ${formattedResults}
 -------------------------------------------------------------------------
 `;
 
-
-      // 🧠 4. Build the AI prompt dynamically, incorporating the web results
-      const prompt = `
+        // 🧠 4. Build the AI prompt dynamically, incorporating the web results
+        const prompt = `
 You are Chikoro AI — a Zimbabwean bilingual AI teaching assistant.
 Find and list **teaching and learning resources** for the following topic.
 
@@ -3199,288 +3544,330 @@ Please produce your answer in clean **Markdown** format with these sections:
 Ensure the output is formatted for readability and teaching use.
       `;
 
-      // 🧩 Generate AI output (same helper used for lesson plans)
-      const aiResponse = await generateLessonPlanAI(prompt);
+        // 🧩 Generate AI output (same helper used for lesson plans)
+        const aiResponse = await generateLessonPlanAI(prompt);
 
-      // 🧾 Log & respond
-      await EventLogs.logEvent(
-        "resource_finder_used",
-        { subject, topic, webResultsCount: webSearchResults.length },
-        sessionUser.id
-      );
+        // 🧾 Log & respond
+        await EventLogs.logEvent(
+          "resource_finder_used",
+          { subject, topic, webResultsCount: webSearchResults.length },
+          sessionUser.id
+        );
 
-      response.status(200).json({
-        success: true,
-        resources: aiResponse,
-      });
-    } catch (err) {
-      console.error("Error generating resources:", err);
-      response.status(500).json({
-        success: false,
-        error:
-          "Internal server error while generating teaching resources.",
-      });
-    }
-  }
-);
-
-app.get("/system/reports/student/:id", [validatedRequest], async (request, response) => {
-  try {
-    const sessionUser = await userFromSession(request, response);
-    if (!sessionUser?.id) {
-      return response.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    console.log(`[Report] Request from users.id=${sessionUser.id}, role=${sessionUser.role}, URL param id=${request.params.id}`);
-
-    let student;
-
-    if (sessionUser.role === "student") {
-      student = await prisma.students.findFirst({
-        where: { user_id: sessionUser.id }
-      });
-      console.log(`[Report] Student lookup by session user_id=${sessionUser.id} →`, student ? `students.id=${student.id}` : "NOT FOUND");
-    } else {
-      const studentId = parseInt(request.params.id);
-      if (!studentId || isNaN(studentId)) {
-        return response.status(400).json({ success: false, error: "Invalid student ID" });
-      }
-      student = await prisma.students.findUnique({ where: { id: studentId } });
-      console.log(`[Report] Student lookup by URL param id=${studentId} →`, student ? `found (user_id=${student.user_id})` : "NOT FOUND");
-    }
-
-    if (!student) {
-      return response.status(404).json({ success: false, error: "Student not found" });
-    }
-
-    if (!(await canAccessStudent(sessionUser, student))) {
-      return response.status(403).json({ success: false, error: "Student access denied" });
-    }
-
-    if (!student.user_id) {
-      return response.status(400).json({ success: false, error: "Student record has no user_id" });
-    }
-
-    console.log(`[Report] Fetching data for users.id=${student.user_id} (students.id=${student.id}, name=${student.name})`);
-
-    // ── Fetch all data in parallel ────────────────────────────────────────
-    const [quizzes, xpLogs, flashcardSets, weakAreaCards] = await Promise.all([
-      prisma.quiz_results.findMany({
-        where: { user_id: student.user_id },
-        select: {
-          id: true,
-          subject: true,
-          score: true,
-          total_questions: true,
-          correct_answers: true,
-          submitted_at: true,
-          detailed_feedback: true,
-          shared_quiz: {
-            select: { difficulty: true }
-          }
-        },
-        orderBy: { submitted_at: "desc" },
-      }),
-
-      prisma.event_logs.findMany({
-        where: {
-          userId: student.user_id,
-          event: "xp_gain"
-        },
-        select: {
-          metadata: true,
-          occurredAt: true
-        },
-      }),
-
-      prisma.savedFlashcardSet.findMany({
-        where: { userId: student.user_id },
-        select: { cards: true },
-      }),
-
-      // ── NEW: pull from WeakAreaCard table ──
-      prisma.weakAreaCard.findMany({
-        where: { userId: student.user_id },
-        orderBy: [
-          { resolved: "asc" },       // unresolved first
-          { timesWrong: "desc" },    // most persistent first
-          { lastWrongAt: "desc" },   // most recent first
-        ],
-      }),
-    ]);
-
-    // ── Weighted average score ────────────────────────────────────────────
-    const difficultyWeights = { Easy: 1, Medium: 1.5, Hard: 2 };
-    let totalWeightedScore = 0;
-    let totalWeight = 0;
-
-    for (const q of quizzes) {
-      const difficulty = q.shared_quiz?.difficulty || "Medium";
-      const weight = q.total_questions * (difficultyWeights[difficulty] || 1);
-      totalWeightedScore += q.score * weight;
-      totalWeight += weight;
-    }
-
-    const averageScore = totalWeight > 0
-      ? (totalWeightedScore / totalWeight).toFixed(1)
-      : "0.0";
-
-    // ── Flashcard stats ───────────────────────────────────────────────────
-    const totalFlashcards = flashcardSets.reduce(
-      (sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0),
-      0
-    );
-    const mastered = 0;
-
-    // ── XP logs ───────────────────────────────────────────────────────────
-    const formattedXpLogs = [];
-    const totalXP = xpLogs.reduce((sum, log) => {
-      let points = 0;
-      let source = "Unknown";
-      let masteredCount = 0;
-
-      if (typeof log.metadata === "string") {
-        try {
-          const parsed = JSON.parse(log.metadata);
-          points       = parsed.points       || 0;
-          source       = parsed.source       || "Unknown";
-          masteredCount = parsed.masteredCount || 0;
-        } catch { points = 0; }
-      } else if (typeof log.metadata === "object" && log.metadata !== null) {
-        points        = log.metadata.points        || 0;
-        source        = log.metadata.source        || "Unknown";
-        masteredCount = log.metadata.masteredCount || 0;
-      }
-
-      if (points > 0) {
-        formattedXpLogs.push({
-          points:       Number(points),
-          source,
-          masteredCount,
-          date: log.occurredAt,
+        response.status(200).json({
+          success: true,
+          resources: aiResponse,
+        });
+      } catch (err) {
+        console.error("Error generating resources:", err);
+        response.status(500).json({
+          success: false,
+          error: "Internal server error while generating teaching resources.",
         });
       }
+    }
+  );
 
-      return sum + Number(points);
-    }, 0);
-
-    // ── Struggled areas from WeakAreaCard (replaces JSON parsing) ─────────
-    const struggledBySubject = weakAreaCards.reduce((acc, card) => {
-      if (!acc[card.subject]) acc[card.subject] = [];
-      acc[card.subject].push({
-        id:            card.id,
-        question:      card.question,
-        userAnswer:    card.wrongAnswer,
-        correctAnswer: card.correctAnswer,
-        explanation:   card.explanation || "Review this concept carefully.",
-        timesWrong:    card.timesWrong,
-        resolved:      card.resolved,
-        firstFlaggedAt: card.firstFlaggedAt,
-        lastWrongAt:   card.lastWrongAt,
-      });
-      return acc;
-    }, {});
-
-    // ── Also save any NEW struggled questions from recent quizzes ─────────
-    // This keeps WeakAreaCard in sync whenever the report is generated
-    for (const q of quizzes) {
-      let feedback = [];
+  app.get(
+    "/system/reports/student/:id",
+    [validatedRequest],
+    async (request, response) => {
       try {
-        feedback = JSON.parse(q.detailed_feedback || "[]");
-      } catch { feedback = []; }
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id) {
+          return response
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        }
 
-      const struggled = feedback.filter(f =>
-        f.type === "multiple-choice" ? !f.isCorrect : f.pointsEarned < f.pointsPossible
-      );
+        console.log(
+          `[Report] Request from users.id=${sessionUser.id}, role=${sessionUser.role}, URL param id=${request.params.id}`
+        );
 
-      for (const f of struggled) {
-        const correctAnswer = f.details?.correct_choice?.text || f.correctAnswer || "";
-        const wrongAnswer   = f.details?.student_choice?.text || f.userAnswer    || "";
-        const question      = f.question || "";
-        const subject       = q.subject  || "General";
+        let student;
 
-        if (!question || !correctAnswer) continue;
+        if (sessionUser.role === "student") {
+          student = await prisma.students.findFirst({
+            where: { user_id: sessionUser.id },
+          });
+          console.log(
+            `[Report] Student lookup by session user_id=${sessionUser.id} →`,
+            student ? `students.id=${student.id}` : "NOT FOUND"
+          );
+        } else {
+          const studentId = parseInt(request.params.id);
+          if (!studentId || isNaN(studentId)) {
+            return response
+              .status(400)
+              .json({ success: false, error: "Invalid student ID" });
+          }
+          student = await prisma.students.findUnique({
+            where: { id: studentId },
+          });
+          console.log(
+            `[Report] Student lookup by URL param id=${studentId} →`,
+            student ? `found (user_id=${student.user_id})` : "NOT FOUND"
+          );
+        }
 
-        const existing = await prisma.weakAreaCard.findFirst({
-          where: {
-            userId:   student.user_id,
-            question,
-            subject,
-          },
-        });
+        if (!student) {
+          return response
+            .status(404)
+            .json({ success: false, error: "Student not found" });
+        }
 
-        if (existing) {
-          // Only increment if this quiz is newer than lastWrongAt
-          // to avoid double-counting on repeated report loads
-          const quizDate = new Date(q.submitted_at);
-          const lastWrong = new Date(existing.lastWrongAt);
+        if (!(await canAccessStudent(sessionUser, student))) {
+          return response
+            .status(403)
+            .json({ success: false, error: "Student access denied" });
+        }
 
-          if (quizDate > lastWrong) {
-            await prisma.weakAreaCard.update({
-              where: { id: existing.id },
-              data: {
-                timesWrong:  { increment: 1 },
-                wrongAnswer,
-                lastWrongAt: quizDate,
-                resolved:    false,
+        if (!student.user_id) {
+          return response
+            .status(400)
+            .json({ success: false, error: "Student record has no user_id" });
+        }
+
+        console.log(
+          `[Report] Fetching data for users.id=${student.user_id} (students.id=${student.id}, name=${student.name})`
+        );
+
+        // ── Fetch all data in parallel ────────────────────────────────────────
+        const [quizzes, xpLogs, flashcardSets, weakAreaCards] =
+          await Promise.all([
+            prisma.quiz_results.findMany({
+              where: { user_id: student.user_id },
+              select: {
+                id: true,
+                subject: true,
+                score: true,
+                total_questions: true,
+                correct_answers: true,
+                submitted_at: true,
+                detailed_feedback: true,
+                shared_quiz: {
+                  select: { difficulty: true },
+                },
               },
+              orderBy: { submitted_at: "desc" },
+            }),
+
+            prisma.event_logs.findMany({
+              where: {
+                userId: student.user_id,
+                event: "xp_gain",
+              },
+              select: {
+                metadata: true,
+                occurredAt: true,
+              },
+            }),
+
+            prisma.savedFlashcardSet.findMany({
+              where: { userId: student.user_id },
+              select: { cards: true },
+            }),
+
+            // ── NEW: pull from WeakAreaCard table ──
+            prisma.weakAreaCard.findMany({
+              where: { userId: student.user_id },
+              orderBy: [
+                { resolved: "asc" }, // unresolved first
+                { timesWrong: "desc" }, // most persistent first
+                { lastWrongAt: "desc" }, // most recent first
+              ],
+            }),
+          ]);
+
+        // ── Weighted average score ────────────────────────────────────────────
+        const difficultyWeights = { Easy: 1, Medium: 1.5, Hard: 2 };
+        let totalWeightedScore = 0;
+        let totalWeight = 0;
+
+        for (const q of quizzes) {
+          const difficulty = q.shared_quiz?.difficulty || "Medium";
+          const weight =
+            q.total_questions * (difficultyWeights[difficulty] || 1);
+          totalWeightedScore += q.score * weight;
+          totalWeight += weight;
+        }
+
+        const averageScore =
+          totalWeight > 0
+            ? (totalWeightedScore / totalWeight).toFixed(1)
+            : "0.0";
+
+        // ── Flashcard stats ───────────────────────────────────────────────────
+        const totalFlashcards = flashcardSets.reduce(
+          (sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0),
+          0
+        );
+        const mastered = 0;
+
+        // ── XP logs ───────────────────────────────────────────────────────────
+        const formattedXpLogs = [];
+        const totalXP = xpLogs.reduce((sum, log) => {
+          let points = 0;
+          let source = "Unknown";
+          let masteredCount = 0;
+
+          if (typeof log.metadata === "string") {
+            try {
+              const parsed = JSON.parse(log.metadata);
+              points = parsed.points || 0;
+              source = parsed.source || "Unknown";
+              masteredCount = parsed.masteredCount || 0;
+            } catch {
+              points = 0;
+            }
+          } else if (
+            typeof log.metadata === "object" &&
+            log.metadata !== null
+          ) {
+            points = log.metadata.points || 0;
+            source = log.metadata.source || "Unknown";
+            masteredCount = log.metadata.masteredCount || 0;
+          }
+
+          if (points > 0) {
+            formattedXpLogs.push({
+              points: Number(points),
+              source,
+              masteredCount,
+              date: log.occurredAt,
             });
           }
-        } else {
-          await prisma.weakAreaCard.create({
-            data: {
-              userId:        student.user_id,
-              subject,
-              question,
-              wrongAnswer:   wrongAnswer   || null,
-              correctAnswer,
-              explanation:   f.feedback    || "Review this concept carefully.",
-              firstFlaggedAt: new Date(q.submitted_at),
-              lastWrongAt:   new Date(q.submitted_at),
-            },
+
+          return sum + Number(points);
+        }, 0);
+
+        // ── Struggled areas from WeakAreaCard (replaces JSON parsing) ─────────
+        const struggledBySubject = weakAreaCards.reduce((acc, card) => {
+          if (!acc[card.subject]) acc[card.subject] = [];
+          acc[card.subject].push({
+            id: card.id,
+            question: card.question,
+            userAnswer: card.wrongAnswer,
+            correctAnswer: card.correctAnswer,
+            explanation: card.explanation || "Review this concept carefully.",
+            timesWrong: card.timesWrong,
+            resolved: card.resolved,
+            firstFlaggedAt: card.firstFlaggedAt,
+            lastWrongAt: card.lastWrongAt,
           });
+          return acc;
+        }, {});
+
+        // ── Also save any NEW struggled questions from recent quizzes ─────────
+        // This keeps WeakAreaCard in sync whenever the report is generated
+        for (const q of quizzes) {
+          let feedback = [];
+          try {
+            feedback = JSON.parse(q.detailed_feedback || "[]");
+          } catch {
+            feedback = [];
+          }
+
+          const struggled = feedback.filter((f) =>
+            f.type === "multiple-choice"
+              ? !f.isCorrect
+              : f.pointsEarned < f.pointsPossible
+          );
+
+          for (const f of struggled) {
+            const correctAnswer =
+              f.details?.correct_choice?.text || f.correctAnswer || "";
+            const wrongAnswer =
+              f.details?.student_choice?.text || f.userAnswer || "";
+            const question = f.question || "";
+            const subject = q.subject || "General";
+
+            if (!question || !correctAnswer) continue;
+
+            const existing = await prisma.weakAreaCard.findFirst({
+              where: {
+                userId: student.user_id,
+                question,
+                subject,
+              },
+            });
+
+            if (existing) {
+              // Only increment if this quiz is newer than lastWrongAt
+              // to avoid double-counting on repeated report loads
+              const quizDate = new Date(q.submitted_at);
+              const lastWrong = new Date(existing.lastWrongAt);
+
+              if (quizDate > lastWrong) {
+                await prisma.weakAreaCard.update({
+                  where: { id: existing.id },
+                  data: {
+                    timesWrong: { increment: 1 },
+                    wrongAnswer,
+                    lastWrongAt: quizDate,
+                    resolved: false,
+                  },
+                });
+              }
+            } else {
+              await prisma.weakAreaCard.create({
+                data: {
+                  userId: student.user_id,
+                  subject,
+                  question,
+                  wrongAnswer: wrongAnswer || null,
+                  correctAnswer,
+                  explanation: f.feedback || "Review this concept carefully.",
+                  firstFlaggedAt: new Date(q.submitted_at),
+                  lastWrongAt: new Date(q.submitted_at),
+                },
+              });
+            }
+          }
         }
-      }
-    }
 
-    // Re-fetch after sync so the response always reflects latest state
-    const syncedWeakAreaCards = await prisma.weakAreaCard.findMany({
-      where: { userId: student.user_id },
-      orderBy: [
-        { resolved:    "asc"  },
-        { timesWrong:  "desc" },
-        { lastWrongAt: "desc" },
-      ],
-    });
+        // Re-fetch after sync so the response always reflects latest state
+        const syncedWeakAreaCards = await prisma.weakAreaCard.findMany({
+          where: { userId: student.user_id },
+          orderBy: [
+            { resolved: "asc" },
+            { timesWrong: "desc" },
+            { lastWrongAt: "desc" },
+          ],
+        });
 
-    const syncedStruggledBySubject = syncedWeakAreaCards.reduce((acc, card) => {
-      if (!acc[card.subject]) acc[card.subject] = [];
-      acc[card.subject].push({
-        id:             card.id,
-        question:       card.question,
-        userAnswer:     card.wrongAnswer,
-        correctAnswer:  card.correctAnswer,
-        explanation:    card.explanation || "Review this concept carefully.",
-        timesWrong:     card.timesWrong,
-        resolved:       card.resolved,
-        firstFlaggedAt: card.firstFlaggedAt,
-        lastWrongAt:    card.lastWrongAt,
-      });
-      return acc;
-    }, {});
+        const syncedStruggledBySubject = syncedWeakAreaCards.reduce(
+          (acc, card) => {
+            if (!acc[card.subject]) acc[card.subject] = [];
+            acc[card.subject].push({
+              id: card.id,
+              question: card.question,
+              userAnswer: card.wrongAnswer,
+              correctAnswer: card.correctAnswer,
+              explanation: card.explanation || "Review this concept carefully.",
+              timesWrong: card.timesWrong,
+              resolved: card.resolved,
+              firstFlaggedAt: card.firstFlaggedAt,
+              lastWrongAt: card.lastWrongAt,
+            });
+            return acc;
+          },
+          {}
+        );
 
-    // ── AI summary ────────────────────────────────────────────────────────
-    // Build a richer struggled summary now that we have timesWrong
-    const struggledSummary = syncedWeakAreaCards
-      .filter(c => !c.resolved)
-      .slice(0, 10)
-      .map(c =>
-        `  - [${c.subject}] "${c.question}" ` +
-        `(wrong ${c.timesWrong}x, last: ${new Date(c.lastWrongAt).toLocaleDateString()})`
-      )
-      .join("\n");
+        // ── AI summary ────────────────────────────────────────────────────────
+        // Build a richer struggled summary now that we have timesWrong
+        const struggledSummary = syncedWeakAreaCards
+          .filter((c) => !c.resolved)
+          .slice(0, 10)
+          .map(
+            (c) =>
+              `  - [${c.subject}] "${c.question}" ` +
+              `(wrong ${c.timesWrong}x, last: ${new Date(c.lastWrongAt).toLocaleDateString()})`
+          )
+          .join("\n");
 
-    const summaryPrompt = `
+        const summaryPrompt = `
 You are Chikoro AI, an educational data analyst for teachers.
 Analyze the following student's progress and write a professional, encouraging summary.
 
@@ -3491,17 +3878,22 @@ Total Quizzes Taken: ${quizzes.length}
 XP Points: ${totalXP}
 
 Recent Quizzes:
-${quizzes.length > 0
-  ? quizzes
-      .slice(0, 5)
-      .map(q => `- ${q.subject || "General"}: ${q.score}% (${q.correct_answers}/${q.total_questions} correct)`)
-      .join("\n")
-  : "No quizzes taken yet."
+${
+  quizzes.length > 0
+    ? quizzes
+        .slice(0, 5)
+        .map(
+          (q) =>
+            `- ${q.subject || "General"}: ${q.score}% (${q.correct_answers}/${q.total_questions} correct)`
+        )
+        .join("\n")
+    : "No quizzes taken yet."
 }
 
-${struggledSummary
-  ? `Unresolved Weak Areas (ordered by persistence):\n${struggledSummary}`
-  : "No unresolved weak areas."
+${
+  struggledSummary
+    ? `Unresolved Weak Areas (ordered by persistence):\n${struggledSummary}`
+    : "No unresolved weak areas."
 }
 
 CRITICAL INSTRUCTIONS:
@@ -3521,82 +3913,100 @@ Format neatly in Markdown with proper headers (##).
 ===STUDENT REPORT===
 `;
 
-    const rawSummary = await generateLessonPlanAI(summaryPrompt);
-    const aiSummary  = cleanThinkingModelOutput(rawSummary, "report");
+        const rawSummary = await generateLessonPlanAI(summaryPrompt);
+        const aiSummary = cleanThinkingModelOutput(rawSummary, "report");
 
-    // ── Format quizzes for response ───────────────────────────────────────
-    const formattedQuizzes = quizzes.map(q => {
-      let feedback = [];
-      try { feedback = JSON.parse(q.detailed_feedback || "[]"); } catch { feedback = []; }
+        // ── Format quizzes for response ───────────────────────────────────────
+        const formattedQuizzes = quizzes.map((q) => {
+          let feedback = [];
+          try {
+            feedback = JSON.parse(q.detailed_feedback || "[]");
+          } catch {
+            feedback = [];
+          }
 
-      return {
-        id:             q.id,
-        subject:        q.subject,
-        score:          q.score,
-        correct_answers: q.correct_answers,
-        total:          q.total_questions,
-        createdAt:      q.submitted_at,
-        difficulty:     q.shared_quiz?.difficulty || "Medium",
-        feedback,
-      };
-    });
+          return {
+            id: q.id,
+            subject: q.subject,
+            score: q.score,
+            correct_answers: q.correct_answers,
+            total: q.total_questions,
+            createdAt: q.submitted_at,
+            difficulty: q.shared_quiz?.difficulty || "Medium",
+            feedback,
+          };
+        });
 
-    // ── Response ──────────────────────────────────────────────────────────
-    return response.status(200).json({
-      success:      true,
-      student: {
-        id:    student.id,
-        name:  student.name,
-        grade: student.grade,
-      },
-      quizzes:       formattedQuizzes,
-      aiSummary,
-      averageScore:  parseFloat(averageScore),
-      totalXP,
-      xpLogs:        formattedXpLogs,
-      mastered,
-      totalFlashcards,
-      struggledAreas: syncedStruggledBySubject,
-      weakAreaStats: {
-        total:      syncedWeakAreaCards.length,
-        unresolved: syncedWeakAreaCards.filter(c => !c.resolved).length,
-        resolved:   syncedWeakAreaCards.filter(c => c.resolved).length,
-        mostPersistent: syncedWeakAreaCards
-          .filter(c => !c.resolved)
-          .slice(0, 3)
-          .map(c => ({ subject: c.subject, question: c.question, timesWrong: c.timesWrong })),
-      },
-    });
-
-  } catch (err) {
-    console.error("📉 Error generating report:", err);
-    console.error("Error stack:", err.stack);
-    return response.status(500).json({
-      success: false,
-      error: "Internal server error while generating report.",
-    });
-  }
-});
-
-// POST /system/practice/similar
-app.post("/system/practice/similar", [validatedRequest, flexUserRoleValid([ROLES.student])], async (request, response) => {
-  try {
-    const sessionUser = await userFromSession(request, response);
-    if (!sessionUser?.id) {
-      return response.status(401).json({ success: false, error: "Unauthorized" });
+        // ── Response ──────────────────────────────────────────────────────────
+        return response.status(200).json({
+          success: true,
+          student: {
+            id: student.id,
+            name: student.name,
+            grade: student.grade,
+          },
+          quizzes: formattedQuizzes,
+          aiSummary,
+          averageScore: parseFloat(averageScore),
+          totalXP,
+          xpLogs: formattedXpLogs,
+          mastered,
+          totalFlashcards,
+          struggledAreas: syncedStruggledBySubject,
+          weakAreaStats: {
+            total: syncedWeakAreaCards.length,
+            unresolved: syncedWeakAreaCards.filter((c) => !c.resolved).length,
+            resolved: syncedWeakAreaCards.filter((c) => c.resolved).length,
+            mostPersistent: syncedWeakAreaCards
+              .filter((c) => !c.resolved)
+              .slice(0, 3)
+              .map((c) => ({
+                subject: c.subject,
+                question: c.question,
+                timesWrong: c.timesWrong,
+              })),
+          },
+        });
+      } catch (err) {
+        console.error("📉 Error generating report:", err);
+        console.error("Error stack:", err.stack);
+        return response.status(500).json({
+          success: false,
+          error: "Internal server error while generating report.",
+        });
+      }
     }
+  );
 
-    // Extract the context from the frontend request
-    const { subject, originalQuestion, correctAnswer, explanation } = request.body;
+  // POST /system/practice/similar
+  app.post(
+    "/system/practice/similar",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id) {
+          return response
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        }
 
-    if (!originalQuestion || !explanation) {
-      return response.status(400).json({ success: false, error: "Missing question context." });
-    }
+        // Extract the context from the frontend request
+        const { subject, originalQuestion, correctAnswer, explanation } =
+          request.body;
 
-    console.log(`[Practice] Generating similar ${subject} question for users.id=${sessionUser.id}`);
+        if (!originalQuestion || !explanation) {
+          return response
+            .status(400)
+            .json({ success: false, error: "Missing question context." });
+        }
 
-    // 🧠 The strict JSON Prompt for Chikoro AI
-    const prompt = `
+        console.log(
+          `[Practice] Generating similar ${subject} question for users.id=${sessionUser.id}`
+        );
+
+        // 🧠 The strict JSON Prompt for Chikoro AI
+        const prompt = `
 You are Chikoro AI, an expert tutor for Zimbabwean students. 
 A student recently struggled with a concept. Your job is to create ONE completely new multiple-choice question that tests the EXACT SAME underlying concept, but using a different scenario or numbers.
 
@@ -3625,340 +4035,449 @@ The JSON format must be EXACTLY this:
 }
 `;
 
-    // Call your AI wrapper 
-    const rawAiResponse = await generateLessonPlanAI(prompt); 
-    
-    // ✅ ROBUST JSON PARSING: Safely extracts JSON even if the AI talks before/after/between
-    let newQuestionData = null;
-    
-    let startIndex = rawAiResponse.indexOf('{');
-    while (startIndex !== -1 && !newQuestionData) {
-      let openBraces = 0;
-      let endIndex = -1;
-      
-      // Look for the matching closing brace
-      for (let i = startIndex; i < rawAiResponse.length; i++) {
-        if (rawAiResponse[i] === '{') openBraces++;
-        if (rawAiResponse[i] === '}') {
-          openBraces--;
-          if (openBraces === 0) {
-            endIndex = i;
-            break;
+        // Call your AI wrapper
+        const rawAiResponse = await generateLessonPlanAI(prompt);
+
+        // ✅ ROBUST JSON PARSING: Safely extracts JSON even if the AI talks before/after/between
+        let newQuestionData = null;
+
+        let startIndex = rawAiResponse.indexOf("{");
+        while (startIndex !== -1 && !newQuestionData) {
+          let openBraces = 0;
+          let endIndex = -1;
+
+          // Look for the matching closing brace
+          for (let i = startIndex; i < rawAiResponse.length; i++) {
+            if (rawAiResponse[i] === "{") openBraces++;
+            if (rawAiResponse[i] === "}") {
+              openBraces--;
+              if (openBraces === 0) {
+                endIndex = i;
+                break;
+              }
+            }
           }
-        }
-      }
-      
-      // If we found a complete {...} block, try to parse it
-      if (endIndex !== -1) {
-        const potentialJson = rawAiResponse.substring(startIndex, endIndex + 1);
-        try {
-          const parsed = JSON.parse(potentialJson);
-          // Verify it's actually our question object, not a random AI thought
-          if (parsed.question && Array.isArray(parsed.options)) {
-            newQuestionData = parsed;
+
+          // If we found a complete {...} block, try to parse it
+          if (endIndex !== -1) {
+            const potentialJson = rawAiResponse.substring(
+              startIndex,
+              endIndex + 1
+            );
+            try {
+              const parsed = JSON.parse(potentialJson);
+              // Verify it's actually our question object, not a random AI thought
+              if (parsed.question && Array.isArray(parsed.options)) {
+                newQuestionData = parsed;
+              }
+            } catch (e) {
+              // Not valid JSON, ignore and keep searching
+            }
           }
-        } catch (e) {
-          // Not valid JSON, ignore and keep searching
+          // Move to the next '{' to keep searching
+          startIndex = rawAiResponse.indexOf("{", startIndex + 1);
         }
+
+        if (!newQuestionData) {
+          console.error(
+            "Failed to extract valid JSON. Raw Output:",
+            rawAiResponse
+          );
+          return response.status(500).json({
+            success: false,
+            error: "AI failed to generate a valid question format.",
+          });
+        }
+
+        console.log(
+          `✅ Successfully generated similar question for ${subject}`
+        );
+
+        // Return the fresh question to the frontend
+        return response.status(200).json({
+          success: true,
+          data: newQuestionData,
+        });
+      } catch (err) {
+        console.error("📉 Error generating similar question:", err);
+        response
+          .status(500)
+          .json({ success: false, error: "Internal server error." });
       }
-      // Move to the next '{' to keep searching
-      startIndex = rawAiResponse.indexOf('{', startIndex + 1);
     }
+  );
 
-    if (!newQuestionData) {
-      console.error("Failed to extract valid JSON. Raw Output:", rawAiResponse);
-      return response.status(500).json({ 
-        success: false, 
-        error: "AI failed to generate a valid question format." 
-      });
-    }
+  // POST /system/flashcards/save-weak-area
+  app.post(
+    "/system/flashcards/save-weak-area",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id) {
+          return response
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        }
 
-    console.log(`✅ Successfully generated similar question for ${subject}`);
+        const { subject, question, correctAnswer, explanation, wrongAnswer } =
+          request.body;
 
-    // Return the fresh question to the frontend
-    return response.status(200).json({
-      success: true,
-      data: newQuestionData
-    });
+        if (!question || !correctAnswer) {
+          return response
+            .status(400)
+            .json({ success: false, error: "Missing required fields." });
+        }
 
-  } catch (err) {
-    console.error("📉 Error generating similar question:", err);
-    response.status(500).json({ success: false, error: "Internal server error." });
-  }
-});
-
-// POST /system/flashcards/save-weak-area
-app.post("/system/flashcards/save-weak-area", [validatedRequest, flexUserRoleValid([ROLES.student])], async (request, response) => {
-  try {
-    const sessionUser = await userFromSession(request, response);
-    if (!sessionUser?.id) {
-      return response.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    const { subject, question, correctAnswer, explanation, wrongAnswer } = request.body;
-
-    if (!question || !correctAnswer) {
-      return response.status(400).json({ success: false, error: "Missing required fields." });
-    }
-
-    // Check if this exact question is already flagged for this user
-    const existing = await prisma.weakAreaCard.findFirst({
-      where: {
-        userId: sessionUser.id,
-        question,
-        subject: subject || "General",
-      },
-    });
-
-    if (existing) {
-      if (existing.resolved) {
-        // They got it wrong again after resolving — re-open it
-        await prisma.weakAreaCard.update({
-          where: { id: existing.id },
-          data: {
-            timesWrong: { increment: 1 },
-            wrongAnswer,
-            lastWrongAt: new Date(),
-            resolved: false,
+        // Check if this exact question is already flagged for this user
+        const existing = await prisma.weakAreaCard.findFirst({
+          where: {
+            userId: sessionUser.id,
+            question,
+            subject: subject || "General",
           },
         });
-      } else {
-        // Still unresolved — just increment
+
+        if (existing) {
+          if (existing.resolved) {
+            // They got it wrong again after resolving — re-open it
+            await prisma.weakAreaCard.update({
+              where: { id: existing.id },
+              data: {
+                timesWrong: { increment: 1 },
+                wrongAnswer,
+                lastWrongAt: new Date(),
+                resolved: false,
+              },
+            });
+          } else {
+            // Still unresolved — just increment
+            await prisma.weakAreaCard.update({
+              where: { id: existing.id },
+              data: {
+                timesWrong: { increment: 1 },
+                wrongAnswer,
+                lastWrongAt: new Date(),
+              },
+            });
+          }
+        } else {
+          // First time getting this wrong
+          await prisma.weakAreaCard.create({
+            data: {
+              userId: sessionUser.id,
+              subject: subject || "General",
+              question,
+              wrongAnswer: wrongAnswer || null,
+              correctAnswer,
+              explanation: explanation || null,
+            },
+          });
+        }
+
+        return response
+          .status(200)
+          .json({ success: true, message: "Weak area recorded." });
+      } catch (err) {
+        console.error("Error saving weak area card:", err);
+        return response
+          .status(500)
+          .json({ success: false, error: "Internal server error." });
+      }
+    }
+  );
+
+  app.get(
+    "/system/flashcards/weak-areas/:userId",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id) {
+          return response
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        }
+
+        const requestedUserId = Number(request.params.userId);
+        const student = await prisma.students.findFirst({
+          where: { user_id: requestedUserId },
+          select: { id: true, user_id: true },
+        });
+        if (!student)
+          return response
+            .status(404)
+            .json({ success: false, error: "Student not found." });
+        if (!(await canAccessStudent(sessionUser, student)))
+          return response
+            .status(403)
+            .json({ success: false, error: "Student access denied." });
+
+        const cards = await prisma.weakAreaCard.findMany({
+          where: { userId: student.user_id },
+          orderBy: [
+            { resolved: "asc" }, // unresolved first
+            { timesWrong: "desc" }, // most persistent first
+            { lastWrongAt: "desc" }, // most recent first
+          ],
+        });
+
+        // Group by subject for the reports
+        const grouped = cards.reduce((acc, card) => {
+          if (!acc[card.subject]) acc[card.subject] = [];
+          acc[card.subject].push(card);
+          return acc;
+        }, {});
+
+        return response.status(200).json({
+          success: true,
+          weakAreas: grouped,
+          totalUnresolved: cards.filter((c) => !c.resolved).length,
+          totalCards: cards.length,
+        });
+      } catch (err) {
+        console.error("Error fetching weak areas:", err);
+        return response
+          .status(500)
+          .json({ success: false, error: "Internal server error." });
+      }
+    }
+  );
+
+  app.patch(
+    "/system/flashcards/weak-areas/:cardId/resolve",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id) {
+          return response
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        }
+
+        const cardId = parseInt(request.params.cardId);
+
+        // Make sure the card belongs to this user
+        const card = await prisma.weakAreaCard.findFirst({
+          where: { id: cardId, userId: sessionUser.id },
+        });
+
+        if (!card) {
+          return response
+            .status(404)
+            .json({ success: false, error: "Card not found." });
+        }
+
         await prisma.weakAreaCard.update({
-          where: { id: existing.id },
+          where: { id: cardId },
+          data: { resolved: true },
+        });
+
+        return response
+          .status(200)
+          .json({ success: true, message: "Card resolved." });
+      } catch (err) {
+        console.error("Error resolving weak area card:", err);
+        return response
+          .status(500)
+          .json({ success: false, error: "Internal server error." });
+      }
+    }
+  );
+
+  app.post(
+    "/flashcards/mastery/xp",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      const { masteredCount, totalCards, subject } = req.body;
+      const user = res.locals.user;
+
+      try {
+        if (!masteredCount || masteredCount <= 0) {
+          return res.json({ success: true, xpEarned: 0 });
+        }
+
+        const xpEarned = masteredCount * 5; // 5 XP per mastered card
+
+        await EventLogs.logEvent(
+          "xp_gain",
+          {
+            points: xpEarned,
+            source: "flashcard_mastery",
+            subject: subject || "General",
+            masteredCount,
+            totalCards,
+          },
+          user.id
+        );
+
+        res.json({ success: true, xpEarned });
+      } catch (err) {
+        console.error("Flashcard XP error:", err);
+        res.status(500).json({ success: false, error: "Failed to award XP" });
+      }
+    }
+  );
+
+  app.post(
+    "/system/link-student/:userId",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const { studentId, subject } = req.body;
+        const id = res.locals.user.id;
+        const parsedStudentId = Number(studentId);
+
+        if (
+          !Number.isInteger(parsedStudentId) ||
+          typeof subject !== "string" ||
+          !subject.trim() ||
+          subject.length > 200
+        )
+          return res
+            .status(400)
+            .json({ success: false, error: "Invalid request data." });
+
+        const teacher = await prisma.teachers.findFirst({
+          where: { user_id: id },
+        });
+        if (!teacher)
+          return res
+            .status(404)
+            .json({ success: false, error: "Teacher profile not found." });
+
+        const existing = await prisma.teacher_students.findFirst({
+          where: { teacherId: teacher.id, studentId: parsedStudentId },
+        });
+        if (existing)
+          return res
+            .status(409)
+            .json({ success: false, error: "Student already linked." });
+
+        const link = await prisma.teacher_students.create({
           data: {
-            timesWrong: { increment: 1 },
-            wrongAnswer,
-            lastWrongAt: new Date(),
+            teacherId: teacher.id,
+            studentId: parsedStudentId,
+            subject: subject.trim(),
           },
         });
+
+        syncTeacherStudentToEducationClass({
+          teacherId: teacher.id,
+          studentId: parsedStudentId,
+          subject: subject.trim(),
+        }).catch((error) =>
+          console.error("Education hierarchy sync failed:", error)
+        );
+
+        res.json({ success: true, link });
+      } catch (err) {
+        console.error("Error linking student:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Internal server error." });
       }
-    } else {
-      // First time getting this wrong
-      await prisma.weakAreaCard.create({
-        data: {
-          userId: sessionUser.id,
-          subject: subject || "General",
-          question,
-          wrongAnswer: wrongAnswer || null,
-          correctAnswer,
-          explanation: explanation || null,
-        },
-      });
     }
+  );
 
-    return response.status(200).json({ success: true, message: "Weak area recorded." });
+  app.post(
+    "/system/teacher/generate-quiz",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const {
+          subject,
+          topic,
+          grade,
+          difficulty,
+          numQuestions,
+          questionType,
+          curriculum,
+        } = req.body;
+        const questionCount = Number(numQuestions);
+        if (
+          typeof subject !== "string" ||
+          !subject.trim() ||
+          subject.length > 500 ||
+          (typeof grade !== "string" && typeof grade !== "number") ||
+          String(grade).length > 50 ||
+          (topic && (typeof topic !== "string" || topic.length > 500)) ||
+          !Number.isInteger(questionCount) ||
+          questionCount < 1 ||
+          questionCount > 100 ||
+          !["multiple-choice", "structured", "mixed"].includes(questionType) ||
+          (difficulty && !["easy", "medium", "hard"].includes(difficulty))
+        ) {
+          return res
+            .status(400)
+            .json({ success: false, error: "Invalid quiz generation input." });
+        }
 
-  } catch (err) {
-    console.error("Error saving weak area card:", err);
-    return response.status(500).json({ success: false, error: "Internal server error." });
-  }
-});
+        const gradeNum = parseInt(grade) || 0;
+        const ageRange =
+          gradeNum <= 2
+            ? "6-8 years old"
+            : gradeNum <= 4
+              ? "9-10 years old"
+              : gradeNum <= 7
+                ? "11-13 years old"
+                : gradeNum <= 9
+                  ? "14-15 years old"
+                  : "16-18 years old";
+        const examLevel =
+          gradeNum >= 11
+            ? "A-Level"
+            : gradeNum >= 9
+              ? "O-Level"
+              : gradeNum >= 7
+                ? "Upper Primary/Junior Secondary"
+                : "Primary";
+        const curriculumLabel = curriculum || "ZIMSEC";
 
-app.get("/system/flashcards/weak-areas/:userId", [validatedRequest, flexUserRoleValid([ROLES.student])], async (request, response) => {
-  try {
-    const sessionUser = await userFromSession(request, response);
-    if (!sessionUser?.id) {
-      return response.status(401).json({ success: false, error: "Unauthorized" });
-    }
+        // Map difficulty to Bloom's cognitive level
+        const bloomsLevel =
+          difficulty === "easy"
+            ? "Knowledge & Recall — questions should ask students to define, state, list, or name. No application required."
+            : difficulty === "hard"
+              ? "Analysis & Evaluation — questions should ask students to analyse, evaluate, compare, justify, or discuss. Require extended reasoning."
+              : "Comprehension & Application — questions should ask students to explain, describe, calculate, or apply concepts to a scenario.";
 
-    const requestedUserId = Number(request.params.userId);
-    const student = await prisma.students.findFirst({
-      where: { user_id: requestedUserId },
-      select: { id: true, user_id: true },
-    });
-    if (!student) return response.status(404).json({ success: false, error: "Student not found." });
-    if (!(await canAccessStudent(sessionUser, student)))
-      return response.status(403).json({ success: false, error: "Student access denied." });
-
-    const cards = await prisma.weakAreaCard.findMany({
-      where: { userId: student.user_id },
-      orderBy: [
-        { resolved: "asc" },      // unresolved first
-        { timesWrong: "desc" },   // most persistent first
-        { lastWrongAt: "desc" },  // most recent first
-      ],
-    });
-
-    // Group by subject for the reports
-    const grouped = cards.reduce((acc, card) => {
-      if (!acc[card.subject]) acc[card.subject] = [];
-      acc[card.subject].push(card);
-      return acc;
-    }, {});
-
-    return response.status(200).json({
-      success: true,
-      weakAreas: grouped,
-      totalUnresolved: cards.filter(c => !c.resolved).length,
-      totalCards: cards.length,
-    });
-
-  } catch (err) {
-    console.error("Error fetching weak areas:", err);
-    return response.status(500).json({ success: false, error: "Internal server error." });
-  }
-});
-
-app.patch("/system/flashcards/weak-areas/:cardId/resolve", [validatedRequest, flexUserRoleValid([ROLES.student])], async (request, response) => {
-  try {
-    const sessionUser = await userFromSession(request, response);
-    if (!sessionUser?.id) {
-      return response.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    const cardId = parseInt(request.params.cardId);
-
-    // Make sure the card belongs to this user
-    const card = await prisma.weakAreaCard.findFirst({
-      where: { id: cardId, userId: sessionUser.id },
-    });
-
-    if (!card) {
-      return response.status(404).json({ success: false, error: "Card not found." });
-    }
-
-    await prisma.weakAreaCard.update({
-      where: { id: cardId },
-      data: { resolved: true },
-    });
-
-    return response.status(200).json({ success: true, message: "Card resolved." });
-
-  } catch (err) {
-    console.error("Error resolving weak area card:", err);
-    return response.status(500).json({ success: false, error: "Internal server error." });
-  }
-});
-
-app.post("/flashcards/mastery/xp", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  const { masteredCount, totalCards, subject } = req.body;
-  const user = res.locals.user;
-
-  try {
-    if (!masteredCount || masteredCount <= 0) {
-      return res.json({ success: true, xpEarned: 0 });
-    }
-
-    const xpEarned = masteredCount * 5; // 5 XP per mastered card
-
-    await EventLogs.logEvent(
-      "xp_gain",
-      {
-        points: xpEarned,
-        source: "flashcard_mastery",
-        subject: subject || "General",
-        masteredCount,
-        totalCards,
-      },
-      user.id
-    );
-
-    res.json({ success: true, xpEarned });
-  } catch (err) {
-    console.error("Flashcard XP error:", err);
-    res.status(500).json({ success: false, error: "Failed to award XP" });
-  }
-});
-
-app.post("/system/link-student/:userId", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const { studentId, subject } = req.body;
-    const id = res.locals.user.id;
-    const parsedStudentId = Number(studentId);
-
-    if (!Number.isInteger(parsedStudentId) || typeof subject !== "string" || !subject.trim() || subject.length > 200)
-      return res.status(400).json({ success: false, error: "Invalid request data." });
-
-    const teacher = await prisma.teachers.findFirst({ where: { user_id: id } });
-    if (!teacher) return res.status(404).json({ success: false, error: "Teacher profile not found." });
-
-    const existing = await prisma.teacher_students.findFirst({
-      where: { teacherId: teacher.id, studentId: parsedStudentId },
-    });
-    if (existing)
-      return res.status(409).json({ success: false, error: "Student already linked." });
-
-    const link = await prisma.teacher_students.create({
-      data: { teacherId: teacher.id, studentId: parsedStudentId, subject: subject.trim() },
-    });
-
-    syncTeacherStudentToEducationClass({
-      teacherId: teacher.id,
-      studentId: parsedStudentId,
-      subject: subject.trim(),
-    }).catch((error) => console.error("Education hierarchy sync failed:", error));
-
-    res.json({ success: true, link });
-  } catch (err) {
-    console.error("Error linking student:", err);
-    res.status(500).json({ success: false, error: "Internal server error." });
-  }
-}); 
-
-app.post("/system/teacher/generate-quiz", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const { subject, topic, grade, difficulty, numQuestions, questionType, curriculum } = req.body;
-    const questionCount = Number(numQuestions);
-    if (
-      typeof subject !== "string" || !subject.trim() || subject.length > 500 ||
-      (typeof grade !== "string" && typeof grade !== "number") || String(grade).length > 50 ||
-      topic && (typeof topic !== "string" || topic.length > 500) ||
-      !Number.isInteger(questionCount) || questionCount < 1 || questionCount > 100 ||
-      !["multiple-choice", "structured", "mixed"].includes(questionType) ||
-      difficulty && !["easy", "medium", "hard"].includes(difficulty)
-    ) {
-      return res.status(400).json({ success: false, error: "Invalid quiz generation input." });
-    }
-
-    const gradeNum = parseInt(grade) || 0;
-    const ageRange = gradeNum <= 2 ? "6-8 years old" : gradeNum <= 4 ? "9-10 years old" : gradeNum <= 7 ? "11-13 years old" : gradeNum <= 9 ? "14-15 years old" : "16-18 years old";
-    const examLevel = gradeNum >= 11 ? "A-Level" : gradeNum >= 9 ? "O-Level" : gradeNum >= 7 ? "Upper Primary/Junior Secondary" : "Primary";
-    const curriculumLabel = curriculum || "ZIMSEC";
-
-    // Map difficulty to Bloom's cognitive level
-    const bloomsLevel =
-      difficulty === "easy"
-        ? "Knowledge & Recall — questions should ask students to define, state, list, or name. No application required."
-        : difficulty === "hard"
-        ? "Analysis & Evaluation — questions should ask students to analyse, evaluate, compare, justify, or discuss. Require extended reasoning."
-        : "Comprehension & Application — questions should ask students to explain, describe, calculate, or apply concepts to a scenario.";
-
-    // Subject-specific mark scheme guidance
-    const subjectLower = (subject || "").toLowerCase();
-    let subjectGuidance = "";
-    if (/math|maths|mathematics/.test(subjectLower)) {
-      subjectGuidance = `SUBJECT CONVENTIONS (Mathematics):
+        // Subject-specific mark scheme guidance
+        const subjectLower = (subject || "").toLowerCase();
+        let subjectGuidance = "";
+        if (/math|maths|mathematics/.test(subjectLower)) {
+          subjectGuidance = `SUBJECT CONVENTIONS (Mathematics):
 - Structured mark schemes must show full working steps, not just the final answer.
 - Award method marks (M) and accuracy marks (A) where appropriate, e.g. "M1 for correct method, A1 for correct answer".
 - Include units in answers where applicable.`;
-    } else if (/history|geography|civics|humanities/.test(subjectLower)) {
-      subjectGuidance = `SUBJECT CONVENTIONS (Humanities):
+        } else if (/history|geography|civics|humanities/.test(subjectLower)) {
+          subjectGuidance = `SUBJECT CONVENTIONS (Humanities):
 - Structured mark schemes should use "any [X] from" style where multiple valid answers exist.
 - Award marks for evidence/examples cited, not just bare statements.
 - For evaluate/discuss questions, reward both sides of an argument.`;
-    } else if (/english|literature/.test(subjectLower)) {
-      subjectGuidance = `SUBJECT CONVENTIONS (English/Literature):
+        } else if (/english|literature/.test(subjectLower)) {
+          subjectGuidance = `SUBJECT CONVENTIONS (English/Literature):
 - Structured mark schemes should reward vocabulary, sentence structure, and clarity.
 - For comprehension questions, mark schemes should list specific points from the text.
 - For essay/extended writing, include a brief band descriptor (e.g. "Award 3-4 marks for a well-structured response with evidence").`;
-    } else if (/accounts|commerce|business/.test(subjectLower)) {
-      subjectGuidance = `SUBJECT CONVENTIONS (Commerce/Accounts):
+        } else if (/accounts|commerce|business/.test(subjectLower)) {
+          subjectGuidance = `SUBJECT CONVENTIONS (Commerce/Accounts):
 - Show full calculations with labelled steps in mark schemes.
 - Use standard accounting formats (T-accounts, balance sheets) where relevant.
 - Award marks for correct format as well as correct figures.`;
-    } else if (/science|biology|chemistry|physics/.test(subjectLower)) {
-      subjectGuidance = `SUBJECT CONVENTIONS (Science):
+        } else if (/science|biology|chemistry|physics/.test(subjectLower)) {
+          subjectGuidance = `SUBJECT CONVENTIONS (Science):
 - Include units in all numerical answers.
 - Mark schemes should award separate marks for correct working and correct answer.
 - For diagrams referenced in questions, describe clearly in text form.`;
-    }
+        }
 
-    // For mixed type, pre-calculate exact counts to avoid ambiguity
-    const mcqCount = Math.ceil(numQuestions / 2);
-    const structuredCount = numQuestions - mcqCount;
+        // For mixed type, pre-calculate exact counts to avoid ambiguity
+        const mcqCount = Math.ceil(numQuestions / 2);
+        const structuredCount = numQuestions - mcqCount;
 
-    let prompt = `You are a quiz generator. Generate ONLY the quiz questions with NO introductory text.
+        let prompt = `You are a quiz generator. Generate ONLY the quiz questions with NO introductory text.
 
 GRADE LEVEL: Grade ${grade} (${ageRange}, ${examLevel})
 SUBJECT: ${subject}
@@ -3981,8 +4500,8 @@ ${subjectGuidance ? subjectGuidance + "\n" : ""}MATH FORMATTING:
 CRITICAL: Start immediately with question 1. No preamble, no explanations, just questions.
 `;
 
-    if (questionType === 'multiple-choice') {
-      prompt += `
+        if (questionType === "multiple-choice") {
+          prompt += `
 Format each question EXACTLY like this:
 
 1. What is photosynthesis?
@@ -3999,9 +4518,8 @@ MCQ RULES:
 - Mark correct answer as **Answer: X** immediately after options
 - NO introductory text, NO explanations between questions
 `;
-    }
-    else if (questionType === 'structured') {
-      prompt += `
+        } else if (questionType === "structured") {
+          prompt += `
 Format each question EXACTLY like this:
 
 1. Explain the process of photosynthesis. [4 marks]
@@ -4025,9 +4543,8 @@ STRUCTURED RULES:
 - For higher-mark questions (5+), reward extended reasoning, not just recall
 - NO introductory text
 `;
-    }
-    else if (questionType === 'mixed') {
-      prompt += `
+        } else if (questionType === "mixed") {
+          prompt += `
 Generate EXACTLY ${mcqCount} multiple choice questions and EXACTLY ${structuredCount} structured questions, alternating MCQ then Structured.
 
 Format:
@@ -4059,585 +4576,695 @@ MIXED RULES:
 - Structured mark schemes: one bullet per mark, or "any X from" for open-ended
 - NO introductory text
 `;
+        }
+
+        prompt += `\n\nREMEMBER: Start with "1." immediately. No preamble or introduction!`;
+
+        // Generate quiz with AI
+        const rawResponse = await generateLessonPlanAI(prompt);
+
+        // ✅ CLEAN THINKING MODEL OUTPUT - PASS 'quiz' as contentType
+        const cleanedQuiz = cleanThinkingModelOutput(rawResponse, "quiz");
+
+        res.json({ success: true, quiz: cleanedQuiz });
+      } catch (err) {
+        console.error("Error generating quiz:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Failed to generate quiz" });
+      }
     }
+  );
 
-    prompt += `\n\nREMEMBER: Start with "1." immediately. No preamble or introduction!`;
+  // ✅ UPDATED CLEANING FUNCTION
+  function cleanThinkingModelOutput(rawText, contentType = "general") {
+    let cleaned = rawText;
 
-    // Generate quiz with AI
-    const rawResponse = await generateLessonPlanAI(prompt);
-    
-    // ✅ CLEAN THINKING MODEL OUTPUT - PASS 'quiz' as contentType
-    const cleanedQuiz = cleanThinkingModelOutput(rawResponse, 'quiz');
-
-    res.json({ success: true, quiz: cleanedQuiz });
-  } catch (err) {
-    console.error("Error generating quiz:", err);
-    res.status(500).json({ success: false, error: "Failed to generate quiz" });
-  }
-});
-
-// ✅ UPDATED CLEANING FUNCTION
-function cleanThinkingModelOutput(rawText, contentType = 'general') {
-  let cleaned = rawText;
-  
-  // Remove explicit thinking tags
-  cleaned = cleaned
-    .replace(/<think>[\s\S]*?<\/think>/gi, '')
-    .replace(/\[THINKING\][\s\S]*?\[\/THINKING\]/gi, '')
-    .replace(/<thought>[\s\S]*?<\/thought>/gi, '');
-  
-  // Remove markdown code blocks
-  cleaned = cleaned.replace(/```(?:markdown|md)?[\s\S]*?```/g, '');
-  
-  // Remove everything before "assistantfinal" marker
-  const assistantFinalMatch = cleaned.match(/(?:assistant\s*final|assistantfinal)([\s\S]+)/i);
-  if (assistantFinalMatch) {
-    cleaned = assistantFinalMatch[1].trim();
-  }
-  
-  // Content-specific cleaning
-  if (contentType === 'quiz') {
-    // For quizzes, extract from first numbered question
-    const quizMatch = cleaned.match(/(^1\.\s+[\s\S]+)/m);
-    if (quizMatch) {
-      cleaned = quizMatch[1].trim();
-    }
-    
-    // Remove any thinking text
+    // Remove explicit thinking tags
     cleaned = cleaned
-      .split('\n')
-      .filter(line => {
-        const trimmed = line.trim().toLowerCase();
-        return !(
-          trimmed.startsWith('ok,') ||
-          trimmed.startsWith('let\'s') ||
-          trimmed.startsWith('we need') ||
-          trimmed.startsWith('we can') ||
-          trimmed.startsWith('we should') ||
-          trimmed.startsWith('we\'ll') ||
-          trimmed.startsWith('then ') ||
-          trimmed.startsWith('assistantfinal') ||
-          trimmed === 'assistant' ||
-          trimmed === 'final'
+      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+      .replace(/\[THINKING\][\s\S]*?\[\/THINKING\]/gi, "")
+      .replace(/<thought>[\s\S]*?<\/thought>/gi, "");
+
+    // Remove markdown code blocks
+    cleaned = cleaned.replace(/```(?:markdown|md)?[\s\S]*?```/g, "");
+
+    // Remove everything before "assistantfinal" marker
+    const assistantFinalMatch = cleaned.match(
+      /(?:assistant\s*final|assistantfinal)([\s\S]+)/i
+    );
+    if (assistantFinalMatch) {
+      cleaned = assistantFinalMatch[1].trim();
+    }
+
+    // Content-specific cleaning
+    if (contentType === "quiz") {
+      // For quizzes, extract from first numbered question
+      const quizMatch = cleaned.match(/(^1\.\s+[\s\S]+)/m);
+      if (quizMatch) {
+        cleaned = quizMatch[1].trim();
+      }
+
+      // Remove any thinking text
+      cleaned = cleaned
+        .split("\n")
+        .filter((line) => {
+          const trimmed = line.trim().toLowerCase();
+          return !(
+            trimmed.startsWith("ok,") ||
+            trimmed.startsWith("let's") ||
+            trimmed.startsWith("we need") ||
+            trimmed.startsWith("we can") ||
+            trimmed.startsWith("we should") ||
+            trimmed.startsWith("we'll") ||
+            trimmed.startsWith("then ") ||
+            trimmed.startsWith("assistantfinal") ||
+            trimmed === "assistant" ||
+            trimmed === "final"
+          );
+        })
+        .join("\n");
+    }
+
+    if (contentType === "lessonPlan" || contentType === "report") {
+      // Look for delimiter first
+      if (contentType === "lessonPlan") {
+        const delimiterMatch = cleaned.match(/===LESSON PLAN===\s*([\s\S]+)/);
+        if (delimiterMatch) {
+          cleaned = delimiterMatch[1].trim();
+        }
+      } else if (contentType === "report") {
+        const delimiterMatch = cleaned.match(
+          /===STUDENT REPORT===\s*([\s\S]+)/
         );
-      })
-      .join('\n');
+        if (delimiterMatch) {
+          cleaned = delimiterMatch[1].trim();
+        }
+      }
+
+      // For lesson plans and reports, extract from first markdown heading
+      const firstHeadingMatch = cleaned.match(/(^##?\s+[A-Z][^\n]+[\s\S]+)/m);
+      if (firstHeadingMatch) {
+        cleaned = firstHeadingMatch[1];
+      }
+
+      // Remove thinking lines
+      cleaned = cleaned
+        .split("\n")
+        .filter((line) => {
+          const trimmed = line.trim().toLowerCase();
+          return !(
+            trimmed.startsWith("lesson title :") ||
+            trimmed.startsWith("* lesson title") ||
+            trimmed.startsWith("* objectives") ||
+            trimmed.startsWith("* overall performance") ||
+            trimmed.startsWith("* key strengths") ||
+            trimmed.startsWith("* areas") ||
+            trimmed.startsWith("* suggested") ||
+            trimmed.startsWith("provide:") ||
+            trimmed.startsWith("then list") ||
+            trimmed.startsWith("then use") ||
+            trimmed.startsWith("ok,") ||
+            trimmed.startsWith("let's write") ||
+            trimmed.startsWith("let's analyze") ||
+            trimmed.startsWith("assistantfinal") ||
+            trimmed.startsWith("we need") ||
+            trimmed.startsWith("we can") ||
+            trimmed.startsWith('use "##') ||
+            trimmed === "assistant" ||
+            trimmed === "final"
+          );
+        })
+        .join("\n");
+    }
+
+    // Clean up multiple newlines
+    cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
+
+    return cleaned;
   }
-  
-  if (contentType === 'lessonPlan' || contentType === 'report') {
-    // Look for delimiter first
-    if (contentType === 'lessonPlan') {
-      const delimiterMatch = cleaned.match(/===LESSON PLAN===\s*([\s\S]+)/);
-      if (delimiterMatch) {
-        cleaned = delimiterMatch[1].trim();
-      }
-    } else if (contentType === 'report') {
-      const delimiterMatch = cleaned.match(/===STUDENT REPORT===\s*([\s\S]+)/);
-      if (delimiterMatch) {
-        cleaned = delimiterMatch[1].trim();
-      }
-    }
-    
-    // For lesson plans and reports, extract from first markdown heading
-    const firstHeadingMatch = cleaned.match(/(^##?\s+[A-Z][^\n]+[\s\S]+)/m);
-    if (firstHeadingMatch) {
-      cleaned = firstHeadingMatch[1];
-    }
-    
-    // Remove thinking lines
-    cleaned = cleaned
-      .split('\n')
-      .filter(line => {
-        const trimmed = line.trim().toLowerCase();
-        return !(
-          trimmed.startsWith('lesson title :') ||
-          trimmed.startsWith('* lesson title') ||
-          trimmed.startsWith('* objectives') ||
-          trimmed.startsWith('* overall performance') ||
-          trimmed.startsWith('* key strengths') ||
-          trimmed.startsWith('* areas') ||
-          trimmed.startsWith('* suggested') ||
-          trimmed.startsWith('provide:') ||
-          trimmed.startsWith('then list') ||
-          trimmed.startsWith('then use') ||
-          trimmed.startsWith('ok,') ||
-          trimmed.startsWith('let\'s write') ||
-          trimmed.startsWith('let\'s analyze') ||
-          trimmed.startsWith('assistantfinal') ||
-          trimmed.startsWith('we need') ||
-          trimmed.startsWith('we can') ||
-          trimmed.startsWith('use "##') ||
-          trimmed === 'assistant' ||
-          trimmed === 'final'
+
+  app.post(
+    "/system/teacher/share-quiz-with-class",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const sessionUser = await userFromSession(req, res);
+        if (!sessionUser?.id) {
+          return res
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        }
+
+        const {
+          quiz,
+          subject,
+          topic,
+          difficulty,
+          studentIds,
+          timeLimit,
+          tabLimit,
+        } = req.body;
+        const parsedStudentIds = Array.isArray(studentIds)
+          ? studentIds.map(Number)
+          : [];
+        if (
+          typeof quiz !== "string" ||
+          !quiz.trim() ||
+          quiz.length > 100_000 ||
+          typeof subject !== "string" ||
+          !subject.trim() ||
+          subject.length > 500 ||
+          parsedStudentIds.length < 1 ||
+          parsedStudentIds.length > 100 ||
+          parsedStudentIds.some((id) => !Number.isInteger(id)) ||
+          new Set(parsedStudentIds).size !== parsedStudentIds.length
+        )
+          return res
+            .status(400)
+            .json({ success: false, error: "Invalid quiz assignment." });
+
+        // Generate unique quiz code
+        const crypto = await import("crypto");
+        const quizCode = crypto.randomBytes(6).toString("hex").toUpperCase();
+
+        const teacher = await prisma.teachers.findFirst({
+          where: { user_id: sessionUser.id },
+        });
+
+        if (!teacher) {
+          return res
+            .status(400)
+            .json({ success: false, error: "Teacher record not found" });
+        }
+        const linkedStudentCount = await prisma.teacher_students.count({
+          where: { teacherId: teacher.id, studentId: { in: parsedStudentIds } },
+        });
+        if (linkedStudentCount !== new Set(parsedStudentIds).size)
+          return res
+            .status(403)
+            .json({
+              success: false,
+              error: "One or more students are not linked to this teacher.",
+            });
+
+        // Save quiz to database
+        const savedQuiz = await prisma.shared_quizzes.create({
+          data: {
+            teacher_id: teacher.id,
+            quiz_code: quizCode,
+            subject,
+            topic,
+            difficulty,
+            quiz_content: quiz,
+            is_class_specific: true,
+            time_limit: parseInt(timeLimit) || 0,
+            tab_limit: parseInt(tabLimit) || 1,
+            created_at: new Date(),
+          },
+        });
+
+        // Link quiz to specific students
+        const studentQuizLinks = parsedStudentIds.map((studentId) => ({
+          quiz_id: savedQuiz.id,
+          student_id: studentId,
+          assigned_at: new Date(),
+          completed: false,
+        }));
+
+        await prisma.student_quiz_assignments.createMany({
+          data: studentQuizLinks,
+        });
+
+        // Get student user IDs from student records
+        const students = await prisma.students.findMany({
+          where: {
+            id: { in: parsedStudentIds },
+          },
+          select: {
+            id: true,
+            user_id: true,
+          },
+        });
+
+        console.log("📊 Found students:", students);
+        console.log(
+          "🔌 Connected clients:",
+          Array.from(connectedClients.keys())
         );
-      })
-      .join('\n');
-  }
-  
-  // Clean up multiple newlines
-  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
-  
-  return cleaned;
-}
 
-app.post("/system/teacher/share-quiz-with-class", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.id) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-    }
+        // Create notifications for each student
+        const notifications = students.map((student) => ({
+          userId: student.user_id, // Use user_id instead of student id
+          type: "quiz_assigned",
+          message: `New ${subject} quiz: ${topic}`,
+          link: `/student/quiz/${quizCode}`,
+          createdAt: new Date(),
+        }));
 
-    const { quiz, subject, topic, difficulty, studentIds,timeLimit,tabLimit } = req.body;
-    const parsedStudentIds = Array.isArray(studentIds) ? studentIds.map(Number) : [];
-    if (
-      typeof quiz !== "string" || !quiz.trim() || quiz.length > 100_000 ||
-      typeof subject !== "string" || !subject.trim() || subject.length > 500 ||
-      parsedStudentIds.length < 1 || parsedStudentIds.length > 100 ||
-      parsedStudentIds.some((id) => !Number.isInteger(id)) ||
-      new Set(parsedStudentIds).size !== parsedStudentIds.length
-    ) return res.status(400).json({ success: false, error: "Invalid quiz assignment." });
+        await prisma.notifications.createMany({
+          data: notifications,
+        });
 
-    // Generate unique quiz code
-    const crypto = await import("crypto");
-    const quizCode = crypto.randomBytes(6).toString("hex").toUpperCase();
+        for (const student of students) {
+          await sendPushNotification(student.user_id, {
+            title: "📝 New Assignment",
+            body: `New ${subject} quiz: ${topic}`,
+            data: { type: "quiz_assigned", link: `/student/quiz/${quizCode}` },
+          });
+        }
 
-    const teacher = await prisma.teachers.findFirst({
-      where: { user_id: sessionUser.id }
-    });
+        // Send real-time WebSocket notifications using user_id
+        let notificationsSent = 0;
+        students.forEach((student) => {
+          const clientWs = connectedClients.get(student.user_id);
+          console.log(
+            `🔍 Checking user_id ${student.user_id}:`,
+            clientWs ? "Connected" : "Not connected"
+          );
 
-    if (!teacher) {
-      return res.status(400).json({ success: false, error: "Teacher record not found" });
-    }
-    const linkedStudentCount = await prisma.teacher_students.count({
-      where: { teacherId: teacher.id, studentId: { in: parsedStudentIds } },
-    });
-    if (linkedStudentCount !== new Set(parsedStudentIds).size)
-      return res.status(403).json({ success: false, error: "One or more students are not linked to this teacher." });
-
-    // Save quiz to database
-    const savedQuiz = await prisma.shared_quizzes.create({
-      data: {
-        teacher_id: teacher.id,
-        quiz_code: quizCode,
-        subject,
-        topic,
-        difficulty,
-        quiz_content: quiz,
-        is_class_specific: true,
-       time_limit: parseInt(timeLimit) || 0,
-        tab_limit: parseInt(tabLimit) || 1,
-        created_at: new Date()
-      }
-    });
-
-    // Link quiz to specific students
-    const studentQuizLinks = parsedStudentIds.map(studentId => ({
-      quiz_id: savedQuiz.id,
-      student_id: studentId,
-      assigned_at: new Date(),
-      completed: false
-    }));
-
-    await prisma.student_quiz_assignments.createMany({
-      data: studentQuizLinks
-    });
-
-    // Get student user IDs from student records
-    const students = await prisma.students.findMany({
-      where: {
-        id: { in: parsedStudentIds }
-      },
-      select: {
-        id: true,
-        user_id: true
-      }
-    });
-
-    console.log("📊 Found students:", students);
-    console.log("🔌 Connected clients:", Array.from(connectedClients.keys()));
-
-    // Create notifications for each student
-    const notifications = students.map(student => ({
-      userId: student.user_id, // Use user_id instead of student id
-      type: 'quiz_assigned',
-      message: `New ${subject} quiz: ${topic}`,
-      link: `/student/quiz/${quizCode}`,
-      createdAt: new Date()
-    }));
-
-    await prisma.notifications.createMany({
-      data: notifications
-    });
-
-    for (const student of students) {
-      await sendPushNotification(student.user_id, {
-        title: '📝 New Assignment',
-        body: `New ${subject} quiz: ${topic}`,
-        data: { type: 'quiz_assigned', link: `/student/quiz/${quizCode}` },
-      });
-    }
-
-    // Send real-time WebSocket notifications using user_id
-    let notificationsSent = 0;
-    students.forEach((student) => {
-      const clientWs = connectedClients.get(student.user_id);
-      console.log(`🔍 Checking user_id ${student.user_id}:`, clientWs ? "Connected" : "Not connected");
-      
-      if (clientWs && clientWs.readyState === 1) { // 1 = OPEN
-        clientWs.send(
-          JSON.stringify({
-            type: "quiz_assigned",
-            message: `New ${subject} quiz: ${topic}`,
-            link: `/student/quiz/${quizCode}`,
-            createdAt: new Date().toISOString()
-          })
-        );
-        notificationsSent++;
-        console.log(`✅ Sent notification to user_id ${student.user_id}`);
-      } else {
-        console.log(`⚠️ User ${student.user_id} not connected or socket not open`);
-      }
-    });
-
-    const quizLink = `https://chikoro-ai.com/student/quiz/${quizCode}`;
-
-    res.json({
-      success: true,
-      quizLink,
-      studentsNotified: students.length,
-      notificationsSent
-    });
-
-  } catch (err) {
-    console.error("Error sharing quiz with class:", err);
-    res.status(500).json({ success: false, error: "Failed to share quiz" });
-  }
-});
-
-app.get("/system/notifications/unread", [validatedRequest], async (req, res) => {
-  try {
-    const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.id) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    // Fetch unread quiz notifications
-    const notifications = await prisma.notifications.findMany({
-      where: {
-        userId: sessionUser.id,
-        type: 'quiz_assigned',
-        read: false,
-      },
-      orderBy: {
-        createdAt: 'desc'
-      },
-      take: 20
-    });
-
-    console.log(`📬 User ${sessionUser.id} has ${notifications.length} unread notifications`);
-
-    res.json({
-      success: true,
-      notifications: notifications.map(n => ({
-        id: n.id,
-        type: n.type,
-        message: n.message,
-        link: n.link,
-        createdAt: n.createdAt,
-      }))
-    });
-
-  } catch (err) {
-    console.error("Error fetching notifications:", err);
-    res.status(500).json({ success: false, error: "Failed to fetch notifications" });
-  }
-});
-
-app.patch("/system/notifications/:id/read", [validatedRequest], async (req, res) => {
-  try {
-    const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.id) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    const notificationId = parseInt(req.params.id);
-
-    // Verify notification belongs to user and update
-    const notification = await prisma.notifications.findFirst({
-      where: {
-        id: notificationId,
-        userId: sessionUser.id,
-      }
-    });
-
-    if (!notification) {
-      return res.status(404).json({ success: false, error: "Notification not found" });
-    }
-
-    await prisma.notifications.update({
-      where: { id: notificationId },
-      data: { read: true },
-    });
-
-    console.log(`✅ Marked notification ${notificationId} as read`);
-
-    res.json({ success: true });
-
-  } catch (err) {
-    console.error("Error marking notification as read:", err);
-    res.status(500).json({ success: false, error: "Failed to update notification" });
-  }
-});
-
-app.post("/system/push-token", [validatedRequest], async (req, res) => {
-  try {
-    const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.id) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    const { token, platform } = req.body;
-    if (!token) {
-      return res.status(400).json({ success: false, error: "Token required" });
-    }
-
-    // Upsert — avoids duplicates if the user re-registers
-    await prisma.pushToken.upsert({
-      where: { token },
-      update: { userId: sessionUser.id, platform: platform || 'unknown' },
-      create: { userId: sessionUser.id, token, platform: platform || 'unknown' },
-    });
-
-    console.log(`📱 Push token registered for user ${sessionUser.id}`);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("Error saving push token:", err);
-    res.status(500).json({ success: false, error: "Failed to save token" });
-  }
-});
-// Create public quiz link (not class-specific)
-app.post("/system/teacher/create-quiz-link", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const sessionUser = await userFromSession(req, res);
-    if (!sessionUser?.id) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-    }
-
-    // ✅ FIX: Destructure timeLimit and tabLimit from req.body
-    const { quiz, subject, topic, difficulty, timeLimit, tabLimit } = req.body;
-    if (
-      typeof quiz !== "string" || !quiz.trim() || quiz.length > 100_000 ||
-      typeof subject !== "string" || !subject.trim() || subject.length > 500
-    ) return res.status(400).json({ success: false, error: "Invalid quiz." });
-
-    const crypto = await import("crypto");
-    const quizCode = crypto.randomBytes(6).toString("hex").toUpperCase();
-    
-    const teacher = await prisma.teachers.findFirst({
-      where: { user_id: sessionUser.id },
-    });
-
-    if (!teacher) {
-      return res.status(404).json({ success: false, error: "Teacher not found" });
-    }
-
-    await prisma.shared_quizzes.create({
-      data: {
-        teacher_id: teacher.id,
-        quiz_code: quizCode,
-        subject,
-        topic,
-        difficulty,
-        quiz_content: quiz,
-        is_class_specific: false,
-        time_limit: parseInt(timeLimit) || 0,
-        tab_limit: parseInt(tabLimit) || 1,
-        created_at: new Date(),
-      },
-    });
-
-    const quizLink = `https://chikoro-ai.com/student/quiz/${quizCode}`;
-
-    res.json({ success: true, link: quizLink });
-
-  } catch (err) {
-    console.error("Error creating quiz link:", err);
-    res.status(500).json({ success: false, error: "Failed to create quiz link" });
-  }
-});
-
-
-// Get quiz by code
-app.get("/system/quiz/:code", async (req, res) => {
-  try {
-    const quiz = await prisma.shared_quizzes.findUnique({
-      where: { quiz_code: req.params.code },
-      include: {
-        teacher: {
-          include: {
-            user: {
-              select: { username: true }
-            }
+          if (clientWs && clientWs.readyState === 1) {
+            // 1 = OPEN
+            clientWs.send(
+              JSON.stringify({
+                type: "quiz_assigned",
+                message: `New ${subject} quiz: ${topic}`,
+                link: `/student/quiz/${quizCode}`,
+                createdAt: new Date().toISOString(),
+              })
+            );
+            notificationsSent++;
+            console.log(`✅ Sent notification to user_id ${student.user_id}`);
+          } else {
+            console.log(
+              `⚠️ User ${student.user_id} not connected or socket not open`
+            );
           }
-        }
+        });
+
+        const quizLink = `https://chikoro-ai.com/student/quiz/${quizCode}`;
+
+        res.json({
+          success: true,
+          quizLink,
+          studentsNotified: students.length,
+          notificationsSent,
+        });
+      } catch (err) {
+        console.error("Error sharing quiz with class:", err);
+        res.status(500).json({ success: false, error: "Failed to share quiz" });
       }
-    });
-
-    if (!quiz) {
-      return res.status(404).json({ success: false, error: "Quiz not found" });
     }
+  );
 
-    res.json({
-      success: true,
-      quiz: {
-        subject: quiz.subject,
-        topic: quiz.topic,
-        difficulty: quiz.difficulty,
-        content: quiz.quiz_content,
-        timeLimit: quiz.time_limit,
-        tabLimit: quiz.tab_limit,
-        teacherName: quiz.teacher.user.username
-      }
-    });
-
-  } catch (err) {
-    console.error("Error fetching quiz:", err);
-    res.status(500).json({ success: false, error: "Failed to load quiz" });
-  }
-});
-
-
-
-app.post("/system/student/submit-quiz", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  try {
-    const sessionUser = res.locals.user;
-    const {
-      quizCode,
-      answers,
-      tabViolations,
-      tabLimitExceeded,
-      autoSubmitted,
-    } = req.body;
-
-    if (
-      !sessionUser?.id ||
-      typeof quizCode !== "string" ||
-      quizCode.length < 1 ||
-      quizCode.length > 100 ||
-      !validAnswerArray(answers)
-    ) {
-      return res.status(400).json({ success: false, error: "Invalid quiz submission." });
-    }
-
-    const student = await prisma.students.findFirst({
-      where: { user_id: sessionUser.id },
-      select: { id: true, name: true, user_id: true },
-    });
-    if (!student)
-      return res.status(403).json({ success: false, error: "Student profile required." });
-
-    const quiz = await prisma.shared_quizzes.findUnique({
-      where: { quiz_code: quizCode },
-    });
-
-    if (!quiz) {
-      return res.status(404).json({ success: false, error: "Quiz not found" });
-    }
-    if (quiz.is_class_specific) {
-      const assignment = await prisma.student_quiz_assignments.findFirst({
-        where: { quiz_id: quiz.id, student_id: student.id },
-        select: { id: true },
-      });
-      if (!assignment)
-        return res.status(403).json({ success: false, error: "This quiz is not assigned to you." });
-    }
-
-    // ✅ Check if student already submitted this quiz
-    const existingSubmission = await prisma.quiz_results.findFirst({
-      where: {
-        user_id: sessionUser.id,
-        quiz_code: quizCode,
-      },
-    });
-
-    if (existingSubmission) {
-      return res.status(400).json({
-        success: false,
-        error: "You have already submitted this quiz. Multiple submissions are not allowed.",
-        alreadySubmitted: true,
-      });
-    }
-
-    // 🧹 Clean and parse quiz
-    const cleanedQuiz = quiz.quiz_content
-      .replace(/^.*?(?:here'?s?|here is).*?quiz.*?:/i, "")
-      .replace(/^(sure|certainly|okay|alright)[!,.\s]*/i, "")
-      .replace(/```.*?```/gs, "")
-      .trim();
-
-    const questionBlocks = cleanedQuiz.split(/\n(?=\d+\.)/);
-
-    // 📘 Parse questions
-    const parsedQuestions = questionBlocks.map((block, i) => {
-      const lines = block.split("\n").filter((l) => l.trim());
-      const questionText = lines[0]?.replace(/^\d+\.\s*/, "");
-      const hasOptions = lines.some((l) => /^[A-D]\)/.test(l));
-      const answerMatch = block.match(/\*?\*?Answer:\s*([A-D])/i);
-
-      const markSchemeIndex = lines.findIndex((line) =>
-        /^(Mark Scheme|Answer|Expected Answer|Marking Points?):/i.test(line)
-      );
-      const markScheme =
-        markSchemeIndex > 0 ? lines.slice(markSchemeIndex).join("\n") : null;
-
-      return {
-        index: i,
-        question: questionText,
-        fullBlock: block,
-        type: hasOptions ? "multiple-choice" : "structured",
-        correctAnswer: answerMatch ? answerMatch[1].toUpperCase() : null,
-        options: hasOptions ? lines.filter((l) => /^[A-D]\)/.test(l)) : [],
-        markScheme: markScheme,
-      };
-    });
-
-    const answerIndexes = answers.map((answer) => Number(answer.questionIndex));
-    if (
-      answers.length > parsedQuestions.length ||
-      new Set(answerIndexes).size !== answerIndexes.length ||
-      answerIndexes.some((index) => index < 0 || index >= parsedQuestions.length)
-    ) {
-      return res.status(400).json({ success: false, error: "Answers do not match this quiz." });
-    }
-
-    // 🧮 Grade and generate feedback
-    const detailedFeedback = [];
-    let correctCount = 0;
-    let totalPoints = 0;
-    let earnedPoints = 0;
-
-    for (const studentAnswer of answers) {
-      const question = parsedQuestions[studentAnswer.questionIndex];
-      if (!question) continue;
-
-      let feedback = {
-        questionNumber: studentAnswer.questionIndex + 1,
-        question: question.question,
-        studentAnswer: studentAnswer.answer,
-        type: question.type,
-      };
-
-      if (question.type === "multiple-choice") {
-        const studentLetter = studentAnswer.answer.trim().charAt(0).toUpperCase();
-        const isCorrect = studentLetter === question.correctAnswer;
-
-        if (isCorrect) {
-          correctCount++;
-          earnedPoints += 1;
+  app.get(
+    "/system/notifications/unread",
+    [validatedRequest],
+    async (req, res) => {
+      try {
+        const sessionUser = await userFromSession(req, res);
+        if (!sessionUser?.id) {
+          return res
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
         }
-        totalPoints += 1;
 
-        const mcFeedbackPrompt = `You are a teacher writing feedback directly to a student. Write ONLY the feedback — nothing else.
+        // Fetch unread notifications across learning workflows.
+        const notifications = await prisma.notifications.findMany({
+          where: {
+            userId: sessionUser.id,
+            read: false,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 20,
+        });
+
+        console.log(
+          `📬 User ${sessionUser.id} has ${notifications.length} unread notifications`
+        );
+
+        res.json({
+          success: true,
+          notifications: notifications.map((n) => ({
+            id: n.id,
+            type: n.type,
+            message: n.message,
+            link: n.link,
+            createdAt: n.createdAt,
+          })),
+        });
+      } catch (err) {
+        console.error("Error fetching notifications:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Failed to fetch notifications" });
+      }
+    }
+  );
+
+  app.patch(
+    "/system/notifications/:id/read",
+    [validatedRequest],
+    async (req, res) => {
+      try {
+        const sessionUser = await userFromSession(req, res);
+        if (!sessionUser?.id) {
+          return res
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        }
+
+        const notificationId = parseInt(req.params.id);
+
+        // Verify notification belongs to user and update
+        const notification = await prisma.notifications.findFirst({
+          where: {
+            id: notificationId,
+            userId: sessionUser.id,
+          },
+        });
+
+        if (!notification) {
+          return res
+            .status(404)
+            .json({ success: false, error: "Notification not found" });
+        }
+
+        await prisma.notifications.update({
+          where: { id: notificationId },
+          data: { read: true },
+        });
+
+        console.log(`✅ Marked notification ${notificationId} as read`);
+
+        res.json({ success: true });
+      } catch (err) {
+        console.error("Error marking notification as read:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Failed to update notification" });
+      }
+    }
+  );
+
+  app.post("/system/push-token", [validatedRequest], async (req, res) => {
+    try {
+      const sessionUser = await userFromSession(req, res);
+      if (!sessionUser?.id) {
+        return res.status(401).json({ success: false, error: "Unauthorized" });
+      }
+
+      const { token, platform } = req.body;
+      if (!token) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Token required" });
+      }
+
+      // Upsert — avoids duplicates if the user re-registers
+      await prisma.pushToken.upsert({
+        where: { token },
+        update: { userId: sessionUser.id, platform: platform || "unknown" },
+        create: {
+          userId: sessionUser.id,
+          token,
+          platform: platform || "unknown",
+        },
+      });
+
+      console.log(`📱 Push token registered for user ${sessionUser.id}`);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Error saving push token:", err);
+      res.status(500).json({ success: false, error: "Failed to save token" });
+    }
+  });
+  // Create public quiz link (not class-specific)
+  app.post(
+    "/system/teacher/create-quiz-link",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const sessionUser = await userFromSession(req, res);
+        if (!sessionUser?.id) {
+          return res
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
+        }
+
+        // ✅ FIX: Destructure timeLimit and tabLimit from req.body
+        const { quiz, subject, topic, difficulty, timeLimit, tabLimit } =
+          req.body;
+        if (
+          typeof quiz !== "string" ||
+          !quiz.trim() ||
+          quiz.length > 100_000 ||
+          typeof subject !== "string" ||
+          !subject.trim() ||
+          subject.length > 500
+        )
+          return res
+            .status(400)
+            .json({ success: false, error: "Invalid quiz." });
+
+        const crypto = await import("crypto");
+        const quizCode = crypto.randomBytes(6).toString("hex").toUpperCase();
+
+        const teacher = await prisma.teachers.findFirst({
+          where: { user_id: sessionUser.id },
+        });
+
+        if (!teacher) {
+          return res
+            .status(404)
+            .json({ success: false, error: "Teacher not found" });
+        }
+
+        await prisma.shared_quizzes.create({
+          data: {
+            teacher_id: teacher.id,
+            quiz_code: quizCode,
+            subject,
+            topic,
+            difficulty,
+            quiz_content: quiz,
+            is_class_specific: false,
+            time_limit: parseInt(timeLimit) || 0,
+            tab_limit: parseInt(tabLimit) || 1,
+            created_at: new Date(),
+          },
+        });
+
+        const quizLink = `https://chikoro-ai.com/student/quiz/${quizCode}`;
+
+        res.json({ success: true, link: quizLink });
+      } catch (err) {
+        console.error("Error creating quiz link:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Failed to create quiz link" });
+      }
+    }
+  );
+
+  // Get quiz by code
+  app.get("/system/quiz/:code", async (req, res) => {
+    try {
+      const quiz = await prisma.shared_quizzes.findUnique({
+        where: { quiz_code: req.params.code },
+        include: {
+          teacher: {
+            include: {
+              user: {
+                select: { username: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!quiz) {
+        return res
+          .status(404)
+          .json({ success: false, error: "Quiz not found" });
+      }
+
+      res.json({
+        success: true,
+        quiz: {
+          subject: quiz.subject,
+          topic: quiz.topic,
+          difficulty: quiz.difficulty,
+          content: quiz.quiz_content,
+          timeLimit: quiz.time_limit,
+          tabLimit: quiz.tab_limit,
+          teacherName: quiz.teacher.user.username,
+        },
+      });
+    } catch (err) {
+      console.error("Error fetching quiz:", err);
+      res.status(500).json({ success: false, error: "Failed to load quiz" });
+    }
+  });
+
+  app.post(
+    "/system/student/submit-quiz",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      try {
+        const sessionUser = res.locals.user;
+        const {
+          quizCode,
+          answers,
+          tabViolations,
+          tabLimitExceeded,
+          autoSubmitted,
+        } = req.body;
+
+        if (
+          !sessionUser?.id ||
+          typeof quizCode !== "string" ||
+          quizCode.length < 1 ||
+          quizCode.length > 100 ||
+          !validAnswerArray(answers)
+        ) {
+          return res
+            .status(400)
+            .json({ success: false, error: "Invalid quiz submission." });
+        }
+
+        const student = await prisma.students.findFirst({
+          where: { user_id: sessionUser.id },
+          select: { id: true, name: true, user_id: true },
+        });
+        if (!student)
+          return res
+            .status(403)
+            .json({ success: false, error: "Student profile required." });
+
+        const quiz = await prisma.shared_quizzes.findUnique({
+          where: { quiz_code: quizCode },
+        });
+
+        if (!quiz) {
+          return res
+            .status(404)
+            .json({ success: false, error: "Quiz not found" });
+        }
+        if (quiz.is_class_specific) {
+          const assignment = await prisma.student_quiz_assignments.findFirst({
+            where: { quiz_id: quiz.id, student_id: student.id },
+            select: { id: true },
+          });
+          if (!assignment)
+            return res
+              .status(403)
+              .json({
+                success: false,
+                error: "This quiz is not assigned to you.",
+              });
+        }
+
+        // ✅ Check if student already submitted this quiz
+        const existingSubmission = await prisma.quiz_results.findFirst({
+          where: {
+            user_id: sessionUser.id,
+            quiz_code: quizCode,
+          },
+        });
+
+        if (existingSubmission) {
+          return res.status(400).json({
+            success: false,
+            error:
+              "You have already submitted this quiz. Multiple submissions are not allowed.",
+            alreadySubmitted: true,
+          });
+        }
+
+        // 🧹 Clean and parse quiz
+        const cleanedQuiz = quiz.quiz_content
+          .replace(/^.*?(?:here'?s?|here is).*?quiz.*?:/i, "")
+          .replace(/^(sure|certainly|okay|alright)[!,.\s]*/i, "")
+          .replace(/```.*?```/gs, "")
+          .trim();
+
+        const questionBlocks = cleanedQuiz.split(/\n(?=\d+\.)/);
+
+        // 📘 Parse questions
+        const parsedQuestions = questionBlocks.map((block, i) => {
+          const lines = block.split("\n").filter((l) => l.trim());
+          const questionText = lines[0]?.replace(/^\d+\.\s*/, "");
+          const hasOptions = lines.some((l) => /^[A-D]\)/.test(l));
+          const answerMatch = block.match(/\*?\*?Answer:\s*([A-D])/i);
+
+          const markSchemeIndex = lines.findIndex((line) =>
+            /^(Mark Scheme|Answer|Expected Answer|Marking Points?):/i.test(line)
+          );
+          const markScheme =
+            markSchemeIndex > 0
+              ? lines.slice(markSchemeIndex).join("\n")
+              : null;
+
+          return {
+            index: i,
+            question: questionText,
+            fullBlock: block,
+            type: hasOptions ? "multiple-choice" : "structured",
+            correctAnswer: answerMatch ? answerMatch[1].toUpperCase() : null,
+            options: hasOptions ? lines.filter((l) => /^[A-D]\)/.test(l)) : [],
+            markScheme: markScheme,
+          };
+        });
+
+        const answerIndexes = answers.map((answer) =>
+          Number(answer.questionIndex)
+        );
+        if (
+          answers.length > parsedQuestions.length ||
+          new Set(answerIndexes).size !== answerIndexes.length ||
+          answerIndexes.some(
+            (index) => index < 0 || index >= parsedQuestions.length
+          )
+        ) {
+          return res
+            .status(400)
+            .json({ success: false, error: "Answers do not match this quiz." });
+        }
+
+        // 🧮 Grade and generate feedback
+        const detailedFeedback = [];
+        let correctCount = 0;
+        let totalPoints = 0;
+        let earnedPoints = 0;
+
+        for (const studentAnswer of answers) {
+          const question = parsedQuestions[studentAnswer.questionIndex];
+          if (!question) continue;
+
+          let feedback = {
+            questionNumber: studentAnswer.questionIndex + 1,
+            question: question.question,
+            studentAnswer: studentAnswer.answer,
+            type: question.type,
+          };
+
+          if (question.type === "multiple-choice") {
+            const studentLetter = studentAnswer.answer
+              .trim()
+              .charAt(0)
+              .toUpperCase();
+            const isCorrect = studentLetter === question.correctAnswer;
+
+            if (isCorrect) {
+              correctCount++;
+              earnedPoints += 1;
+            }
+            totalPoints += 1;
+
+            const mcFeedbackPrompt = `You are a teacher writing feedback directly to a student. Write ONLY the feedback — nothing else.
 
 Do NOT include any internal reasoning, planning, thinking, or meta-commentary.
 Do NOT write phrases like "We need to", "Let's", "The student answered", "Provide feedback", or "3-4 sentences".
@@ -4662,16 +5289,15 @@ You may use LaTeX notation like \\(x^2\\) for math expressions. Use markdown for
 
 BEGIN YOUR FEEDBACK NOW:`;
 
-        const aiFeedback = await generateLessonPlanAI(mcFeedbackPrompt);
+            const aiFeedback = await generateLessonPlanAI(mcFeedbackPrompt);
 
-        feedback.isCorrect = isCorrect;
-        feedback.correctAnswer = question.correctAnswer;
-        feedback.explanation = cleanAIResponse(aiFeedback);
-        feedback.pointsEarned = isCorrect ? 1 : 0;
-        feedback.pointsPossible = 1;
-
-      } else {
-        const structuredGradingPrompt = `You are a teacher grading a student's answer. You must respond in EXACTLY this format and nothing else.
+            feedback.isCorrect = isCorrect;
+            feedback.correctAnswer = question.correctAnswer;
+            feedback.explanation = cleanAIResponse(aiFeedback);
+            feedback.pointsEarned = isCorrect ? 1 : 0;
+            feedback.pointsPossible = 1;
+          } else {
+            const structuredGradingPrompt = `You are a teacher grading a student's answer. You must respond in EXACTLY this format and nothing else.
 
 Do NOT include any internal reasoning, planning, thinking, or meta-commentary before or after your response.
 Do NOT write phrases like "We need to", "Let's", "The student answered", or any self-talk.
@@ -4709,627 +5335,735 @@ You may use LaTeX notation like \\(x^2\\) for math expressions. Use markdown for
 
 Remember: Start your response with "SCORE:" immediately. No preamble.`;
 
-        const aiGrading = await generateLessonPlanAI(structuredGradingPrompt);
-        const cleanedGrading = cleanAIResponse(aiGrading);
+            const aiGrading = await generateLessonPlanAI(
+              structuredGradingPrompt
+            );
+            const cleanedGrading = cleanAIResponse(aiGrading);
 
-        const scoreMatch = cleanedGrading.match(/SCORE:\s*(\d+\.?\d*)\s*\/\s*(\d+)/i);
-        const feedbackMatch = cleanedGrading.match(/SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*\n+([\s\S]*)/i);
+            const scoreMatch = cleanedGrading.match(
+              /SCORE:\s*(\d+\.?\d*)\s*\/\s*(\d+)/i
+            );
+            const feedbackMatch = cleanedGrading.match(
+              /SCORE:\s*\d+\.?\d*\s*\/\s*\d+\s*\n+([\s\S]*)/i
+            );
 
-        const pointsEarnedStructured = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
-        const pointsPossibleStructured = scoreMatch ? parseInt(scoreMatch[2]) : 4;
+            const pointsEarnedStructured = scoreMatch
+              ? parseFloat(scoreMatch[1])
+              : 0;
+            const pointsPossibleStructured = scoreMatch
+              ? parseInt(scoreMatch[2])
+              : 4;
 
-        earnedPoints += pointsEarnedStructured;
-        totalPoints += pointsPossibleStructured;
+            earnedPoints += pointsEarnedStructured;
+            totalPoints += pointsPossibleStructured;
 
-        feedback.pointsEarned = pointsEarnedStructured;
-        feedback.pointsPossible = pointsPossibleStructured;
-        feedback.explanation = feedbackMatch ? feedbackMatch[1].trim() : cleanedGrading;
-        feedback.markScheme = question.markScheme;
+            feedback.pointsEarned = pointsEarnedStructured;
+            feedback.pointsPossible = pointsPossibleStructured;
+            feedback.explanation = feedbackMatch
+              ? feedbackMatch[1].trim()
+              : cleanedGrading;
+            feedback.markScheme = question.markScheme;
+          }
+
+          detailedFeedback.push(feedback);
+        }
+
+        // Calculate final score
+        const finalScore =
+          totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+
+        // 🗂️ Save quiz results
+        try {
+          const result = await prisma.$transaction(async (transaction) => {
+            const saved = await transaction.quiz_results.create({
+              data: {
+                user_id: sessionUser.id,
+                subject: quiz.subject,
+                topic: String(quiz.topic || "").trim() || null,
+                quiz_code: quiz.quiz_code,
+                shared_quiz_id: quiz.id,
+                total_questions: answers.length,
+                correct_answers: correctCount,
+                score: finalScore,
+                detailed_feedback: JSON.stringify(detailedFeedback),
+                submitted_at: new Date(),
+              },
+            });
+            for (const feedback of detailedFeedback.filter(
+              (entry) =>
+                entry.type === "multiple-choice" && entry.isCorrect === false
+            )) {
+              const questionIndex = feedback.questionNumber - 1;
+              const question = parsedQuestions[questionIndex];
+              const optionIds = ["A", "B", "C", "D"];
+              const options = (question?.options || []).map((text, index) => ({
+                id: optionIds[index],
+                text: String(text).replace(/^[A-D][).]\s*/i, ""),
+              }));
+              await seedReviewItem(transaction, {
+                userId: sessionUser.id,
+                sourceType: "shared_quiz",
+                sourceId: quiz.id,
+                sourceQuestionKey: String(questionIndex),
+                subject: quiz.subject,
+                topic: String(quiz.topic || "").trim() || quiz.subject,
+                prompt: feedback.question,
+                options,
+                correctOption: feedback.correctAnswer,
+                explanation: feedback.explanation,
+                occurredAt: new Date(),
+              });
+            }
+            await transaction.student_quiz_assignments.updateMany({
+              where: { quiz_id: quiz.id, student_id: student.id },
+              data: { completed: true },
+            });
+            return saved;
+          });
+
+          // 🔔 Parent notification for low scores (non-blocking)
+          Promise.resolve(student)
+            .then((studentProfile) => {
+              return sendLowScoreAlert({
+                childId: studentProfile.id,
+                childName: studentProfile.name || "Your child",
+                subject: quiz.subject,
+                score: finalScore,
+                quizId: result.id,
+              });
+            })
+            .catch(console.error);
+
+          // ✅ Return comprehensive feedback
+          res.json({
+            success: true,
+            resultId: result.id,
+            score: finalScore,
+            earnedPoints,
+            totalPoints,
+            feedback: detailedFeedback,
+            summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`,
+            tabViolations: parseInt(tabViolations) || 0,
+            tabLimitExceeded: tabLimitExceeded || false,
+            autoSubmitted: autoSubmitted || false,
+          });
+        } catch (dbError) {
+          if (dbError.code === "P2002") {
+            return res.status(400).json({
+              success: false,
+              error:
+                "You have already submitted this quiz. Multiple submissions are not allowed.",
+              alreadySubmitted: true,
+            });
+          }
+          throw dbError;
+        }
+      } catch (err) {
+        console.error("Error submitting quiz:", err);
+        res.status(500).json({ success: false, error: "Submission failed" });
       }
+    }
+  );
 
-      detailedFeedback.push(feedback);
+  function cleanAIResponse(text) {
+    if (!text || typeof text !== "string") return text;
+
+    let cleaned = text;
+
+    // 1. If "assistantfinal" marker exists, take everything after the LAST one
+    const finalMarkerRegex = /assistant\s*final/gi;
+    let lastIndex = -1;
+    let match;
+    while ((match = finalMarkerRegex.exec(cleaned)) !== null) {
+      lastIndex = match.index + match[0].length;
+    }
+    if (lastIndex !== -1) {
+      cleaned = cleaned.substring(lastIndex);
     }
 
-    // Calculate final score
-    const finalScore = totalPoints > 0
-      ? Math.round((earnedPoints / totalPoints) * 100)
-      : 0;
+    // 1b. Fallback: if no assistantfinal found but there's a SCORE: marker,
+    //     extract from SCORE: onwards — catches thinking that leaks before
+    //     the formatted response when the model omits the marker.
+    if (lastIndex === -1) {
+      const scoreStart = cleaned.search(/SCORE:\s*\d/i);
+      if (scoreStart > 0) {
+        cleaned = cleaned.substring(scoreStart);
+      }
+    }
 
-    // 🗂️ Save quiz results
-    try {
-      const result = await prisma.quiz_results.create({
-        data: {
-          user_id: sessionUser.id,
-          subject: quiz.subject,
-          quiz_code: quiz.quiz_code,
-          shared_quiz_id: quiz.id,
-          total_questions: answers.length,
-          correct_answers: correctCount,
-          score: finalScore,
-          detailed_feedback: JSON.stringify(detailedFeedback),
-          submitted_at: new Date(),
-        },
-      });
+    // 2. Strip reasoning lines
+    const reasoningPatterns = [
+      /^We need to .*$/gm,
+      /^We (?:might|could|should|estimate).*$/gm,
+      /^Let'?s (?:do it|produce|craft|write|generate|decide|format|give).*$/gm,
+      /^Now produce.*$/gm,
+      /^Also need to.*$/gm,
+      /^So we need.*$/gm,
+      /^Typically such.*$/gm,
+      /^Ok\.?\s*$/gm,
+      /^(?:\d+-?\d*\s*sentences?\.?\s*)$/gm,
+      /^(?:Provide|Ensure to|Ensure|Confirm)[\s.].*?(?:feedback|tip|explanation|sentences|concise|thorough).*$/gm,
+      /^good,?\s*correct\.?\s*(?:Could|Provide|Encourage|It's fine).*$/gm,
+      /^The (?:user|task)\s*:.*$/gm,
+      /^(?:They|So they|They'd|So they'd).*?(?:marks?|get \d).*$/gm,
+      /^The student(?:'s)? (?:answer|wrote|didn't|doesn't|omitted|got).*?(?:So|Let's|We need|Provide|marks).*$/gm,
+    ];
 
-      // 🔔 Parent notification for low scores (non-blocking)
-     Promise.resolve(student).then((studentProfile) => {
-    return sendLowScoreAlert({
-      childId: studentProfile.id,
-      childName: studentProfile.name || "Your child",
-      subject: quiz.subject,
-      score: finalScore,
-      quizId: result.id,
-    });
-  })
-  .catch(console.error);
+    for (const pattern of reasoningPatterns) {
+      cleaned = cleaned.replace(pattern, "");
+    }
 
-      // ✅ Return comprehensive feedback
-      res.json({
-        success: true,
-        resultId: result.id,
-        score: finalScore,
-        earnedPoints,
-        totalPoints,
-        feedback: detailedFeedback,
-        summary: `You scored ${earnedPoints}/${totalPoints} points (${finalScore}%)`,
-        tabViolations: parseInt(tabViolations) || 0,
-        tabLimitExceeded: tabLimitExceeded || false,
-        autoSubmitted: autoSubmitted || false,
-      });
+    // 3. Fix HTML entities
+    cleaned = cleaned.replace(/&amp;/g, "&");
+    cleaned = cleaned.replace(/&lt;/g, "<");
+    cleaned = cleaned.replace(/&gt;/g, ">");
 
-    } catch (dbError) {
-      if (dbError.code === "P2002") {
-        return res.status(400).json({
+    // 4. Collapse blank lines and trim
+    cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+    cleaned = cleaned.trim();
+
+    return cleaned;
+  }
+
+  // Get student's own quiz results
+  app.get(
+    "/system/student/my-results/:studentId",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      try {
+        const userId = res.locals.user.id;
+        if (Number(req.params.studentId) !== Number(userId))
+          return res.status(403).json({ success: false, error: "Forbidden" });
+
+        const results = await prisma.quiz_results.findMany({
+          where: { user_id: userId, shared_quiz_id: { not: null } },
+          include: {
+            shared_quiz: {
+              select: {
+                topic: true, // ✅ Changed from quiz_name
+                subject: true,
+                difficulty: true,
+                teacher_id: true,
+                teacher: {
+                  select: {
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { submitted_at: "desc" },
+        });
+
+        // Parse detailed feedback from JSON
+        const formattedResults = results.map((result) => ({
+          id: result.id,
+          quizName: result.shared_quiz?.topic || "Quiz", // ✅ Using topic
+          subject: result.subject,
+          difficulty: result.shared_quiz?.difficulty || null,
+          teacherName: result.shared_quiz?.teacher?.name || "Unknown",
+          score: result.score,
+          totalQuestions: result.total_questions,
+          correctAnswers: result.correct_answers,
+          submittedAt: result.submitted_at,
+          detailedFeedback: JSON.parse(result.detailed_feedback || "[]"),
+        }));
+
+        res.json({
+          success: true,
+          results: formattedResults,
+        });
+      } catch (err) {
+        console.error("Error fetching student results:", err);
+        res.status(500).json({
           success: false,
-          error: "You have already submitted this quiz. Multiple submissions are not allowed.",
-          alreadySubmitted: true,
+          error: "Failed to fetch results",
         });
       }
-      throw dbError;
     }
+  );
 
-  } catch (err) {
-    console.error("Error submitting quiz:", err);
-    res.status(500).json({ success: false, error: "Submission failed" });
-  }
-});
+  // Get detailed result for a specific quiz
+  app.get(
+    "/system/student/result-detail/:resultId",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      try {
+        const { resultId } = req.params;
 
-function cleanAIResponse(text) {
-  if (!text || typeof text !== "string") return text;
-
-  let cleaned = text;
-
-  // 1. If "assistantfinal" marker exists, take everything after the LAST one
-  const finalMarkerRegex = /assistant\s*final/gi;
-  let lastIndex = -1;
-  let match;
-  while ((match = finalMarkerRegex.exec(cleaned)) !== null) {
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex !== -1) {
-    cleaned = cleaned.substring(lastIndex);
-  }
-
-  // 1b. Fallback: if no assistantfinal found but there's a SCORE: marker,
-  //     extract from SCORE: onwards — catches thinking that leaks before
-  //     the formatted response when the model omits the marker.
-  if (lastIndex === -1) {
-    const scoreStart = cleaned.search(/SCORE:\s*\d/i);
-    if (scoreStart > 0) {
-      cleaned = cleaned.substring(scoreStart);
-    }
-  }
-
-  // 2. Strip reasoning lines
-  const reasoningPatterns = [
-    /^We need to .*$/gm,
-    /^We (?:might|could|should|estimate).*$/gm,
-    /^Let'?s (?:do it|produce|craft|write|generate|decide|format|give).*$/gm,
-    /^Now produce.*$/gm,
-    /^Also need to.*$/gm,
-    /^So we need.*$/gm,
-    /^Typically such.*$/gm,
-    /^Ok\.?\s*$/gm,
-    /^(?:\d+-?\d*\s*sentences?\.?\s*)$/gm,
-    /^(?:Provide|Ensure to|Ensure|Confirm)[\s.].*?(?:feedback|tip|explanation|sentences|concise|thorough).*$/gm,
-    /^good,?\s*correct\.?\s*(?:Could|Provide|Encourage|It's fine).*$/gm,
-    /^The (?:user|task)\s*:.*$/gm,
-    /^(?:They|So they|They'd|So they'd).*?(?:marks?|get \d).*$/gm,
-    /^The student(?:'s)? (?:answer|wrote|didn't|doesn't|omitted|got).*?(?:So|Let's|We need|Provide|marks).*$/gm,
-  ];
-
-  for (const pattern of reasoningPatterns) {
-    cleaned = cleaned.replace(pattern, "");
-  }
-
-  // 3. Fix HTML entities
-  cleaned = cleaned.replace(/&amp;/g, "&");
-  cleaned = cleaned.replace(/&lt;/g, "<");
-  cleaned = cleaned.replace(/&gt;/g, ">");
-
-  // 4. Collapse blank lines and trim
-  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-  cleaned = cleaned.trim();
-
-  return cleaned;
-}
-
-// Get student's own quiz results
-app.get("/system/student/my-results/:studentId", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  try {
-    const userId = res.locals.user.id;
-    if (Number(req.params.studentId) !== Number(userId))
-      return res.status(403).json({ success: false, error: "Forbidden" });
-
-    const results = await prisma.quiz_results.findMany({
-      where: { user_id: userId },
-      include: {
-        shared_quiz: {
-          select: {
-            topic: true,           // ✅ Changed from quiz_name
-            subject: true,
-            difficulty: true,
-            teacher_id: true,
-            teacher: {
+        const id = Number(resultId);
+        if (!Number.isInteger(id))
+          return res
+            .status(400)
+            .json({ success: false, error: "Invalid result ID" });
+        const result = await prisma.quiz_results.findFirst({
+          where: {
+            id,
+            user_id: res.locals.user.id,
+            shared_quiz_id: { not: null },
+          },
+          include: {
+            shared_quiz: {
               select: {
-                name: true,
+                topic: true, // ✅ Changed from quiz_name
+                subject: true,
+                difficulty: true,
+                teacher: {
+                  select: {
+                    name: true,
+                  },
+                },
               },
             },
           },
-        },
-      },
-      orderBy: { submitted_at: 'desc' },
-    });
+        });
 
-    // Parse detailed feedback from JSON
-    const formattedResults = results.map(result => ({
-      id: result.id,
-      quizName: result.shared_quiz?.topic || "Quiz",  // ✅ Using topic
-      subject: result.subject,
-      difficulty: result.shared_quiz?.difficulty || null,
-      teacherName: result.shared_quiz?.teacher?.name || "Unknown",
-      score: result.score,
-      totalQuestions: result.total_questions,
-      correctAnswers: result.correct_answers,
-      submittedAt: result.submitted_at,
-      detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
-    }));
+        if (!result) {
+          return res.status(404).json({
+            success: false,
+            error: "Result not found",
+          });
+        }
 
-    res.json({
-      success: true,
-      results: formattedResults,
-    });
+        res.json({
+          success: true,
+          result: {
+            id: result.id,
+            quizName: result.shared_quiz?.topic || "Quiz", // ✅ Using topic
+            subject: result.subject,
+            difficulty: result.shared_quiz?.difficulty || null,
+            teacherName: result.shared_quiz?.teacher?.name || "Unknown",
+            score: result.score,
+            totalQuestions: result.total_questions,
+            correctAnswers: result.correct_answers,
+            submittedAt: result.submitted_at,
+            detailedFeedback: JSON.parse(result.detailed_feedback || "[]"),
+          },
+        });
+      } catch (err) {
+        console.error("Error fetching result detail:", err);
+        res.status(500).json({
+          success: false,
+          error: "Failed to fetch result",
+        });
+      }
+    }
+  );
 
-  } catch (err) {
-    console.error("Error fetching student results:", err);
-    res.status(500).json({ 
-      success: false, 
-      error: "Failed to fetch results" 
-    });
-  }
-});
+  // Get all quiz results for a specific student (for teachers)
 
-// Get detailed result for a specific quiz
-app.get("/system/student/result-detail/:resultId", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  try {
-    const { resultId } = req.params;
+  // Get detailed result for a specific quiz (for teachers)
+  // Get detailed result for a specific quiz (for teachers)
+  app.get(
+    "/system/teacher/result-detail/:resultId",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const { resultId } = req.params;
+        const userId = res.locals.user.id;
 
-    const id = Number(resultId);
-    if (!Number.isInteger(id))
-      return res.status(400).json({ success: false, error: "Invalid result ID" });
-    const result = await prisma.quiz_results.findFirst({
-      where: { id, user_id: res.locals.user.id },
-      include: {
-        shared_quiz: {
-          select: {
-            topic: true,           // ✅ Changed from quiz_name
-            subject: true,
-            difficulty: true,
-            teacher: {
+        // 2. ✅ FIX: Find the Teacher Profile first (Ownership Check Fix)
+        const teacherProfile = await prisma.teachers.findFirst({
+          where: { user_id: parseInt(userId) },
+        });
+
+        if (!teacherProfile) {
+          return res
+            .status(403)
+            .json({ success: false, error: "Teacher profile not found" });
+        }
+
+        // 3. Fetch Result with ✅ FIXED Database Query
+        const result = await prisma.quiz_results.findUnique({
+          where: { id: parseInt(resultId) },
+          include: {
+            shared_quiz: {
               select: {
-                name: true,
+                topic: true,
+                subject: true,
+                difficulty: true,
+                quiz_code: true,
+                teacher_id: true,
+                created_at: true,
+              },
+            },
+            user: {
+              select: {
+                // ✅ FIX: 'users' table has 'username', not 'name'
+                username: true,
+                // ✅ FIX: Fetch linked Student Profile for Name & Grade
+                students: {
+                  select: {
+                    name: true,
+                    grade: true,
+                  },
+                },
               },
             },
           },
-        },
-      },
-    });
+        });
 
-    if (!result) {
-      return res.status(404).json({ 
-        success: false, 
-        error: "Result not found" 
-      });
-    }
+        if (!result) {
+          return res.status(404).json({
+            success: false,
+            error: "Result not found",
+          });
+        }
 
-    res.json({
-      success: true,
-      result: {
-        id: result.id,
-        quizName: result.shared_quiz?.topic || "Quiz",  // ✅ Using topic
-        subject: result.subject,
-        difficulty: result.shared_quiz?.difficulty || null,
-        teacherName: result.shared_quiz?.teacher?.name || "Unknown",
-        score: result.score,
-        totalQuestions: result.total_questions,
-        correctAnswers: result.correct_answers,
-        submittedAt: result.submitted_at,
-        detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
-      },
-    });
+        const student = await prisma.students.findFirst({
+          where: { user_id: result.user_id },
+          select: { id: true, user_id: true },
+        });
 
-  } catch (err) {
-    console.error("Error fetching result detail:", err);
-    res.status(500).json({ 
-      success: false, 
-      error: "Failed to fetch result" 
-    });
-  }
-});
+        if (
+          result.shared_quiz?.teacher_id !== teacherProfile.id ||
+          !student ||
+          !(await canAccessStudent(res.locals.user, student))
+        ) {
+          return res.status(403).json({
+            success: false,
+            error: "You don't have permission to view this result",
+          });
+        }
 
-// Get all quiz results for a specific student (for teachers)
+        // 5. Extract student info
+        const studentProfile = result.user?.students?.[0];
 
-
-// Get detailed result for a specific quiz (for teachers)
-// Get detailed result for a specific quiz (for teachers)
-app.get("/system/teacher/result-detail/:resultId", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const { resultId } = req.params;
-    const userId = res.locals.user.id;
-
-    // 2. ✅ FIX: Find the Teacher Profile first (Ownership Check Fix)
-    const teacherProfile = await prisma.teachers.findFirst({
-      where: { user_id: parseInt(userId) }
-    });
-
-    if (!teacherProfile) {
-      return res.status(403).json({ success: false, error: "Teacher profile not found" });
-    }
-
-    // 3. Fetch Result with ✅ FIXED Database Query
-    const result = await prisma.quiz_results.findUnique({
-      where: { id: parseInt(resultId) },
-      include: {
-        shared_quiz: {
-          select: {
-            topic: true,
-            subject: true,
-            difficulty: true,
-            quiz_code: true,
-            teacher_id: true,
-            created_at: true,
+        res.json({
+          success: true,
+          result: {
+            id: result.id,
+            quizName: result.shared_quiz?.topic || "Quiz",
+            subject: result.subject,
+            difficulty: result.shared_quiz?.difficulty || null,
+            quizCode: result.shared_quiz?.quiz_code,
+            score: result.score,
+            totalQuestions: result.total_questions,
+            correctAnswers: result.correct_answers,
+            submittedAt: result.submitted_at,
+            // ✅ FIX: Use real name from student profile
+            studentName:
+              studentProfile?.name || result.user?.username || "Unknown",
+            studentGrade: studentProfile?.grade || null,
+            detailedFeedback: JSON.parse(result.detailed_feedback || "[]"),
           },
-        },
-        user: {
-          select: {
-            // ✅ FIX: 'users' table has 'username', not 'name'
-            username: true,
-            // ✅ FIX: Fetch linked Student Profile for Name & Grade
-            students: {
-              select: {
-                name: true,
-                grade: true
-              }
-            }
-          },
-        },
-      },
-    });
-
-    if (!result) {
-      return res.status(404).json({ 
-        success: false, 
-        error: "Result not found" 
-      });
+        });
+      } catch (err) {
+        console.error("Error fetching result detail:", err);
+        res.status(500).json({
+          success: false,
+          error: "Failed to fetch result",
+        });
+      }
     }
+  );
 
-    const student = await prisma.students.findFirst({
-      where: { user_id: result.user_id },
-      select: { id: true, user_id: true },
-    });
+  // Get overview of all results for a specific quiz (for teachers)
 
-    if (
-      result.shared_quiz?.teacher_id !== teacherProfile.id ||
-      !student ||
-      !(await canAccessStudent(res.locals.user, student))
-    ) {
-      return res.status(403).json({ 
-        success: false, 
-        error: "You don't have permission to view this result" 
-      });
-    }
+  app.get(
+    "/system/teacher/quiz-results/:quizId",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const { quizId } = req.params;
+        const userId = res.locals.user.id;
 
-    // 5. Extract student info
-    const studentProfile = result.user?.students?.[0];
+        if (!userId) {
+          return res
+            .status(401)
+            .json({ success: false, error: "Invalid Token" });
+        }
 
-    res.json({
-      success: true,
-      result: {
-        id: result.id,
-        quizName: result.shared_quiz?.topic || "Quiz",
-        subject: result.subject,
-        difficulty: result.shared_quiz?.difficulty || null,
-        quizCode: result.shared_quiz?.quiz_code,
-        score: result.score,
-        totalQuestions: result.total_questions,
-        correctAnswers: result.correct_answers,
-        submittedAt: result.submitted_at,
-        // ✅ FIX: Use real name from student profile
-        studentName: studentProfile?.name || result.user?.username || "Unknown",
-        studentGrade: studentProfile?.grade || null,
-        detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
-      },
-    });
+        const teacherProfile = await prisma.teachers.findFirst({
+          where: { user_id: parseInt(userId) },
+        });
 
-  } catch (err) {
-    console.error("Error fetching result detail:", err);
-    res.status(500).json({ 
-      success: false, 
-      error: "Failed to fetch result" 
-    });
-  }
-});
+        if (!teacherProfile) {
+          return res
+            .status(403)
+            .json({ success: false, error: "Teacher profile not found" });
+        }
 
-// Get overview of all results for a specific quiz (for teachers)
-
-app.get("/system/teacher/quiz-results/:quizId", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const { quizId } = req.params;
-    const userId = res.locals.user.id;
-
-    if (!userId) {
-      return res.status(401).json({ success: false, error: "Invalid Token" });
-    }
-
-    const teacherProfile = await prisma.teachers.findFirst({
-      where: { user_id: parseInt(userId) }
-    });
-
-    if (!teacherProfile) {
-      return res.status(403).json({ success: false, error: "Teacher profile not found" });
-    }
-
-    const quiz = await prisma.shared_quizzes.findUnique({
-      where: { id: parseInt(quizId) },
-      select: {
-        id: true,
-        topic: true,
-        subject: true,
-        difficulty: true,
-        quiz_code: true,
-        teacher_id: true,
-        created_at: true,
-      },
-    });
-
-    if (!quiz) {
-      return res.status(404).json({ success: false, error: "Quiz not found" });
-    }
-
-    if (String(quiz.teacher_id) !== String(teacherProfile.id)) {
-      return res.status(403).json({ 
-        success: false, 
-        error: "You don't have permission to view this quiz's results" 
-      });
-    }
-
-    const results = await prisma.quiz_results.findMany({
-      where: {
-        shared_quiz_id: parseInt(quizId),
-        user: {
-          students: {
-            some: { teacher_students: { some: { teacherId: teacherProfile.id } } },
-          },
-        },
-      },
-      include: {
-        user: {
+        const quiz = await prisma.shared_quizzes.findUnique({
+          where: { id: parseInt(quizId) },
           select: {
             id: true,
-            username: true,
-            students: { select: { name: true, grade: true } }
-          },
-        },
-      },
-      orderBy: { submitted_at: 'desc' },
-    });
-
-    // --- NEW: Calculate Question Statistics ---
-    const questionTracker = {};
-
-    const formattedResults = results.map(result => {
-      const studentProfile = result.user?.students?.[0];
-      const feedback = JSON.parse(result.detailed_feedback || '[]');
-
-      // Track correct/incorrect for each question
-      feedback.forEach((q) => {
-        if (!questionTracker[q.question]) {
-          questionTracker[q.question] = { text: q.question, correctCount: 0, total: 0 };
-        }
-        questionTracker[q.question].total += 1;
-        if (q.isCorrect) {
-          questionTracker[q.question].correctCount += 1;
-        }
-      });
-
-      return {
-        id: result.id,
-        studentId: result.user?.id,
-        studentName: studentProfile?.name || result.user?.username || "Unknown",
-        studentGrade: studentProfile?.grade || "N/A",
-        score: result.score,
-        totalQuestions: result.total_questions,
-        correctAnswers: result.correct_answers,
-        submittedAt: result.submitted_at,
-        detailedFeedback: feedback,
-      };
-    });
-
-    // Convert tracker to array with success percentages
-    const questionStats = Object.values(questionTracker).map(q => ({
-      text: q.text,
-      successRate: Math.round((q.correctCount / q.total) * 100)
-    }));
-
-    // --- Statistics Calculation ---
-    const totalSubmissions = results.length;
-    const averageScore = totalSubmissions > 0 
-      ? results.reduce((sum, r) => sum + r.score, 0) / totalSubmissions 
-      : 0;
-    const highestScore = totalSubmissions > 0 
-      ? Math.max(...results.map(r => r.score)) 
-      : 0;
-    const lowestScore = totalSubmissions > 0 
-      ? Math.min(...results.map(r => r.score)) 
-      : 0;
-
-    res.json({
-      success: true,
-      quiz: {
-        id: quiz.id,
-        topic: quiz.topic,
-        subject: quiz.subject,
-        difficulty: quiz.difficulty,
-        quizCode: quiz.quiz_code,
-        createdAt: quiz.created_at,
-      },
-      statistics: {
-        totalSubmissions,
-        averageScore: Math.round(averageScore * 100) / 100,
-        highestScore,
-        lowestScore,
-      },
-      questionStats, // Now included for the frontend logic
-      results: formattedResults,
-    });
-
-  } catch (err) {
-    console.error("Error fetching quiz results:", err);
-    res.status(500).json({ success: false, error: "Failed to fetch quiz results" });
-  }
-});
-app.get("/system/teacher/student-results/:studentId", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const { studentId } = req.params;
-    const sessionUser = res.locals.user;
-    const teacher = await prisma.teachers.findFirst({
-      where: { user_id: sessionUser.id },
-      select: { id: true },
-    });
-    const student = await prisma.students.findFirst({
-      where: { id: Number(studentId) },
-      select: { id: true, user_id: true, name: true, grade: true },
-    });
-    if (!teacher || !student || !(await canAccessStudent(sessionUser, student)))
-      return res.status(403).json({ success: false, error: "Student access denied" });
-
-    // Get all quiz results for this student from this teacher's quizzes
-    const results = await prisma.quiz_results.findMany({
-      where: { 
-        user_id: student.user_id,
-        shared_quiz: {
-          teacher_id: teacher.id
-        }
-      },
-      include: {
-        shared_quiz: {
-          select: {
             topic: true,
             subject: true,
             difficulty: true,
             quiz_code: true,
+            teacher_id: true,
             created_at: true,
           },
-        },
-      },
-      orderBy: { submitted_at: 'desc' },
-    });
+        });
 
-    // Parse detailed feedback from JSON
-    const formattedResults = results.map(result => ({
-      id: result.id,
-      quizName: result.shared_quiz?.topic || "Quiz",
-      subject: result.subject,
-      difficulty: result.shared_quiz?.difficulty || null,
-      quizCode: result.shared_quiz?.quiz_code,
-      score: result.score,
-      totalQuestions: result.total_questions,
-      correctAnswers: result.correct_answers,
-      submittedAt: result.submitted_at,
-      studentName: student.name || "Unknown",
-      studentGrade: student.grade || null,
-      detailedFeedback: JSON.parse(result.detailed_feedback || '[]'),
-    }));
+        if (!quiz) {
+          return res
+            .status(404)
+            .json({ success: false, error: "Quiz not found" });
+        }
 
-    res.json({
-      success: true,
-      results: formattedResults,
-      studentName: formattedResults[0]?.studentName || "Unknown Student",
-      studentGrade: formattedResults[0]?.studentGrade || null,
-    });
+        if (String(quiz.teacher_id) !== String(teacherProfile.id)) {
+          return res.status(403).json({
+            success: false,
+            error: "You don't have permission to view this quiz's results",
+          });
+        }
 
-  } catch (err) {
-    console.error("Error fetching student results:", err);
-    res.status(500).json({ 
-      success: false, 
-      error: "Failed to fetch results" 
-    });
-  }
-});
-
-// Endpoint for students to access quiz
-app.get("/system/quiz/:quizCode", async (req, res) => {
-  try {
-    const { quizCode } = req.params;
-
-    const quiz = await prisma.shared_quizzes.findUnique({
-      where: { quiz_code: quizCode },
-      include: {
-        teacher: {
+        const results = await prisma.quiz_results.findMany({
+          where: {
+            shared_quiz_id: parseInt(quizId),
+            user: {
+              students: {
+                some: {
+                  teacher_students: { some: { teacherId: teacherProfile.id } },
+                },
+              },
+            },
+          },
           include: {
             user: {
-              select: { username: true }
+              select: {
+                id: true,
+                username: true,
+                students: { select: { name: true, grade: true } },
+              },
+            },
+          },
+          orderBy: { submitted_at: "desc" },
+        });
+
+        // --- NEW: Calculate Question Statistics ---
+        const questionTracker = {};
+
+        const formattedResults = results.map((result) => {
+          const studentProfile = result.user?.students?.[0];
+          const feedback = JSON.parse(result.detailed_feedback || "[]");
+
+          // Track correct/incorrect for each question
+          feedback.forEach((q) => {
+            if (!questionTracker[q.question]) {
+              questionTracker[q.question] = {
+                text: q.question,
+                correctCount: 0,
+                total: 0,
+              };
             }
-          }
-        }
-      }
-    });
+            questionTracker[q.question].total += 1;
+            if (q.isCorrect) {
+              questionTracker[q.question].correctCount += 1;
+            }
+          });
 
-    if (!quiz) {
-      return res.status(404).json({ success: false, error: "Quiz not found" });
+          return {
+            id: result.id,
+            studentId: result.user?.id,
+            studentName:
+              studentProfile?.name || result.user?.username || "Unknown",
+            studentGrade: studentProfile?.grade || "N/A",
+            score: result.score,
+            totalQuestions: result.total_questions,
+            correctAnswers: result.correct_answers,
+            submittedAt: result.submitted_at,
+            detailedFeedback: feedback,
+          };
+        });
+
+        // Convert tracker to array with success percentages
+        const questionStats = Object.values(questionTracker).map((q) => ({
+          text: q.text,
+          successRate: Math.round((q.correctCount / q.total) * 100),
+        }));
+
+        // --- Statistics Calculation ---
+        const totalSubmissions = results.length;
+        const averageScore =
+          totalSubmissions > 0
+            ? results.reduce((sum, r) => sum + r.score, 0) / totalSubmissions
+            : 0;
+        const highestScore =
+          totalSubmissions > 0 ? Math.max(...results.map((r) => r.score)) : 0;
+        const lowestScore =
+          totalSubmissions > 0 ? Math.min(...results.map((r) => r.score)) : 0;
+
+        res.json({
+          success: true,
+          quiz: {
+            id: quiz.id,
+            topic: quiz.topic,
+            subject: quiz.subject,
+            difficulty: quiz.difficulty,
+            quizCode: quiz.quiz_code,
+            createdAt: quiz.created_at,
+          },
+          statistics: {
+            totalSubmissions,
+            averageScore: Math.round(averageScore * 100) / 100,
+            highestScore,
+            lowestScore,
+          },
+          questionStats, // Now included for the frontend logic
+          results: formattedResults,
+        });
+      } catch (err) {
+        console.error("Error fetching quiz results:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Failed to fetch quiz results" });
+      }
     }
+  );
+  app.get(
+    "/system/teacher/student-results/:studentId",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const { studentId } = req.params;
+        const sessionUser = res.locals.user;
+        const teacher = await prisma.teachers.findFirst({
+          where: { user_id: sessionUser.id },
+          select: { id: true },
+        });
+        const student = await prisma.students.findFirst({
+          where: { id: Number(studentId) },
+          select: { id: true, user_id: true, name: true, grade: true },
+        });
+        if (
+          !teacher ||
+          !student ||
+          !(await canAccessStudent(sessionUser, student))
+        )
+          return res
+            .status(403)
+            .json({ success: false, error: "Student access denied" });
 
-    res.json({
-      success: true,
-      quiz: {
-        subject: quiz.subject,
-        topic: quiz.topic,
-        difficulty: quiz.difficulty,
-        content: quiz.quiz_content,
-        timeLimit: quiz.time_limit, // Passed to frontend for the countdown
-        tabLimit: quiz.tab_limit,   // Passed to frontend for the anti-cheat
-        teacherName: quiz.teacher.user.username
+        // Get all quiz results for this student from this teacher's quizzes
+        const results = await prisma.quiz_results.findMany({
+          where: {
+            user_id: student.user_id,
+            shared_quiz: {
+              teacher_id: teacher.id,
+            },
+          },
+          include: {
+            shared_quiz: {
+              select: {
+                topic: true,
+                subject: true,
+                difficulty: true,
+                quiz_code: true,
+                created_at: true,
+              },
+            },
+          },
+          orderBy: { submitted_at: "desc" },
+        });
+
+        // Parse detailed feedback from JSON
+        const formattedResults = results.map((result) => ({
+          id: result.id,
+          quizName: result.shared_quiz?.topic || "Quiz",
+          subject: result.subject,
+          difficulty: result.shared_quiz?.difficulty || null,
+          quizCode: result.shared_quiz?.quiz_code,
+          score: result.score,
+          totalQuestions: result.total_questions,
+          correctAnswers: result.correct_answers,
+          submittedAt: result.submitted_at,
+          studentName: student.name || "Unknown",
+          studentGrade: student.grade || null,
+          detailedFeedback: JSON.parse(result.detailed_feedback || "[]"),
+        }));
+
+        res.json({
+          success: true,
+          results: formattedResults,
+          studentName: formattedResults[0]?.studentName || "Unknown Student",
+          studentGrade: formattedResults[0]?.studentGrade || null,
+        });
+      } catch (err) {
+        console.error("Error fetching student results:", err);
+        res.status(500).json({
+          success: false,
+          error: "Failed to fetch results",
+        });
       }
-    });
+    }
+  );
 
-  } catch (err) {
-    console.error("Error fetching quiz:", err);
-    res.status(500).json({ success: false, error: "Failed to fetch quiz" });
-  }
-});
+  // Endpoint for students to access quiz
+  app.get("/system/quiz/:quizCode", async (req, res) => {
+    try {
+      const { quizCode } = req.params;
 
-app.post("/system/teacher/redo-question", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const { type, raw, subject, topic, grade, difficulty } = req.body;
+      const quiz = await prisma.shared_quizzes.findUnique({
+        where: { quiz_code: quizCode },
+        include: {
+          teacher: {
+            include: {
+              user: {
+                select: { username: true },
+              },
+            },
+          },
+        },
+      });
 
-    const gradeNum = parseInt(grade) || 7;
-    const ageRange = gradeNum <= 2 ? "6-8 years old" : gradeNum <= 4 ? "9-10 years old" : gradeNum <= 7 ? "11-13 years old" : gradeNum <= 9 ? "14-15 years old" : "16-18 years old";
-    const examLevel = gradeNum >= 11 ? "A-Level" : gradeNum >= 9 ? "O-Level" : gradeNum >= 7 ? "Upper Primary/Junior Secondary" : "Primary";
+      if (!quiz) {
+        return res
+          .status(404)
+          .json({ success: false, error: "Quiz not found" });
+      }
 
-    const isMCQ = type === "multiple-choice";
+      res.json({
+        success: true,
+        quiz: {
+          subject: quiz.subject,
+          topic: quiz.topic,
+          difficulty: quiz.difficulty,
+          content: quiz.quiz_content,
+          timeLimit: quiz.time_limit, // Passed to frontend for the countdown
+          tabLimit: quiz.tab_limit, // Passed to frontend for the anti-cheat
+          teacherName: quiz.teacher.user.username,
+        },
+      });
+    } catch (err) {
+      console.error("Error fetching quiz:", err);
+      res.status(500).json({ success: false, error: "Failed to fetch quiz" });
+    }
+  });
 
-    const formatInstructions = isMCQ
-      ? `Output EXACTLY one question in this format:
+  app.post(
+    "/system/teacher/redo-question",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const { type, raw, subject, topic, grade, difficulty } = req.body;
+
+        const gradeNum = parseInt(grade) || 7;
+        const ageRange =
+          gradeNum <= 2
+            ? "6-8 years old"
+            : gradeNum <= 4
+              ? "9-10 years old"
+              : gradeNum <= 7
+                ? "11-13 years old"
+                : gradeNum <= 9
+                  ? "14-15 years old"
+                  : "16-18 years old";
+        const examLevel =
+          gradeNum >= 11
+            ? "A-Level"
+            : gradeNum >= 9
+              ? "O-Level"
+              : gradeNum >= 7
+                ? "Upper Primary/Junior Secondary"
+                : "Primary";
+
+        const isMCQ = type === "multiple-choice";
+
+        const formatInstructions = isMCQ
+          ? `Output EXACTLY one question in this format:
 
 1. [Question text]
 A) [Option]
@@ -5343,7 +6077,7 @@ Rules:
 - Exactly one correct answer
 - Mark correct answer as **Answer: X** on the last line
 - No explanations, no preamble`
-      : `Output EXACTLY one question in this format:
+          : `Output EXACTLY one question in this format:
 
 1. [Question text] [X marks]
 Mark Scheme:
@@ -5357,7 +6091,7 @@ Rules:
 - For higher marks, include "any X from" style where appropriate
 - No explanations, no preamble`;
 
-    const prompt = `You are a quiz question generator for Zimbabwean students.
+        const prompt = `You are a quiz question generator for Zimbabwean students.
 
 CONTEXT:
 - Subject: ${subject || "General"}
@@ -5376,698 +6110,802 @@ MATH FORMATTING:
 
 ${formatInstructions}`;
 
-    const rawResponse = await generateLessonPlanAI(prompt);
-    const cleaned = cleanThinkingModelOutput(rawResponse, "quiz");
-    res.json({ success: true, question: cleaned });
-  } catch (err) {
-    console.error("Error regenerating question:", err);
-    res.status(500).json({ success: false, error: "AI regeneration failed." });
-  }
-});
-
-app.get("/system/teacher/my-students/:userId", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const id = res.locals.user.id;
-    const teacher = await prisma.teachers.findFirst({
-      where: { user_id: id },
-    });
-    if (!teacher) 
-      return res.status(404).json({ success: false, error: "Teacher not found." });
-
-    const linked = await prisma.teacher_students.findMany({
-      where: { teacherId: teacher.id },
-      include: { student: true },
-    });
-
-    const students = linked.map((link) => ({
-      id: link.student.id,
-      name: link.student.name,
-      grade: link.student.grade,
-      subject: link.subject,
-    }));
-
-    res.json({ success: true, students });
-  } catch (err) {
-    console.error("Error fetching teacher's linked students:", err);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-// Get child report for parent
-app.get("/system/parent/child-report/:childId", [validatedRequest, flexUserRoleValid([ROLES.parent])], async (req, res) => {
-  try {
-    const childId = Number(req.params.childId);
-    const userId = res.locals.user.id;
-    if (!Number.isInteger(childId))
-      return res.status(400).json({ success: false, error: "Invalid child ID" });
-
-    console.log("🔍 Fetching report for childId:", childId, "by userId:", userId);
-    
-    // Find parent record
-    const parent = await prisma.parents.findFirst({
-      where: { user_id: Number(userId) },
-    });
-
-    if (!parent) {
-      console.log("❌ Parent not found for userId:", userId);
-      return res.status(403).json({ 
-        success: false, 
-        error: "Parent profile not found" 
-      });
+        const rawResponse = await generateLessonPlanAI(prompt);
+        const cleaned = cleanThinkingModelOutput(rawResponse, "quiz");
+        res.json({ success: true, question: cleaned });
+      } catch (err) {
+        console.error("Error regenerating question:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "AI regeneration failed." });
+      }
     }
+  );
 
-    console.log("✅ Parent found:", parent.id);
+  app.get(
+    "/system/teacher/my-students/:userId",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const id = res.locals.user.id;
+        const teacher = await prisma.teachers.findFirst({
+          where: { user_id: id },
+        });
+        if (!teacher)
+          return res
+            .status(404)
+            .json({ success: false, error: "Teacher not found." });
 
-    // Verify this parent is linked to this child
-    const link = await prisma.parent_students.findFirst({
-      where: {
-        parentId: parent.id,
-        studentId: childId,
-      },
-    });
+        const linked = await prisma.teacher_students.findMany({
+          where: { teacherId: teacher.id },
+          include: { student: true },
+        });
 
-    if (!link) {
-      console.log("❌ No link found between parent and child");
-      return res.status(403).json({ 
-        success: false, 
-        error: "You don't have access to this child's reports" 
-      });
+        const students = linked.map((link) => ({
+          id: link.student.id,
+          name: link.student.name,
+          grade: link.student.grade,
+          subject: link.subject,
+        }));
+
+        res.json({ success: true, students });
+      } catch (err) {
+        console.error("Error fetching teacher's linked students:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Internal server error" });
+      }
     }
+  );
 
-    console.log("✅ Link verified:", link.id);
-    
-    // Get student info
-    const student = await prisma.students.findUnique({
-      where: { id: childId },
-      include: { user: { select: { streak: true } } },
-    });
+  // Get child report for parent
+  app.get(
+    "/system/parent/child-report/:childId",
+    [validatedRequest, flexUserRoleValid([ROLES.parent])],
+    async (req, res) => {
+      try {
+        const childId = Number(req.params.childId);
+        const userId = res.locals.user.id;
+        if (!Number.isInteger(childId))
+          return res
+            .status(400)
+            .json({ success: false, error: "Invalid child ID" });
 
-    if (!student) {
-      return res.status(404).json({ 
-        success: false, 
-        error: "Student not found" 
-      });
-    }
+        console.log(
+          "🔍 Fetching report for childId:",
+          childId,
+          "by userId:",
+          userId
+        );
 
-    console.log("✅ Student found:", student.name);
+        // Find parent record
+        const parent = await prisma.parents.findFirst({
+          where: { user_id: Number(userId) },
+        });
 
-    // Get quiz results for this student
-    const quizResults = await prisma.quiz_results.findMany({
-      where: { user_id: student.user_id },
-      orderBy: { submitted_at: 'desc' },
-      take: 50, // Get more for better analytics
-    });
+        if (!parent) {
+          console.log("❌ Parent not found for userId:", userId);
+          return res.status(403).json({
+            success: false,
+            error: "Parent profile not found",
+          });
+        }
 
-    console.log("✅ Found", quizResults.length, "quiz results");
+        console.log("✅ Parent found:", parent.id);
 
-    // Format quizzes to match frontend expectations
-    const quizzes = quizResults.map(result => ({
-      id: result.id,
-      subject: result.subject || 'General',
-      topic: result.topic || 'General Topic',
-      score: result.score || 0,
-      correct_answers: result.correctAnswers || 0,
-      total: result.totalQuestions || 0,
-      difficulty: result.difficulty || 'Medium', // Add difficulty field if exists, otherwise default
-      createdAt: result.submitted_at || result.completedAt || new Date(), // Use submitted_at or completedAt
-    }));
+        // Verify this parent is linked to this child
+        const link = await prisma.parent_students.findFirst({
+          where: {
+            parentId: parent.id,
+            studentId: childId,
+          },
+        });
 
-    // Calculate statistics
-    const totalQuizzes = quizzes.length;
-    const averageScore = totalQuizzes > 0 
-      ? Math.round(quizzes.reduce((sum, q) => sum + parseFloat(q.score), 0) / totalQuizzes)
-      : 0;
-    
-    // Calculate total XP (you might want to get this from a separate table)
-    const totalXP = quizzes.reduce((sum, q) => {
-      const score = parseFloat(q.score);
-      // Award XP based on score: 10 XP per quiz + bonus for high scores
-      return sum + 10 + (score >= 80 ? 15 : score >= 60 ? 10 : 5);
-    }, 0);
+        if (!link) {
+          console.log("❌ No link found between parent and child");
+          return res.status(403).json({
+            success: false,
+            error: "You don't have access to this child's reports",
+          });
+        }
 
-    const flashcardSets = await prisma.savedFlashcardSet.findMany({
-      where: { userId: student.user_id },
-      select: { cards: true },
-    });
-    const flashcards = flashcardSets.flatMap((set) =>
-      Array.isArray(set.cards) ? set.cards : []
-    );
-    const totalFlashcards = flashcards.length;
-    const mastered = flashcards.filter(
-      (card) =>
-        card?.mastered === true ||
-        card?.status === "mastered" ||
-        Number(card?.mastery || card?.masteryLevel || 0) >= 3
-    ).length;
+        console.log("✅ Link verified:", link.id);
 
-    // ── NEW: Fetch struggled areas from WeakAreaCard ──────────────────────
-    const weakAreaCards = await prisma.weakAreaCard.findMany({
-      where: { userId: student.user_id },
-      orderBy: [
-        { resolved: "asc" },       // unresolved first
-        { timesWrong: "desc" },    // most persistent first
-        { lastWrongAt: "desc" },   // most recent first
-      ],
-    });
+        // Get student info
+        const student = await prisma.students.findUnique({
+          where: { id: childId },
+          include: { user: { select: { streak: true } } },
+        });
 
-    const struggledAreas = weakAreaCards.reduce((acc, card) => {
-      if (!acc[card.subject]) acc[card.subject] = [];
-      acc[card.subject].push({
-        id: card.id,
-        question: card.question,
-        userAnswer: card.wrongAnswer,
-        correctAnswer: card.correctAnswer,
-        explanation: card.explanation || "Review this concept carefully.",
-        timesWrong: card.timesWrong,
-        resolved: card.resolved,
-        firstFlaggedAt: card.firstFlaggedAt,
-        lastWrongAt: card.lastWrongAt,
-      });
-      return acc;
-    }, {});
+        if (!student) {
+          return res.status(404).json({
+            success: false,
+            error: "Student not found",
+          });
+        }
 
-    const classMemberships = await prisma.class_students.findMany({
-      where: { studentId: student.id, status: "active" },
-      select: {
-        class: {
+        console.log("✅ Student found:", student.name);
+
+        // Get quiz results for this student
+        const quizResults = await prisma.quiz_results.findMany({
+          where: { user_id: student.user_id },
+          orderBy: { submitted_at: "desc" },
+          take: 50, // Get more for better analytics
+        });
+
+        console.log("✅ Found", quizResults.length, "quiz results");
+
+        // Format quizzes to match frontend expectations
+        const quizzes = quizResults.map((result) => ({
+          id: result.id,
+          subject: result.subject || "General",
+          topic: result.topic || "General Topic",
+          score: result.score || 0,
+          correct_answers: result.correct_answers || 0,
+          total: result.total_questions || 0,
+          difficulty: result.difficulty || "Medium", // Add difficulty field if exists, otherwise default
+          createdAt: result.submitted_at || result.completedAt || new Date(), // Use submitted_at or completedAt
+        }));
+
+        // Calculate statistics
+        const totalQuizzes = quizzes.length;
+        const averageScore =
+          totalQuizzes > 0
+            ? Math.round(
+                quizzes.reduce((sum, q) => sum + parseFloat(q.score), 0) /
+                  totalQuizzes
+              )
+            : 0;
+
+        // Calculate total XP (you might want to get this from a separate table)
+        const totalXP = quizzes.reduce((sum, q) => {
+          const score = parseFloat(q.score);
+          // Award XP based on score: 10 XP per quiz + bonus for high scores
+          return sum + 10 + (score >= 80 ? 15 : score >= 60 ? 10 : 5);
+        }, 0);
+
+        const flashcardSets = await prisma.savedFlashcardSet.findMany({
+          where: { userId: student.user_id },
+          select: { cards: true },
+        });
+        const flashcards = flashcardSets.flatMap((set) =>
+          Array.isArray(set.cards) ? set.cards : []
+        );
+        const totalFlashcards = flashcards.length;
+        const mastered = flashcards.filter(
+          (card) =>
+            card?.mastered === true ||
+            card?.status === "mastered" ||
+            Number(card?.mastery || card?.masteryLevel || 0) >= 3
+        ).length;
+
+        // ── NEW: Fetch struggled areas from WeakAreaCard ──────────────────────
+        const weakAreaCards = await prisma.weakAreaCard.findMany({
+          where: { userId: student.user_id },
+          orderBy: [
+            { resolved: "asc" }, // unresolved first
+            { timesWrong: "desc" }, // most persistent first
+            { lastWrongAt: "desc" }, // most recent first
+          ],
+        });
+
+        const struggledAreas = weakAreaCards.reduce((acc, card) => {
+          if (!acc[card.subject]) acc[card.subject] = [];
+          acc[card.subject].push({
+            id: card.id,
+            question: card.question,
+            userAnswer: card.wrongAnswer,
+            correctAnswer: card.correctAnswer,
+            explanation: card.explanation || "Review this concept carefully.",
+            timesWrong: card.timesWrong,
+            resolved: card.resolved,
+            firstFlaggedAt: card.firstFlaggedAt,
+            lastWrongAt: card.lastWrongAt,
+          });
+          return acc;
+        }, {});
+
+        const classMemberships = await prisma.class_students.findMany({
+          where: { studentId: student.id, status: "active" },
           select: {
-            students: {
-              where: { status: "active" },
-              select: { student: { select: { user_id: true } } },
+            class: {
+              select: {
+                students: {
+                  where: { status: "active" },
+                  select: { student: { select: { user_id: true } } },
+                },
+              },
             },
           },
-        },
-      },
-    });
-    const classUserIds = [
-      ...new Set(
-        classMemberships.flatMap(({ class: educationClass }) =>
-          educationClass.students.map(({ student: peer }) => peer.user_id)
-        )
-      ),
-    ];
-    const classResults = classUserIds.length
-      ? await prisma.quiz_results.findMany({
-          where: { user_id: { in: classUserIds } },
-          select: { subject: true, score: true },
-        })
-      : [];
-    const classTotals = classResults.reduce((totals, result) => {
-      const subject = result.subject || "General";
-      totals[subject] ||= { score: 0, count: 0 };
-      totals[subject].score += Number(result.score) || 0;
-      totals[subject].count += 1;
-      return totals;
-    }, {});
-    const classAverages = Object.fromEntries(
-      Object.entries(classTotals).map(([subject, totals]) => [
-        subject,
-        Math.round(totals.score / totals.count),
-      ])
-    );
-    const classScoreTrend = [...quizzes]
-      .reverse()
-      .map((quiz) => classAverages[quiz.subject] ?? null);
+        });
+        const classUserIds = [
+          ...new Set(
+            classMemberships.flatMap(({ class: educationClass }) =>
+              educationClass.students.map(({ student: peer }) => peer.user_id)
+            )
+          ),
+        ];
+        const classResults = classUserIds.length
+          ? await prisma.quiz_results.findMany({
+              where: { user_id: { in: classUserIds } },
+              select: { subject: true, score: true },
+            })
+          : [];
+        const classTotals = classResults.reduce((totals, result) => {
+          const subject = result.subject || "General";
+          totals[subject] ||= { score: 0, count: 0 };
+          totals[subject].score += Number(result.score) || 0;
+          totals[subject].count += 1;
+          return totals;
+        }, {});
+        const classAverages = Object.fromEntries(
+          Object.entries(classTotals).map(([subject, totals]) => [
+            subject,
+            Math.round(totals.score / totals.count),
+          ])
+        );
+        const classScoreTrend = [...quizzes]
+          .reverse()
+          .map((quiz) => classAverages[quiz.subject] ?? null);
 
-    console.log("✅ Found", weakAreaCards.length, "weak area cards across", Object.keys(struggledAreas).length, "subjects");
+        console.log(
+          "✅ Found",
+          weakAreaCards.length,
+          "weak area cards across",
+          Object.keys(struggledAreas).length,
+          "subjects"
+        );
 
-    // Generate AI summary
-    const generateSummary = () => {
-      if (totalQuizzes === 0) {
-        return "No quiz data available yet. Encourage your child to complete some quizzes to see detailed insights!";
+        // Generate AI summary
+        const generateSummary = () => {
+          if (totalQuizzes === 0) {
+            return "No quiz data available yet. Encourage your child to complete some quizzes to see detailed insights!";
+          }
+
+          const topSubjects = {};
+          quizzes.forEach((q) => {
+            const subj = q.subject || "General";
+            if (!topSubjects[subj]) {
+              topSubjects[subj] = { total: 0, count: 0 };
+            }
+            topSubjects[subj].total += parseFloat(q.score);
+            topSubjects[subj].count += 1;
+          });
+
+          const subjectAverages = Object.entries(topSubjects)
+            .map(([subject, data]) => ({
+              subject,
+              average: (data.total / data.count).toFixed(1),
+            }))
+            .sort((a, b) => b.average - a.average);
+
+          const bestSubject = subjectAverages[0];
+          const weakestSubject = subjectAverages[subjectAverages.length - 1];
+
+          let summary = `## Overall Performance\n\n`;
+          summary += `${student.name} has completed **${totalQuizzes} quizzes** with an average score of **${averageScore}%**. `;
+
+          if (averageScore >= 80) {
+            summary += `This is an excellent performance! 🎉\n\n`;
+          } else if (averageScore >= 60) {
+            summary += `This shows good progress with room for improvement. 📈\n\n`;
+          } else {
+            summary += `There's significant room for growth. Keep practicing! 💪\n\n`;
+          }
+
+          summary += `## Subject Analysis\n\n`;
+          summary += `**Strongest Subject:** ${bestSubject.subject} (${bestSubject.average}% average) 🌟\n\n`;
+
+          if (subjectAverages.length > 1) {
+            summary += `**Area for Improvement:** ${weakestSubject.subject} (${weakestSubject.average}% average)\n\n`;
+          }
+
+          // Recent performance trend
+          const recentQuizzes = quizzes.slice(0, 5);
+          const recentAvg =
+            recentQuizzes.reduce((sum, q) => sum + parseFloat(q.score), 0) /
+            recentQuizzes.length;
+
+          summary += `## Recent Trend\n\n`;
+          summary += `Recent average: **${recentAvg.toFixed(1)}%** `;
+
+          if (recentAvg > averageScore + 5) {
+            summary += `(Improving! 📈)\n\n`;
+          } else if (recentAvg < averageScore - 5) {
+            summary += `(Needs attention 🔍)\n\n`;
+          } else {
+            summary += `(Stable performance ➡️)\n\n`;
+          }
+
+          summary += `## Recommendations\n\n`;
+          summary += `- Continue practicing ${bestSubject.subject} to maintain excellence\n`;
+          if (subjectAverages.length > 1) {
+            summary += `- Spend more time on ${weakestSubject.subject} concepts\n`;
+          }
+          summary += `- Aim for consistency by taking regular quizzes\n`;
+          summary += `- Review incorrect answers to learn from mistakes\n`;
+
+          return summary;
+        };
+
+        const summary = generateSummary();
+
+        const unresolvedWeakAreas = weakAreaCards.filter(
+          (card) => !card.resolved
+        );
+        const homeAdvice = unresolvedWeakAreas.length
+          ? `Focus the next study session on ${unresolvedWeakAreas[0].subject}. Ask your child to explain the flagged question in their own words, review the correct answer together, then try a similar practice question.`
+          : totalQuizzes > 0
+            ? "Keep a consistent weekly study routine, review incorrect quiz answers, and celebrate steady improvement rather than individual scores."
+            : "Help your child complete their first short quiz so Chikoro AI can identify strengths and recommend focused practice.";
+
+        const notifSettings = await prisma.parentNotificationSettings.findFirst(
+          {
+            where: { parentId: parent.id, studentId: student.id },
+          }
+        );
+
+        // Return data in the format the frontend expects
+        res.json({
+          success: true,
+          parentEmail: parent?.email ?? null,
+          child: {
+            id: student.id,
+            name: student.name,
+            grade: student.grade,
+            streak: student.user?.streak || 0,
+          },
+          reports: [
+            {
+              date: new Date().toISOString(),
+              quizzes: quizzes,
+              summary: summary,
+              homeAdvice,
+              averageScore: averageScore,
+              totalXP: totalXP,
+              mastered: mastered,
+              totalFlashcards: totalFlashcards,
+              classAverages,
+              classScoreTrend,
+              struggledAreas: struggledAreas, // ← NEW
+              notifSettings,
+            },
+          ],
+        });
+      } catch (err) {
+        console.error("Error fetching child report:", err);
+        res.status(500).json({
+          success: false,
+          error: "Failed to fetch report",
+          details: err.message,
+        });
       }
+    }
+  );
 
-      const topSubjects = {};
-      quizzes.forEach(q => {
-        const subj = q.subject || 'General';
-        if (!topSubjects[subj]) {
-          topSubjects[subj] = { total: 0, count: 0 };
+  app.get(
+    "/system/students",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.teacher]),
+    ],
+    async (req, res) => {
+      try {
+        const students = await prisma.students.findMany({
+          select: {
+            id: true,
+            name: true,
+            grade: true,
+            subscription_status: true,
+            subscription_plan: true,
+            subscription_expiration_date: true,
+          },
+        });
+        res.json({ success: true, students });
+      } catch (err) {
+        console.error("Error fetching all students:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Internal server error." });
+      }
+    }
+  );
+
+  app.get(
+    "/system/parent/me/children",
+    [validatedRequest, flexUserRoleValid([ROLES.parent])],
+    async (req, res) => {
+      try {
+        const parent = await prisma.parents.findFirst({
+          where: { user_id: res.locals.user.id },
+          select: { id: true },
+        });
+        if (!parent)
+          return res
+            .status(403)
+            .json({ success: false, error: "Parent profile not found" });
+        const links = await prisma.parent_students.findMany({
+          where: { parentId: parent.id },
+          include: {
+            student: true,
+          },
+        });
+
+        // Map child stats (extend as needed)
+        const children = links.map((link) => ({
+          id: link.student.id,
+          name: link.student.name,
+          grade: link.student.grade,
+          linkId: link.id,
+        }));
+
+        res.json({ success: true, children });
+      } catch (err) {
+        console.error("Error fetching children:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Internal server error" });
+      }
+    }
+  );
+
+  // Generates a readable, collision-resistant code (excludes ambiguous chars: 0/O, 1/I)
+  function generateLinkCode(length = 8) {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const bytes = crypto.randomBytes(length);
+    return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+  }
+
+  // ----------------------------------------------------------------------
+  // Generate a link code (student-initiated)
+  // ----------------------------------------------------------------------
+  app.post(
+    "/system/student/generate-link-code",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      try {
+        const { studentId } = req.body;
+        const userId = res.locals.user.id;
+
+        // Validate studentId
+        if (!studentId || isNaN(Number(studentId))) {
+          return res.status(400).json({
+            success: false,
+            error: "Invalid student ID",
+          });
         }
-        topSubjects[subj].total += parseFloat(q.score);
-        topSubjects[subj].count += 1;
-      });
 
-      const subjectAverages = Object.entries(topSubjects)
-        .map(([subject, data]) => ({
-          subject,
-          average: (data.total / data.count).toFixed(1)
-        }))
-        .sort((a, b) => b.average - a.average);
+        // Verify student exists
+        const student = await prisma.students.findUnique({
+          where: { id: Number(studentId) },
+        });
 
-      const bestSubject = subjectAverages[0];
-      const weakestSubject = subjectAverages[subjectAverages.length - 1];
-
-      let summary = `## Overall Performance\n\n`;
-      summary += `${student.name} has completed **${totalQuizzes} quizzes** with an average score of **${averageScore}%**. `;
-      
-      if (averageScore >= 80) {
-        summary += `This is an excellent performance! 🎉\n\n`;
-      } else if (averageScore >= 60) {
-        summary += `This shows good progress with room for improvement. 📈\n\n`;
-      } else {
-        summary += `There's significant room for growth. Keep practicing! 💪\n\n`;
-      }
-
-      summary += `## Subject Analysis\n\n`;
-      summary += `**Strongest Subject:** ${bestSubject.subject} (${bestSubject.average}% average) 🌟\n\n`;
-      
-      if (subjectAverages.length > 1) {
-        summary += `**Area for Improvement:** ${weakestSubject.subject} (${weakestSubject.average}% average)\n\n`;
-      }
-
-      // Recent performance trend
-      const recentQuizzes = quizzes.slice(0, 5);
-      const recentAvg = recentQuizzes.reduce((sum, q) => sum + parseFloat(q.score), 0) / recentQuizzes.length;
-      
-      summary += `## Recent Trend\n\n`;
-      summary += `Recent average: **${recentAvg.toFixed(1)}%** `;
-      
-      if (recentAvg > averageScore + 5) {
-        summary += `(Improving! 📈)\n\n`;
-      } else if (recentAvg < averageScore - 5) {
-        summary += `(Needs attention 🔍)\n\n`;
-      } else {
-        summary += `(Stable performance ➡️)\n\n`;
-      }
-
-      summary += `## Recommendations\n\n`;
-      summary += `- Continue practicing ${bestSubject.subject} to maintain excellence\n`;
-      if (subjectAverages.length > 1) {
-        summary += `- Spend more time on ${weakestSubject.subject} concepts\n`;
-      }
-      summary += `- Aim for consistency by taking regular quizzes\n`;
-      summary += `- Review incorrect answers to learn from mistakes\n`;
-
-      return summary;
-    };
-
-    const summary = generateSummary();
-
-    const unresolvedWeakAreas = weakAreaCards.filter((card) => !card.resolved);
-    const homeAdvice = unresolvedWeakAreas.length
-      ? `Focus the next study session on ${unresolvedWeakAreas[0].subject}. Ask your child to explain the flagged question in their own words, review the correct answer together, then try a similar practice question.`
-      : totalQuizzes > 0
-        ? "Keep a consistent weekly study routine, review incorrect quiz answers, and celebrate steady improvement rather than individual scores."
-        : "Help your child complete their first short quiz so Chikoro AI can identify strengths and recommend focused practice.";
-
-    const notifSettings = await prisma.parentNotificationSettings.findFirst({
-      where: { parentId: parent.id, studentId: student.id },
-    });
-
-    // Return data in the format the frontend expects
-    res.json({ 
-      success: true, 
-      parentEmail: parent?.email ?? null,
-      child: {
-        id: student.id,
-        name: student.name,
-        grade: student.grade,
-        streak: student.user?.streak || 0,
-      },
-      reports: [
-        {
-          date: new Date().toISOString(),
-          quizzes: quizzes,
-          summary: summary,
-          homeAdvice,
-          averageScore: averageScore,
-          totalXP: totalXP,
-          mastered: mastered,
-          totalFlashcards: totalFlashcards,
-          classAverages,
-          classScoreTrend,
-          struggledAreas: struggledAreas, // ← NEW
-          notifSettings,
+        if (!student) {
+          return res.status(404).json({
+            success: false,
+            error: "Student not found",
+          });
         }
-      ]
-    });
-  } catch (err) {
-    console.error("Error fetching child report:", err);
-    res.status(500).json({ 
-      success: false, 
-      error: "Failed to fetch report",
-      details: err.message 
-    });
-  }
-});
 
-app.get("/system/students", [
-  validatedRequest,
-  flexUserRoleValid([ROLES.admin, ROLES.manager, ROLES.teacher]),
-], async (req, res) => {
-  try {
-    const students = await prisma.students.findMany({
-      select: { id: true, name: true, grade: true, subscription_status: true,subscription_plan: true,subscription_expiration_date: true, },
-    });
-    res.json({ success: true, students });
-  } catch (err) {
-    console.error("Error fetching all students:", err);
-    res.status(500).json({ success: false, error: "Internal server error." });
-  }
-});
+        // Authorization: confirm the authenticated user IS this student
+        if (Number(student.user_id) !== Number(userId)) {
+          return res.status(403).json({
+            success: false,
+            error:
+              "You are not authorized to generate a link code for this student",
+          });
+        }
 
+        // Invalidate any previous unused codes for this student so only one is active at a time
+        await prisma.student_link_codes.updateMany({
+          where: {
+            studentId: Number(studentId),
+            used: false,
+          },
+          data: {
+            used: true,
+          },
+        });
 
-app.get("/system/parent/me/children", [validatedRequest, flexUserRoleValid([ROLES.parent])], async (req, res) => {
-  try {
-    const parent = await prisma.parents.findFirst({
-      where: { user_id: res.locals.user.id },
-      select: { id: true },
-    });
-    if (!parent)
-      return res.status(403).json({ success: false, error: "Parent profile not found" });
-    const links = await prisma.parent_students.findMany({
-      where: { parentId: parent.id },
-      include: {
-        student: true,
-      },
-    });
+        // Generate a unique code, retrying on the rare collision
+        let linkCode;
+        let isDuplicate = true;
 
-    // Map child stats (extend as needed)
-    const children = links.map(link => ({
-      id: link.student.id,
-      name: link.student.name,
-      grade: link.student.grade,
-      linkId: link.id,
-    }));
+        while (isDuplicate) {
+          linkCode = generateLinkCode();
+          const existing = await prisma.student_link_codes.findUnique({
+            where: { code: linkCode },
+          });
+          isDuplicate = Boolean(existing);
+        }
 
-    res.json({ success: true, children });
-  } catch (err) {
-    console.error("Error fetching children:", err);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
+        const newCode = await prisma.student_link_codes.create({
+          data: {
+            studentId: Number(studentId),
+            code: linkCode,
+            expiresAt,
+            used: false,
+          },
+        });
 
-
-// Generates a readable, collision-resistant code (excludes ambiguous chars: 0/O, 1/I)
-function generateLinkCode(length = 8) {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = crypto.randomBytes(length);
-  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
-}
-
-// ----------------------------------------------------------------------
-// Generate a link code (student-initiated)
-// ----------------------------------------------------------------------
-app.post("/system/student/generate-link-code", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  try {
-    const { studentId } = req.body;
-    const userId = res.locals.user.id;
-
-    // Validate studentId
-    if (!studentId || isNaN(Number(studentId))) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid student ID",
-      });
+        res.json({
+          success: true,
+          linkCode: newCode.code,
+          expiresAt: newCode.expiresAt,
+        });
+      } catch (err) {
+        console.error("Error generating link code:", err);
+        res.status(500).json({
+          success: false,
+          error: "Failed to generate code",
+          details: err.message,
+        });
+      }
     }
+  );
 
-    // Verify student exists
-    const student = await prisma.students.findUnique({
-      where: { id: Number(studentId) },
-    });
+  // ----------------------------------------------------------------------
+  // Link a child to a parent account (parent-initiated, using the code)
+  // ----------------------------------------------------------------------
+  app.post(
+    "/system/parent/link-child",
+    [validatedRequest, flexUserRoleValid([ROLES.parent])],
+    async (req, res) => {
+      try {
+        const { linkCode } = req.body;
+        const userId = res.locals.user.id;
 
-    if (!student) {
-      return res.status(404).json({
-        success: false,
-        error: "Student not found",
-      });
+        // Validate input
+        if (!linkCode) {
+          return res.status(400).json({
+            success: false,
+            error: "Link code is required",
+          });
+        }
+
+        // Find the parent record using the authenticated user's ID
+        const parent = await prisma.parents.findFirst({
+          where: { user_id: Number(userId) },
+          select: { id: true, email: true },
+        });
+
+        if (!parent) {
+          return res.status(404).json({
+            success: false,
+            error: "Parent profile not found",
+          });
+        }
+
+        // Find and validate the link code
+        const codeRecord = await prisma.student_link_codes.findFirst({
+          where: {
+            code: linkCode.toUpperCase(),
+            used: false,
+            expiresAt: { gte: new Date() },
+          },
+        });
+
+        if (!codeRecord) {
+          return res.status(404).json({
+            success: false,
+            error: "Invalid or expired link code",
+          });
+        }
+
+        // Check if already linked
+        const existingLink = await prisma.parent_students.findFirst({
+          where: {
+            parentId: parent.id,
+            studentId: codeRecord.studentId,
+          },
+        });
+
+        if (existingLink) {
+          return res.status(400).json({
+            success: false,
+            error: "This child is already linked to your account",
+          });
+        }
+
+        // Create the link
+        const link = await prisma.parent_students.create({
+          data: {
+            parentId: parent.id,
+            studentId: codeRecord.studentId,
+            linkedAt: new Date(),
+          },
+          include: {
+            student: true,
+          },
+        });
+
+        // Mark code as used
+        await prisma.student_link_codes.update({
+          where: { id: codeRecord.id },
+          data: {
+            used: true,
+            usedAt: new Date(),
+          },
+        });
+
+        // Notify the student that a parent has linked to their account
+        await sendPushNotification(link.student.user_id, {
+          title: "👨‍👩‍👧 Parent Linked",
+          body: `A parent or guardian has linked to your account and can now view your progress.`,
+          data: { type: "parent_linked" },
+        });
+
+        res.json({
+          success: true,
+          link,
+          parentEmail: parent.email ?? null,
+          message: `Successfully linked ${link.student.name}`,
+        });
+      } catch (err) {
+        console.error("Error linking child:", err);
+        res.status(500).json({
+          success: false,
+          error: "Failed to link child",
+          details: err.message,
+        });
+      }
     }
+  );
 
-    // Authorization: confirm the authenticated user IS this student
-    if (Number(student.user_id) !== Number(userId)) {
-      return res.status(403).json({
-        success: false,
-        error: "You are not authorized to generate a link code for this student",
-      });
+  app.post(
+    "/system/teacher/create-class-link",
+    [validatedRequest, flexUserRoleValid([ROLES.teacher])],
+    async (req, res) => {
+      try {
+        const { subject } = req.body;
+        const sessionUser = await userFromSession(req, res);
+
+        if (!sessionUser?.id) {
+          return res
+            .status(401)
+            .json({ success: false, error: "Not authenticated" });
+        }
+
+        const teacher = await prisma.teachers.findFirst({
+          where: { user_id: sessionUser.id },
+        });
+
+        if (!teacher) {
+          return res
+            .status(404)
+            .json({ success: false, error: "Teacher not found" });
+        }
+
+        const crypto = await import("crypto");
+        const classCode =
+          subject.slice(0, 3).toUpperCase() +
+          "-" +
+          crypto.randomBytes(3).toString("hex").toUpperCase();
+
+        const classLink = await prisma.class_links.create({
+          data: { teacherId: teacher.id, subject, classCode },
+        });
+
+        const joinUrl = `https://chikoro-ai.com/join/${classCode}`;
+        res.json({ success: true, classLink: { ...classLink, joinUrl } });
+      } catch (err) {
+        console.error("Error creating class link:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Internal server error" });
+      }
     }
+  );
 
-    // Invalidate any previous unused codes for this student so only one is active at a time
-    await prisma.student_link_codes.updateMany({
-      where: {
-        studentId: Number(studentId),
-        used: false,
-      },
-      data: {
-        used: true,
-      },
-    });
+  app.post(
+    "/system/student/join-class/:classCode",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      try {
+        const { classCode } = req.params;
+        const sessionUser = await userFromSession(req, res);
 
-    // Generate a unique code, retrying on the rare collision
-    let linkCode;
-    let isDuplicate = true;
+        if (!sessionUser?.id)
+          return res
+            .status(401)
+            .json({ success: false, error: "Unauthorized" });
 
-    while (isDuplicate) {
-      linkCode = generateLinkCode();
-      const existing = await prisma.student_link_codes.findUnique({
-        where: { code: linkCode },
-      });
-      isDuplicate = Boolean(existing);
+        const student = await prisma.students.findFirst({
+          where: { user_id: sessionUser.id },
+        });
+        if (!student)
+          return res
+            .status(404)
+            .json({ success: false, error: "Student profile not found" });
+
+        const classLink = await prisma.class_links.findUnique({
+          where: { classCode },
+        });
+        if (!classLink)
+          return res
+            .status(404)
+            .json({ success: false, error: "Class not found" });
+
+        // ✅ Check for the specific teacher-student-subject combo
+        const existing = await prisma.teacher_students.findFirst({
+          where: {
+            teacherId: classLink.teacherId,
+            studentId: student.id,
+            subject: classLink.subject, // ✅ Added subject check
+          },
+        });
+
+        if (existing)
+          return res.status(409).json({
+            success: false,
+            error: `Already joined ${classLink.subject} with this teacher`,
+          });
+
+        await prisma.teacher_students.create({
+          data: {
+            teacherId: classLink.teacherId,
+            studentId: student.id,
+            subject: classLink.subject,
+          },
+        });
+
+        syncTeacherStudentToEducationClass({
+          teacherId: classLink.teacherId,
+          studentId: student.id,
+          subject: classLink.subject,
+        }).catch((error) =>
+          console.error("Education hierarchy sync failed:", error)
+        );
+
+        res.json({
+          success: true,
+          message: `Joined ${classLink.subject} successfully!`,
+        });
+      } catch (err) {
+        console.error("Error joining class:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Internal server error" });
+      }
     }
+  );
 
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  app.get(
+    "/system/student/active-link-code/:studentId",
+    [validatedRequest, flexUserRoleValid([ROLES.student])],
+    async (req, res) => {
+      try {
+        const student = await prisma.students.findFirst({
+          where: { user_id: res.locals.user.id },
+          select: { id: true },
+        });
+        if (!student)
+          return res
+            .status(403)
+            .json({ success: false, error: "Student profile required" });
 
-    const newCode = await prisma.student_link_codes.create({
-      data: {
-        studentId: Number(studentId),
-        code: linkCode,
-        expiresAt,
-        used: false,
-      },
-    });
+        const linkCode = await prisma.student_link_codes.findFirst({
+          where: {
+            studentId: student.id,
+            used: false,
+            expiresAt: { gte: new Date() },
+          },
+          orderBy: { createdAt: "desc" },
+        });
 
-    res.json({
-      success: true,
-      linkCode: newCode.code,
-      expiresAt: newCode.expiresAt,
-    });
-  } catch (err) {
-    console.error("Error generating link code:", err);
-    res.status(500).json({
-      success: false,
-      error: "Failed to generate code",
-      details: err.message,
-    });
-  }
-});
-
-// ----------------------------------------------------------------------
-// Link a child to a parent account (parent-initiated, using the code)
-// ----------------------------------------------------------------------
-app.post("/system/parent/link-child", [validatedRequest, flexUserRoleValid([ROLES.parent])], async (req, res) => {
-  try {
-    const { linkCode } = req.body;
-    const userId = res.locals.user.id;
-
-    // Validate input
-    if (!linkCode) {
-      return res.status(400).json({
-        success: false,
-        error: "Link code is required",
-      });
+        res.json({ success: true, linkCode });
+      } catch (err) {
+        console.error("Error fetching active link code:", err);
+        res
+          .status(500)
+          .json({ success: false, error: "Internal server error" });
+      }
     }
+  );
 
-    // Find the parent record using the authenticated user's ID
-    const parent = await prisma.parents.findFirst({
-      where: { user_id: Number(userId) },
-      select: { id: true, email: true },
-    });
-
-    if (!parent) {
-      return res.status(404).json({
-        success: false,
-        error: "Parent profile not found",
-      });
-    }
-
-    // Find and validate the link code
-    const codeRecord = await prisma.student_link_codes.findFirst({
-      where: {
-        code: linkCode.toUpperCase(),
-        used: false,
-        expiresAt: { gte: new Date() },
-      },
-    });
-
-    if (!codeRecord) {
-      return res.status(404).json({
-        success: false,
-        error: "Invalid or expired link code",
-      });
-    }
-
-    // Check if already linked
-    const existingLink = await prisma.parent_students.findFirst({
-      where: {
-        parentId: parent.id,
-        studentId: codeRecord.studentId,
-      },
-    });
-
-    if (existingLink) {
-      return res.status(400).json({
-        success: false,
-        error: "This child is already linked to your account",
-      });
-    }
-
-    // Create the link
-    const link = await prisma.parent_students.create({
-      data: {
-        parentId: parent.id,
-        studentId: codeRecord.studentId,
-        linkedAt: new Date(),
-      },
-      include: {
-        student: true,
-      },
-    });
-
-    // Mark code as used
-    await prisma.student_link_codes.update({
-      where: { id: codeRecord.id },
-      data: {
-        used: true,
-        usedAt: new Date(),
-      },
-    });
-
-    // Notify the student that a parent has linked to their account
-    await sendPushNotification(link.student.user_id, {
-      title: "👨‍👩‍👧 Parent Linked",
-      body: `A parent or guardian has linked to your account and can now view your progress.`,
-      data: { type: "parent_linked" },
-    });
-
-    res.json({
-      success: true,
-      link,
-      parentEmail: parent.email ?? null,
-      message: `Successfully linked ${link.student.name}`,
-    });
-  } catch (err) {
-    console.error("Error linking child:", err);
-    res.status(500).json({
-      success: false,
-      error: "Failed to link child",
-      details: err.message,
-    });
-  }
-});
-
-
-app.post("/system/teacher/create-class-link", [validatedRequest, flexUserRoleValid([ROLES.teacher])], async (req, res) => {
-  try {
-    const { subject } = req.body;
-    const sessionUser = await userFromSession(req, res);
-
-    if (!sessionUser?.id) {
-      return res.status(401).json({ success: false, error: "Not authenticated" });
-    }
-
-    const teacher = await prisma.teachers.findFirst({
-  where: { user_id: sessionUser.id },
-    });
-
-    if (!teacher) {
-      return res.status(404).json({ success: false, error: "Teacher not found" });
-    }
-
-    const crypto = await import("crypto");
-    const classCode = subject.slice(0, 3).toUpperCase() + "-" + crypto.randomBytes(3).toString("hex").toUpperCase();
-
-    const classLink = await prisma.class_links.create({
-      data: { teacherId: teacher.id, subject, classCode },
-    });
-
-    const joinUrl = `https://chikoro-ai.com/join/${classCode}`;
-    res.json({ success: true, classLink: { ...classLink, joinUrl } });
-  } catch (err) {
-    console.error("Error creating class link:", err);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/system/student/join-class/:classCode", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  try {
-    const { classCode } = req.params;
-    const sessionUser = await userFromSession(req, res);
-
-    if (!sessionUser?.id)
-      return res.status(401).json({ success: false, error: "Unauthorized" });
-
-    const student = await prisma.students.findFirst({
-      where: { user_id: sessionUser.id },
-    });
-    if (!student)
-      return res.status(404).json({ success: false, error: "Student profile not found" });
-
-    const classLink = await prisma.class_links.findUnique({ where: { classCode } });
-    if (!classLink)
-      return res.status(404).json({ success: false, error: "Class not found" });
-
-    // ✅ Check for the specific teacher-student-subject combo
-    const existing = await prisma.teacher_students.findFirst({
-      where: { 
-        teacherId: classLink.teacherId, 
-        studentId: student.id,
-        subject: classLink.subject  // ✅ Added subject check
-      },
-    });
-    
-    if (existing)
-      return res.status(409).json({ 
-        success: false, 
-        error: `Already joined ${classLink.subject} with this teacher` 
-      });
-
-    await prisma.teacher_students.create({
-      data: {
-        teacherId: classLink.teacherId,
-        studentId: student.id,
-        subject: classLink.subject,
-      },
-    });
-
-    syncTeacherStudentToEducationClass({
-      teacherId: classLink.teacherId,
-      studentId: student.id,
-      subject: classLink.subject,
-    }).catch((error) => console.error("Education hierarchy sync failed:", error));
-
-    res.json({ success: true, message: `Joined ${classLink.subject} successfully!` });
-  } catch (err) {
-    console.error("Error joining class:", err);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.get("/system/student/active-link-code/:studentId", [validatedRequest, flexUserRoleValid([ROLES.student])], async (req, res) => {
-  try {
-    const student = await prisma.students.findFirst({
-      where: { user_id: res.locals.user.id },
-      select: { id: true },
-    });
-    if (!student)
-      return res.status(403).json({ success: false, error: "Student profile required" });
-    
-    const linkCode = await prisma.student_link_codes.findFirst({
-      where: {
-        studentId: student.id,
-        used: false,
-        expiresAt: { gte: new Date() },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    res.json({ success: true, linkCode });
-  } catch (err) {
-    console.error("Error fetching active link code:", err);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/request-token", async (request, response) => {
+  app.post("/request-token", async (request, response) => {
     try {
       const bcrypt = require("bcrypt");
 
@@ -6085,7 +6923,9 @@ app.post("/request-token", async (request, response) => {
 
         const { username, password } = reqBody(request);
         const existingUser = await User._get({ username: String(username) });
-        console.log(`[Login] Attempt for username="${username}" → found users.id=${existingUser?.id}, role=${existingUser?.role}`);
+        console.log(
+          `[Login] Attempt for username="${username}" → found users.id=${existingUser?.id}, role=${existingUser?.role}`
+        );
 
         if (!existingUser) {
           await EventLogs.logEvent(
@@ -6164,7 +7004,9 @@ app.post("/request-token", async (request, response) => {
           { id: existingUser.id, username: existingUser.username },
           process.env.JWT_EXPIRY
         );
-        console.log(`[Login] JWT issued for users.id=${existingUser.id}, username="${existingUser.username}", role=${existingUser.role}`);
+        console.log(
+          `[Login] JWT issued for users.id=${existingUser.id}, username="${existingUser.username}", role=${existingUser.role}`
+        );
         if (!existingUser.seen_recovery_codes) {
           const plainTextCodes = await generateRecoveryCodes(existingUser.id);
           response.status(200).json({
@@ -6224,7 +7066,7 @@ app.post("/request-token", async (request, response) => {
     }
   });
 
-    app.post("/system/register", async (request, response) => {
+  app.post("/system/register", async (request, response) => {
     try {
       const bcrypt = require("bcrypt");
       const jwt = require("jsonwebtoken");
@@ -6257,10 +7099,10 @@ app.post("/request-token", async (request, response) => {
 
       // create new user
       const { user, error } = await User.create({
-  username,
-  password,
-  role: ROLES.user, // use the predefined constant
-});
+        username,
+        password,
+        role: ROLES.user, // use the predefined constant
+      });
 
       if (error || !user) {
         return response.status(500).json({
@@ -7126,28 +7968,37 @@ app.post("/request-token", async (request, response) => {
     }
   );
 
- app.post(
-  "/system/create-workflow",
-  [validatedRequest, flexUserRoleValid(["admin", "teacher", "student", "parent", "user"])],
-  async (req, res) => {
-    try {
-      const user = await userFromSession(req, res);
-      const { name } = reqBody(req);
-      if (!name)
-        return res.status(400).json({ success: false, error: "Workspace name required." });
+  app.post(
+    "/system/create-workflow",
+    [
+      validatedRequest,
+      flexUserRoleValid(["admin", "teacher", "student", "parent", "user"]),
+    ],
+    async (req, res) => {
+      try {
+        const user = await userFromSession(req, res);
+        const { name } = reqBody(req);
+        if (!name)
+          return res
+            .status(400)
+            .json({ success: false, error: "Workspace name required." });
 
-      const { Workspace } = require("../models/workspace");
-      const { workspace, message: error } = await Workspace.new(name, user.id);
-      if (!workspace)
-        return res.status(500).json({ success: false, error });
+        const { Workspace } = require("../models/workspace");
+        const { workspace, message: error } = await Workspace.new(
+          name,
+          user.id
+        );
+        if (!workspace) return res.status(500).json({ success: false, error });
 
-      return res.status(200).json({ success: true, workspace });
-    } catch (err) {
-      console.error("❌ Error creating workflow:", err);
-      return res.status(500).json({ success: false, error: "Internal error" });
+        return res.status(200).json({ success: true, workspace });
+      } catch (err) {
+        console.error("❌ Error creating workflow:", err);
+        return res
+          .status(500)
+          .json({ success: false, error: "Internal error" });
+      }
     }
-  }
-);
+  );
 
   // Used for when a user in multi-user updates their own profile
   // from the UI.
@@ -7469,366 +8320,369 @@ app.post("/request-token", async (request, response) => {
     }
   );
 
-// app.get("/system/teacher/my-students/:teacherId", [validatedRequest], async (req, res) => {
-//   try {
-//     const { teacherId } = req.params;
-    
-//     const links = await prisma.teacher_students.findMany({
-//       where: { teacherId: Number(teacherId) },
-//       include: {
-//         student: true,  // Include the actual student record
-//       },
-//     });
+  // app.get("/system/teacher/my-students/:teacherId", [validatedRequest], async (req, res) => {
+  //   try {
+  //     const { teacherId } = req.params;
 
-//     const students = links.map((link) => ({
-//       id: link.student.id,           // ✅ Use student ID, not relationship ID
-//       name: link.student.name,
-//       grade: link.student.grade,
-//       subject: link.subject,
-//       linkId: link.id,               // Include relationship ID separately if needed
-//     }));
+  //     const links = await prisma.teacher_students.findMany({
+  //       where: { teacherId: Number(teacherId) },
+  //       include: {
+  //         student: true,  // Include the actual student record
+  //       },
+  //     });
 
-//     res.json({ success: true, students });
-//   } catch (err) {
-//     console.error("Error fetching students:", err);
-//     res.status(500).json({ success: false, error: "Internal server error" });
-//   }
-// });
+  //     const students = links.map((link) => ({
+  //       id: link.student.id,           // ✅ Use student ID, not relationship ID
+  //       name: link.student.name,
+  //       grade: link.student.grade,
+  //       subject: link.subject,
+  //       linkId: link.id,               // Include relationship ID separately if needed
+  //     }));
 
-// app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, res) => {
-//   try {
-//     const { childId } = req.params;
-    
-//     // Get userId from the token in the Authorization header
-//     const token = req.headers.authorization?.replace("Bearer ", "");
-//     if (!token) {
-//       return res.status(401).json({ 
-//         success: false, 
-//         error: "Authentication required" 
-//       });
-//     }
+  //     res.json({ success: true, students });
+  //   } catch (err) {
+  //     console.error("Error fetching students:", err);
+  //     res.status(500).json({ success: false, error: "Internal server error" });
+  //   }
+  // });
 
-//     // Decode the token to get user ID
-//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-//     const userId = decoded.id;
+  // app.get("/system/parent/child-report/:childId", [validatedRequest], async (req, res) => {
+  //   try {
+  //     const { childId } = req.params;
 
-//     console.log("🔍 Fetching report for childId:", childId, "by userId:", userId);
-    
-//     // Find parent record
-//     const parent = await prisma.parents.findFirst({
-//       where: { user_id: Number(userId) },
-//     });
+  //     // Get userId from the token in the Authorization header
+  //     const token = req.headers.authorization?.replace("Bearer ", "");
+  //     if (!token) {
+  //       return res.status(401).json({
+  //         success: false,
+  //         error: "Authentication required"
+  //       });
+  //     }
 
-//     if (!parent) {
-//       console.log("❌ Parent not found for userId:", userId);
-//       return res.status(403).json({ 
-//         success: false, 
-//         error: "Parent profile not found" 
-//       });
-//     }
+  //     // Decode the token to get user ID
+  //     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  //     const userId = decoded.id;
 
-//     console.log("✅ Parent found:", parent.id);
+  //     console.log("🔍 Fetching report for childId:", childId, "by userId:", userId);
 
-//     // Verify this parent is linked to this child
-//     const link = await prisma.parent_students.findFirst({
-//       where: {
-//         parentId: parent.id,
-//         studentId: Number(childId),
-//       },
-//     });
+  //     // Find parent record
+  //     const parent = await prisma.parents.findFirst({
+  //       where: { user_id: Number(userId) },
+  //     });
 
-//     if (!link) {
-//       console.log("❌ No link found between parent and child");
-//       return res.status(403).json({ 
-//         success: false, 
-//         error: "You don't have access to this child's reports" 
-//       });
-//     }
+  //     if (!parent) {
+  //       console.log("❌ Parent not found for userId:", userId);
+  //       return res.status(403).json({
+  //         success: false,
+  //         error: "Parent profile not found"
+  //       });
+  //     }
 
-//     console.log("✅ Link verified:", link.id);
-    
-//     // Get student info
-//     const student = await prisma.students.findUnique({
-//       where: { id: Number(childId) },
-//     });
+  //     console.log("✅ Parent found:", parent.id);
 
-//     if (!student) {
-//       return res.status(404).json({ 
-//         success: false, 
-//         error: "Student not found" 
-//       });
-//     }
+  //     // Verify this parent is linked to this child
+  //     const link = await prisma.parent_students.findFirst({
+  //       where: {
+  //         parentId: parent.id,
+  //         studentId: Number(childId),
+  //       },
+  //     });
 
-//     console.log("✅ Student found:", student.name);
+  //     if (!link) {
+  //       console.log("❌ No link found between parent and child");
+  //       return res.status(403).json({
+  //         success: false,
+  //         error: "You don't have access to this child's reports"
+  //       });
+  //     }
 
-//     if (!student.user_id) {
-//       return res.status(400).json({ 
-//         success: false, 
-//         error: "Student record has no user_id. Cannot fetch reports." 
-//       });
-//     }
+  //     console.log("✅ Link verified:", link.id);
 
-//     // Get quiz results for this student (with all details)
-//     const quizzes = await prisma.quiz_results.findMany({
-//       where: { user_id: student.user_id },
-//       select: { 
-//         id: true, 
-//         subject: true, 
-//         score: true, 
-//         total_questions: true,
-//         correct_answers: true,
-//         submitted_at: true,
-//         difficulty: true,
-//          detailed_feedback: true, 
-//       },
-//       orderBy: { submitted_at: 'desc' },
-//     });
+  //     // Get student info
+  //     const student = await prisma.students.findUnique({
+  //       where: { id: Number(childId) },
+  //     });
 
-//    const struggledBySubject = {};
-//     for (const q of quizzes) {
-//       let feedback = [];
-//       try {
-//         feedback = JSON.parse(q.detailed_feedback || "[]");
-//       } catch { feedback = []; }
+  //     if (!student) {
+  //       return res.status(404).json({
+  //         success: false,
+  //         error: "Student not found"
+  //       });
+  //     }
 
-//       const struggled = feedback.filter(f => 
-//         f.type === "multiple-choice" ? !f.isCorrect : f.pointsEarned < f.pointsPossible
-//       );
+  //     console.log("✅ Student found:", student.name);
 
-//       if (struggled.length > 0) {
-//         const subjectName = q.subject || 'General';
-//         if (!struggledBySubject[subjectName]) struggledBySubject[subjectName] = [];
-        
-//         // CHANGED: Instead of just pushing the string, push a rich object
-//         struggledBySubject[subjectName].push(...struggled.map(f => ({
-//           quizId: q.id,
-//           question: f.question,
-//           userAnswer: f.userAnswer || f.studentAnswer, // Map to your schema's key
-//           correctAnswer: f.correctAnswer,
-//           explanation: f.explanation || f.ai_feedback || "Review this concept carefully."
-//         })));
-//       }
-//     }
-// const struggledSummary = Object.entries(struggledBySubject)
-//   .map(([subject, questions]) => 
-//     `${subject}:\n${questions.slice(0, 3).map(q => `  - ${q}`).join("\n")}`
-//   ).join("\n");
+  //     if (!student.user_id) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         error: "Student record has no user_id. Cannot fetch reports."
+  //       });
+  //     }
 
-//     console.log("✅ Found", quizzes.length, "quiz results");
+  //     // Get quiz results for this student (with all details)
+  //     const quizzes = await prisma.quiz_results.findMany({
+  //       where: { user_id: student.user_id },
+  //       select: {
+  //         id: true,
+  //         subject: true,
+  //         score: true,
+  //         total_questions: true,
+  //         correct_answers: true,
+  //         submitted_at: true,
+  //         difficulty: true,
+  //          detailed_feedback: true,
+  //       },
+  //       orderBy: { submitted_at: 'desc' },
+  //     });
 
-//     // Get XP logs
-//     const xpLogs = await prisma.event_logs.findMany({
-//       where: { 
-//         userId: student.user_id,
-//         event: "xp_gain" 
-//       },
-//       select: { 
-//         metadata: true, 
-//         occurredAt: true
-//       },
-//     });
+  //    const struggledBySubject = {};
+  //     for (const q of quizzes) {
+  //       let feedback = [];
+  //       try {
+  //         feedback = JSON.parse(q.detailed_feedback || "[]");
+  //       } catch { feedback = []; }
 
-//     console.log(`✅ Found ${xpLogs.length} XP logs`);
+  //       const struggled = feedback.filter(f =>
+  //         f.type === "multiple-choice" ? !f.isCorrect : f.pointsEarned < f.pointsPossible
+  //       );
 
-//     // Calculate stats
-//     const averageScore =
-//       quizzes.length > 0
-//         ? (quizzes.reduce((acc, q) => acc + (q.score / q.total_questions) * 100, 0) / quizzes.length).toFixed(1)
-//         : "0.0";
+  //       if (struggled.length > 0) {
+  //         const subjectName = q.subject || 'General';
+  //         if (!struggledBySubject[subjectName]) struggledBySubject[subjectName] = [];
 
-//     const flashcardSets = await prisma.savedFlashcardSet.findMany({
-//       where: { userId: student.user_id },
-//       select: { cards: true },
-//     });
-//     const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
-//     const mastered = 0;
+  //         // CHANGED: Instead of just pushing the string, push a rich object
+  //         struggledBySubject[subjectName].push(...struggled.map(f => ({
+  //           quizId: q.id,
+  //           question: f.question,
+  //           userAnswer: f.userAnswer || f.studentAnswer, // Map to your schema's key
+  //           correctAnswer: f.correctAnswer,
+  //           explanation: f.explanation || f.ai_feedback || "Review this concept carefully."
+  //         })));
+  //       }
+  //     }
+  // const struggledSummary = Object.entries(struggledBySubject)
+  //   .map(([subject, questions]) =>
+  //     `${subject}:\n${questions.slice(0, 3).map(q => `  - ${q}`).join("\n")}`
+  //   ).join("\n");
 
-//     const totalXP = xpLogs.reduce((sum, log) => {
-//       const points = typeof log.metadata === 'object'
-//         ? log.metadata?.points || 0
-//         : 0;
-//       return sum + points;
-//     }, 0);
+  //     console.log("✅ Found", quizzes.length, "quiz results");
 
-//     // Generate AI summary
-//     const summaryPrompt = `
-// You are Chikoro AI, an educational data analyst for parents.
-// Analyze the following student's progress and write a warm, encouraging summary for their parent.
+  //     // Get XP logs
+  //     const xpLogs = await prisma.event_logs.findMany({
+  //       where: {
+  //         userId: student.user_id,
+  //         event: "xp_gain"
+  //       },
+  //       select: {
+  //         metadata: true,
+  //         occurredAt: true
+  //       },
+  //     });
 
-// Name: ${student.name}
-// Grade: ${student.grade}
-// Average Quiz Score: ${averageScore}%
-// Total Quizzes Taken: ${quizzes.length}
-// XP Points: ${totalXP}
+  //     console.log(`✅ Found ${xpLogs.length} XP logs`);
 
-// Recent Quizzes:
-// ${quizzes.length > 0 
-//   ? quizzes
-//       .slice(0, 5)
-//       .map((q) => `- ${q.subject || 'General'}: ${((q.score / q.total_questions) * 100).toFixed(1)}% (${q.correct_answers}/${q.total_questions} correct)`)
-//       .join("\n")
-//   : "No quizzes taken yet."
-// }
+  //     // Calculate stats
+  //     const averageScore =
+  //       quizzes.length > 0
+  //         ? (quizzes.reduce((acc, q) => acc + (q.score / q.total_questions) * 100, 0) / quizzes.length).toFixed(1)
+  //         : "0.0";
 
-// Provide:
-// 1. A short paragraph summary of overall performance (parent-friendly tone).
-// 2. Key strengths to celebrate.
-// 3. Areas where gentle support might help.
-// 4. Suggested ways parents can encourage continued learning.
+  //     const flashcardSets = await prisma.savedFlashcardSet.findMany({
+  //       where: { userId: student.user_id },
+  //       select: { cards: true },
+  //     });
+  //     const totalFlashcards = flashcardSets.reduce((sum, set) => sum + (Array.isArray(set.cards) ? set.cards.length : 0), 0);
+  //     const mastered = 0;
 
-// Format neatly in Markdown with proper headers.
-//     `;
+  //     const totalXP = xpLogs.reduce((sum, log) => {
+  //       const points = typeof log.metadata === 'object'
+  //         ? log.metadata?.points || 0
+  //         : 0;
+  //       return sum + points;
+  //     }, 0);
 
-//     const aiSummary = await generateLessonPlanAI(summaryPrompt);
+  //     // Generate AI summary
+  //     const summaryPrompt = `
+  // You are Chikoro AI, an educational data analyst for parents.
+  // Analyze the following student's progress and write a warm, encouraging summary for their parent.
 
-//     // Format quizzes for frontend
-//     const formattedQuizzes = quizzes.map(q => ({
-//       id: q.id,
-//       subject: q.subject,
-//       score: ((q.score / q.total_questions) * 100).toFixed(1),
-//       correct_answers: q.correct_answers,
-//       total: q.total_questions,
-//       createdAt: q.submitted_at,
-//       difficulty: q.difficulty || "Medium",
-//     }));
+  // Name: ${student.name}
+  // Grade: ${student.grade}
+  // Average Quiz Score: ${averageScore}%
+  // Total Quizzes Taken: ${quizzes.length}
+  // XP Points: ${totalXP}
 
-//     res.json({ 
-//       success: true, 
-//       student: {
-//         id: student.id,
-//         name: student.name,
-//         grade: student.grade,
-//       },
-//       quizzes: formattedQuizzes,
-//       aiSummary: aiSummary,
-//       averageScore: parseFloat(averageScore),
-//       totalXP,
-//       mastered,
-//       totalFlashcards,
-//     });
-//   } catch (err) {
-//     console.error("Error fetching child report:", err);
-//     res.status(500).json({ 
-//       success: false, 
-//       error: "Failed to fetch report",
-//       details: err.message 
-//     });
-//   }
-// });
+  // Recent Quizzes:
+  // ${quizzes.length > 0
+  //   ? quizzes
+  //       .slice(0, 5)
+  //       .map((q) => `- ${q.subject || 'General'}: ${((q.score / q.total_questions) * 100).toFixed(1)}% (${q.correct_answers}/${q.total_questions} correct)`)
+  //       .join("\n")
+  //   : "No quizzes taken yet."
+  // }
 
-app.post("/payments/cash/:studentId", [validatedRequest], async (req, res) => {
-  try {
-    // 🧍 Verify user is admin
-    const user = res.locals.user;
-    if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
-    if (user.role !== "admin") {
-      return res.status(403).json({ error: "Admin access required" });
+  // Provide:
+  // 1. A short paragraph summary of overall performance (parent-friendly tone).
+  // 2. Key strengths to celebrate.
+  // 3. Areas where gentle support might help.
+  // 4. Suggested ways parents can encourage continued learning.
+
+  // Format neatly in Markdown with proper headers.
+  //     `;
+
+  //     const aiSummary = await generateLessonPlanAI(summaryPrompt);
+
+  //     // Format quizzes for frontend
+  //     const formattedQuizzes = quizzes.map(q => ({
+  //       id: q.id,
+  //       subject: q.subject,
+  //       score: ((q.score / q.total_questions) * 100).toFixed(1),
+  //       correct_answers: q.correct_answers,
+  //       total: q.total_questions,
+  //       createdAt: q.submitted_at,
+  //       difficulty: q.difficulty || "Medium",
+  //     }));
+
+  //     res.json({
+  //       success: true,
+  //       student: {
+  //         id: student.id,
+  //         name: student.name,
+  //         grade: student.grade,
+  //       },
+  //       quizzes: formattedQuizzes,
+  //       aiSummary: aiSummary,
+  //       averageScore: parseFloat(averageScore),
+  //       totalXP,
+  //       mastered,
+  //       totalFlashcards,
+  //     });
+  //   } catch (err) {
+  //     console.error("Error fetching child report:", err);
+  //     res.status(500).json({
+  //       success: false,
+  //       error: "Failed to fetch report",
+  //       details: err.message
+  //     });
+  //   }
+  // });
+
+  app.post(
+    "/payments/cash/:studentId",
+    [validatedRequest],
+    async (req, res) => {
+      try {
+        // 🧍 Verify user is admin
+        const user = res.locals.user;
+        if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
+        if (user.role !== "admin") {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const studentId = parseInt(req.params.studentId);
+        const { amount, plan, duration, notes } = req.body;
+
+        // 🧠 Find student
+        const student = await prisma.students.findUnique({
+          where: { id: studentId },
+        });
+
+        if (!student) {
+          return res.status(404).json({ error: "Student not found" });
+        }
+
+        // 📅 Calculate expiration date
+        const daysToAdd = parseInt(duration) || 30;
+        const MS_PER_DAY = 1000 * 60 * 60 * 24;
+        const expirationDate = new Date(Date.now() + daysToAdd * MS_PER_DAY);
+
+        // 💾 Update student subscription
+        const updatedStudent = await prisma.students.update({
+          where: { id: studentId },
+          data: {
+            subscription_status: "paid",
+            subscription_plan: plan || "premium",
+            subscription_expiration_date: expirationDate,
+            subscription_payment_poll_url: null,
+          },
+        });
+
+        // 🧾 Record the cash payment in logs
+        await prisma.payment_logs.create({
+          data: {
+            student_id: studentId,
+            amount: parseFloat(amount),
+            payment_method: "cash",
+            subscription_plan: plan || "premium",
+            subscription_duration_days: daysToAdd,
+            recorded_by: user.id,
+            notes: notes || null,
+          },
+        });
+
+        // 📨 Notify or log
+        console.log(
+          `✅ Admin ${user.username} activated cash subscription for ${student.name} (${daysToAdd} days)`
+        );
+
+        return res.json({
+          success: true,
+          message: `Cash payment recorded. Subscription active for ${daysToAdd} days.`,
+          student: updatedStudent,
+        });
+      } catch (err) {
+        console.error("Cash Payment Error:", err);
+        return res
+          .status(500)
+          .json({ error: "Failed to record cash payment." });
+      }
     }
+  );
 
-    const studentId = parseInt(req.params.studentId);
-    const { amount, plan, duration, notes } = req.body;
+  app.get("/payments/history", [validatedRequest], async (req, res) => {
+    try {
+      const user = res.locals.user;
+      if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
 
-    // 🧠 Find student
-    const student = await prisma.students.findUnique({
-      where: { id: studentId },
-    });
+      // Only admins can view payment history
+      if (user.role !== "admin") {
+        return res.status(403).json({ error: "Admin access required" });
+      }
 
-    if (!student) {
-      return res.status(404).json({ error: "Student not found" });
-    }
-
-    // 📅 Calculate expiration date
-    const daysToAdd = parseInt(duration) || 30;
-    const MS_PER_DAY = 1000 * 60 * 60 * 24;
-    const expirationDate = new Date(Date.now() + daysToAdd * MS_PER_DAY);
-
-    // 💾 Update student subscription
-    const updatedStudent = await prisma.students.update({
-      where: { id: studentId },
-      data: {
-        subscription_status: "paid",
-        subscription_plan: plan || "premium",
-        subscription_expiration_date: expirationDate,
-        subscription_payment_poll_url: null,
-      },
-    });
-
-    // 🧾 Record the cash payment in logs
-    await prisma.payment_logs.create({
-      data: {
-        student_id: studentId,
-        amount: parseFloat(amount),
-        payment_method: "cash",
-        subscription_plan: plan || "premium",
-        subscription_duration_days: daysToAdd,
-        recorded_by: user.id,
-        notes: notes || null,
-      },
-    });
-
-    // 📨 Notify or log
-    console.log(
-      `✅ Admin ${user.username} activated cash subscription for ${student.name} (${daysToAdd} days)`
-    );
-
-    return res.json({
-      success: true,
-      message: `Cash payment recorded. Subscription active for ${daysToAdd} days.`,
-      student: updatedStudent,
-    });
-  } catch (err) {
-    console.error("Cash Payment Error:", err);
-    return res.status(500).json({ error: "Failed to record cash payment." });
-  }
-});
-
-
-app.get("/payments/history", [validatedRequest], async (req, res) => {
-  try {
-    const user = res.locals.user;
-    if (!user?.id) return res.status(401).json({ error: "Unauthorized" });
-
-    // Only admins can view payment history
-    if (user.role !== "admin") {
-      return res.status(403).json({ error: "Admin access required" });
-    }
-
-    const payments = await prisma.payment_logs.findMany({
-      orderBy: { created_at: "desc" },
-      include: {
-        student: {
-          select: {
-            name: true,
+      const payments = await prisma.payment_logs.findMany({
+        orderBy: { created_at: "desc" },
+        include: {
+          student: {
+            select: {
+              name: true,
+            },
+          },
+          recorder: {
+            select: {
+              username: true,
+            },
           },
         },
-        recorder: {
-          select: {
-            username: true,
-          },
-        },
-      },
-    });
+      });
 
-    const formatted = payments.map((p) => ({
-      id: p.id,
-      created_at: p.created_at,
-      student_name: p.student?.name || "Unknown Student",
-      amount: p.amount,
-      payment_method: p.payment_method,
-      recorded_by_name: p.recorder?.username || "System",
-      notes: p.notes,
-    }));
+      const formatted = payments.map((p) => ({
+        id: p.id,
+        created_at: p.created_at,
+        student_name: p.student?.name || "Unknown Student",
+        amount: p.amount,
+        payment_method: p.payment_method,
+        recorded_by_name: p.recorder?.username || "System",
+        notes: p.notes,
+      }));
 
-    return res.json({ success: true, payments: formatted });
-  } catch (err) {
-    console.error("Payment History Error:", err);
-    return res.status(500).json({ error: "Failed to fetch payment history." });
-  }
-});
-
-  
+      return res.json({ success: true, payments: formatted });
+    } catch (err) {
+      console.error("Payment History Error:", err);
+      return res
+        .status(500)
+        .json({ error: "Failed to fetch payment history." });
+    }
+  });
 }
-
-
 
 module.exports = { systemEndpoints };

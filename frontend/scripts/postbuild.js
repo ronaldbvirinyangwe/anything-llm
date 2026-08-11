@@ -9,6 +9,55 @@ const distDirectory = path.resolve(scriptDirectory, "../dist");
 const templatePath = path.join(distDirectory, "index.html");
 const template = readFileSync(templatePath, "utf8");
 
+function createServiceWorker(assetReferences) {
+  const assets = assetReferences
+    .map((reference) => reference.match(/["']([^"']+)["']/)?.[1])
+    .filter(Boolean);
+  const version = assets
+    .join("|")
+    .replaceAll(/[^a-zA-Z0-9]/g, "")
+    .slice(-40);
+  const shell = ["/", "/manifest.webmanifest", "/favicon.png", ...assets];
+
+  return `const CACHE_NAME = ${JSON.stringify(`chikoro-shell-${version}`)};
+const SHELL = ${JSON.stringify(shell)};
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)));
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(
+      keys.filter((key) => key.startsWith("chikoro-shell-") && key !== CACHE_NAME)
+        .map((key) => caches.delete(key))
+    ))
+  );
+  self.clients.claim();
+});
+
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  const url = new URL(request.url);
+  if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+
+  if (request.mode === "navigate") {
+    event.respondWith(fetch(request).catch(() => caches.match("/")));
+    return;
+  }
+
+  if (!url.pathname.startsWith("/assets/") && !SHELL.includes(url.pathname)) return;
+  event.respondWith(
+    caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+      if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
+      return response;
+    }))
+  );
+});
+`;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -239,6 +288,11 @@ const templateAssets =
   template.match(/(?:src|href)=["']\/assets\/[^"']+["']/g) ?? [];
 const generatedFiles = [];
 
+writeFileSync(
+  path.join(distDirectory, "service-worker.js"),
+  createServiceWorker(templateAssets)
+);
+
 for (const [route, seo] of routeEntries) {
   const outputPath = outputPathForRoute(route);
   const html = renderHtml(seo);
@@ -318,3 +372,4 @@ for (const [route, outputPath] of generatedFiles) {
 }
 console.log("  /404 -> 404.html");
 console.log(`  sitemap.xml -> ${indexableRoutes.length} unique URLs`);
+console.log("  service-worker.js -> static shell only (API excluded)");

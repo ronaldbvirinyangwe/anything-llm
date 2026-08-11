@@ -48,6 +48,7 @@ const TeacherDashboard = () => {
   const tools = [
     { to: "/teacher-tools/lesson-planner", icon: FiBookOpen,      title: "AI Lesson Planner",       desc: "Create engaging, structured lesson plans instantly." },
     { to: "/teacher-tools/quiz-generator", icon: FiClipboard,     title: "Quiz & Homework Builder", desc: "Save prep time. Generate tailored assessments automatically." },
+    { to: "/teacher/assignments",           icon: FiClipboard,     title: "Assignments & Gradebook", desc: "Set work, track submissions, and return grades and feedback." },
     { to: "/upload-exam",                  icon: FiFileText,       title: "Exam Paper Upload",       desc: "Digitize and generate quizzes directly from exam papers." },
     { to: "/teacher-tools/scheme-creator", icon: FiLayers,         title: "Scheme of Work Creator",  desc: "Plan your term week-by-week effortlessly." },
     { to: "/teacher-tools/resource-finder", icon: FiSearch,       title: "AI Resource Finder",      desc: "Find curriculum-aligned teaching resources and export recommendations." },

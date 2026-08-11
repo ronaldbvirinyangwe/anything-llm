@@ -6,6 +6,10 @@ export function ChikoroAIFeaturesGuide() {
   return <FeatureGuideArticle article={featureGuideArticles.pillar} />;
 }
 
+export function ChikoroAIAugust2026Update() {
+  return <FeatureGuideArticle article={featureGuideArticles.update} />;
+}
+
 export function ChikoroAIForStudents() {
   return <FeatureGuideArticle article={featureGuideArticles.students} />;
 }

@@ -40,6 +40,12 @@ function getNotificationExpression(type) {
   switch (type) {
     case "quiz_assigned":
       return MASCOT_EXPRESSIONS.quizzing;
+    case "assignment_assigned":
+      return MASCOT_EXPRESSIONS.studying;
+    case "assignment_returned":
+      return MASCOT_EXPRESSIONS.encouraging;
+    case "assignment_revision_requested":
+      return MASCOT_EXPRESSIONS.explaining;
     case "subscription_status":
       return MASCOT_EXPRESSIONS.comeback;
     case "streak_broken":
@@ -49,6 +55,12 @@ function getNotificationExpression(type) {
     default:
       return MASCOT_EXPRESSIONS.encouraging;
   }
+}
+
+function notificationAction(type) {
+  if (type === "quiz_assigned") return "Take quiz";
+  if (type?.startsWith("assignment_")) return "Open assignment";
+  return "View";
 }
 
 export const NotificationMessage = memo(function NotificationMessage({
@@ -97,7 +109,7 @@ export const NotificationMessage = memo(function NotificationMessage({
       </div>
       {message.link && (
         <button onClick={handleTakeQuiz} className="notification-button">
-          Take Quiz
+          {notificationAction(message.type)}
         </button>
       )}
     </div>

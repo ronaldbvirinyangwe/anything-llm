@@ -62,17 +62,22 @@ export default function StudentResults() {
   }
 
   // Get unique subjects for filter
-  const subjects = ["all", ...new Set(results.map(r => r.subject))];
+  const subjects = ["all", ...new Set(results.map((r) => r.subject))];
 
   // Filter results by subject
-  const filteredResults = filterSubject === "all" 
-    ? results 
-    : results.filter(r => r.subject === filterSubject);
+  const filteredResults =
+    filterSubject === "all"
+      ? results
+      : results.filter((r) => r.subject === filterSubject);
 
   // Calculate overall stats
-  const averageScore = filteredResults.length > 0
-    ? Math.round(filteredResults.reduce((sum, r) => sum + r.score, 0) / filteredResults.length)
-    : 0;
+  const averageScore =
+    filteredResults.length > 0
+      ? Math.round(
+          filteredResults.reduce((sum, r) => sum + r.score, 0) /
+            filteredResults.length
+        )
+      : 0;
 
   const totalQuizzes = filteredResults.length;
 
@@ -92,7 +97,7 @@ export default function StudentResults() {
       {results.length === 0 ? (
         <div className="empty-state">
           <p>You haven't submitted any quizzes yet.</p>
-          <Link to="/student-quizzes" className="link-btn">
+          <Link to="/quiz" className="link-btn">
             Take a Quiz
           </Link>
         </div>
@@ -111,12 +116,12 @@ export default function StudentResults() {
 
           <div className="filter-section">
             <label>Filter by Subject:</label>
-            <select 
-              value={filterSubject} 
+            <select
+              value={filterSubject}
               onChange={(e) => setFilterSubject(e.target.value)}
               className="filter-select"
             >
-              {subjects.map(subject => (
+              {subjects.map((subject) => (
                 <option key={subject} value={subject}>
                   {subject === "all" ? "All Subjects" : subject}
                 </option>
@@ -133,22 +138,26 @@ export default function StudentResults() {
               >
                 <div className="result-header">
                   <h3>{result.quizName}</h3>
-                  <span className={`score-badge ${result.score >= 70 ? 'pass' : 'fail'}`}>
+                  <span
+                    className={`score-badge ${result.score >= 70 ? "pass" : "fail"}`}
+                  >
                     {result.score}%
                   </span>
                 </div>
-                
+
                 <div className="result-details">
                   <p className="result-subject">{result.subject}</p>
-                  <p className="result-teacher">Teacher: {result.teacherName}</p>
+                  <p className="result-teacher">
+                    Teacher: {result.teacherName}
+                  </p>
                   <p className="result-stats">
                     {result.correctAnswers}/{result.totalQuestions} correct
                   </p>
                   <p className="result-date">
-                    {new Date(result.submittedAt).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
+                    {new Date(result.submittedAt).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
                     })}
                   </p>
                 </div>

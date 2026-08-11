@@ -8,27 +8,21 @@ import StudyPlannerForm from "@/components/StudyPlannerForm/StudyPlannerForm";
  * One question at a time, answers collected, then sent back to the agent
  * as ONBOARDING_COMPLETE::{answers} for routing to the right tool.
  */
-export default function StudyOnboarding({ payload, sendCommand }) {
+export default function StudyOnboarding({ payload }) {
   const {
     student = null,
     activePlan = null,
     questions = [],
     resolvedSubject,
     plannerPrefill = {},
-    completionMessageTemplate = "ONBOARDING_COMPLETE::{answers}",
   } = payload;
-
-  const inferredSubject =
-  payload.student?.currentSubject ||   // if you add this to profile
-  activePlan?.subject ||               // already in payload
-  null;
 
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState(() => {
-  const initial = {};
-   if (resolvedSubject) initial["subject"] = resolvedSubject;
-  return initial;
-});
+    const initial = {};
+    if (resolvedSubject) initial["subject"] = resolvedSubject;
+    return initial;
+  });
 
   const [showPlannerForm, setShowPlannerForm] = useState(false);
 
@@ -37,7 +31,8 @@ export default function StudyOnboarding({ payload, sendCommand }) {
   // Filter questions relevant to the current answers
   const visibleQuestions = questions.filter((q) => {
     if (q.skipIf && answers[q.skipIf.field] === q.skipIf.value) return false;
-    if (q.showOnlyFor && !q.showOnlyFor.includes(answers["intent"])) return false;
+    if (q.showOnlyFor && !q.showOnlyFor.includes(answers["intent"]))
+      return false;
     return true;
   });
 
@@ -59,8 +54,10 @@ export default function StudyOnboarding({ payload, sendCommand }) {
 
     // Peek ahead — skip questions that won't show given new answers
     const nextVisible = questions.filter((q) => {
-      if (q.skipIf && newAnswers[q.skipIf.field] === q.skipIf.value) return false;
-      if (q.showOnlyFor && !q.showOnlyFor.includes(newAnswers["intent"])) return false;
+      if (q.skipIf && newAnswers[q.skipIf.field] === q.skipIf.value)
+        return false;
+      if (q.showOnlyFor && !q.showOnlyFor.includes(newAnswers["intent"]))
+        return false;
       return true;
     });
 
@@ -76,38 +73,38 @@ export default function StudyOnboarding({ payload, sendCommand }) {
     handleSelect(questionId, value);
   }
 
- function submitAnswers(finalAnswers) {
-  const { intent, subject, topic, depth } = finalAnswers;
+  function submitAnswers(finalAnswers) {
+    const { intent, subject, topic, depth } = finalAnswers;
 
-  // Build a direct, natural language prompt the agent can immediately act on
-  const intentMessages = {
-    quiz:         `Quiz me on ${topic} in ${subject}${depth ? ` at ${depth} depth` : ""}.`,
-    flashcards:   `Make me flashcards on ${topic} in ${subject}.`,
-    notes:        `Generate study notes on ${topic} in ${subject}.`,
-    explain:      `Explain ${topic} ${depth === "deep" ? " in depth" : depth === "overview" ? " briefly" : ""}.`,
-    check_answer: `Check my answer on ${topic} in ${subject}.`,
-    study_plan:   null, // handled by planner form — never reaches here
-  };
+    // Build a direct, natural language prompt the agent can immediately act on
+    const intentMessages = {
+      quiz: `Quiz me on ${topic} in ${subject}${depth ? ` at ${depth} depth` : ""}.`,
+      flashcards: `Make me flashcards on ${topic} in ${subject}.`,
+      notes: `Generate study notes on ${topic} in ${subject}.`,
+      explain: `Explain ${topic} ${depth === "deep" ? " in depth" : depth === "overview" ? " briefly" : ""}.`,
+      check_answer: `Check my answer on ${topic} in ${subject}.`,
+      study_plan: null, // handled by planner form — never reaches here
+    };
 
-  const message = intentMessages[intent];
-  if (!message) return;
+    const message = intentMessages[intent];
+    if (!message) return;
 
-   window.dispatchEvent(
-    new CustomEvent("SEND_CHAT_MESSAGE", { 
-      detail: { 
-        prompt: message,
-        skipMetadataInjection: true  // ← handle this in your chat input component
-      } 
-    })
-  );
-}
+    window.dispatchEvent(
+      new CustomEvent("SEND_CHAT_MESSAGE", {
+        detail: {
+          prompt: message,
+          skipMetadataInjection: true, // ← handle this in your chat input component
+        },
+      })
+    );
+  }
   // ── Planner form path ─────────────────────────────────────────────────────
   if (showPlannerForm) {
     return (
       <div className="study-onboarding">
         {firstName && (
           <p className="onboarding-greeting">
-            Let's build your study plan, {firstName}! 📅
+            Let&apos;s build your study plan, {firstName}! 📅
           </p>
         )}
         {activePlan && (
@@ -121,11 +118,24 @@ export default function StudyOnboarding({ payload, sendCommand }) {
             <span>📅</span>
             <strong>Build your study plan</strong>
           </div>
-          <StudyPlannerForm prefill={plannerPrefill} />
+          <StudyPlannerForm
+            prefill={plannerPrefill}
+            onSubmit={(prompt) =>
+              window.dispatchEvent(
+                new CustomEvent("SEND_CHAT_MESSAGE", {
+                  detail: { prompt, skipMetadataInjection: true },
+                })
+              )
+            }
+          />
         </div>
         <button
           className="back-btn"
-          onClick={() => { setShowPlannerForm(false); setStep(0); setAnswers({}); }}
+          onClick={() => {
+            setShowPlannerForm(false);
+            setStep(0);
+            setAnswers({});
+          }}
           type="button"
         >
           ← Back
@@ -167,7 +177,9 @@ export default function StudyOnboarding({ payload, sendCommand }) {
         <QuestionStep
           question={currentQuestion}
           onSelect={(value) => handleSelect(currentQuestion.id, value)}
-          onFreeTextSubmit={(value) => handleFreeTextSubmit(currentQuestion.id, value)}
+          onFreeTextSubmit={(value) =>
+            handleFreeTextSubmit(currentQuestion.id, value)
+          }
         />
       )}
 
@@ -192,7 +204,8 @@ function QuestionStep({ question, onSelect, onFreeTextSubmit }) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && text.trim()) onFreeTextSubmit(text.trim());
+              if (e.key === "Enter" && text.trim())
+                onFreeTextSubmit(text.trim());
             }}
             autoFocus
           />

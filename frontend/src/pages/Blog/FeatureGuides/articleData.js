@@ -27,6 +27,215 @@ const links = {
 const common = { date: DATE, dateIso: DATE_ISO };
 
 export const featureGuideArticles = {
+  update: {
+    ...common,
+    shortTitle: "August 2026 product update",
+    title:
+      "What Chikoro AI Can Do Now: Today, Offline Learning and Mastery Recovery",
+    tag: "Product Update",
+    readTime: "10 min read",
+    directAnswer:
+      "Chikoro AI now connects curriculum mastery, diagnostics, teacher assignments, downloadable learning, a personalised Today dashboard and spaced review. Students can see what to do next, complete supported work with limited connectivity and revisit weak topics on a 1, 3, 7, 14 and 30-day schedule. AI tutoring and diagnostic generation still require internet access and an available model.",
+    sections: [
+      {
+        id: "what-changed",
+        heading: "What changed in Chikoro AI?",
+        paragraphs: [
+          "The latest Chikoro AI work turns several separate study tools into one connected learning cycle. A learner can identify a weak curriculum topic, receive a recommended next action, complete an assignment or lesson, practise the topic again and see stronger evidence appear on the Mastery Map.",
+          "The seven connected capabilities are curriculum mastery, diagnostic assessments, expanded course content, assignments and gradebooks, offline and low-data learning, the Today dashboard, and Mastery Recovery. Together they answer three practical questions: What should I study now? What evidence shows that I understand it? What should I review before I forget it?",
+        ],
+        callout: {
+          tone: "info",
+          title: "A learning system, not only a chatbot",
+          body: "Tutor chat remains useful for explanations, but the platform now also records structured evidence from diagnostics, quizzes, lessons, assignments and review attempts. That evidence helps Chikoro AI recommend a concrete next step instead of leaving the learner with an empty prompt box.",
+        },
+      },
+      {
+        id: "today-dashboard",
+        heading: "The Today dashboard chooses a useful next step",
+        paragraphs: [
+          "A student can open Chikoro AI and begin from the Today dashboard. It combines current assignments, study-plan tasks, weak areas, curriculum mastery gaps, available lessons, due reviews and notifications. A deterministic priority order turns those signals into a short list of actions with direct links to the relevant activity.",
+          "This matters because a long list of tools can create its own kind of confusion. Today reduces that choice: urgent schoolwork comes forward, due recovery practice is visible, and broader study suggestions fill the space when nothing is overdue.",
+        ],
+        items: [
+          "Due and overdue assignments can lead directly to the assigned work.",
+          "Scheduled study-plan tasks can become the next recommended session.",
+          "Weak topics and low mastery can lead to targeted practice or a relevant lesson.",
+          "Due Mastery Recovery questions return at the correct review interval.",
+          "Notifications and course progress provide context without replacing the main action.",
+        ],
+      },
+      {
+        id: "diagnostics-and-mastery",
+        heading:
+          "Diagnostics and the Mastery Map establish where help is needed",
+        paragraphs: [
+          "Curriculum topics give progress a common structure. Instead of treating every quiz as an isolated score, Chikoro AI can connect assessment evidence to a subject and topic. The Mastery Map then shows which areas have stronger evidence, which need attention and which have not yet been assessed.",
+          "A diagnostic assessment can establish a starting point before a learner begins a topic or revision period. Incorrect diagnostic answers can seed the recovery queue, while correct scored work contributes evidence toward mastery. Course completion is still shown, but opening or finishing a lesson is not treated as proof that the learner can answer questions independently.",
+        ],
+        callout: {
+          tone: "caution",
+          title: "Diagnostic generation depends on an AI service",
+          body: "Creating a new AI-generated diagnostic requires internet access and an available configured model. If that service is unavailable, existing learning records remain useful, but the platform cannot honestly generate a new diagnostic until the service returns.",
+        },
+      },
+      {
+        id: "mastery-recovery",
+        heading: "Mastery Recovery turns mistakes into scheduled practice",
+        paragraphs: [
+          "When a learner gets a supported multiple-choice question wrong in a diagnostic or teacher-shared quiz, Chikoro AI can add that question to Mastery Recovery. A correct answer moves the question through fixed intervals of 1, 3, 7, 14 and 30 days. A wrong answer resets it for the following day.",
+          "The spacing is deliberately simple and transparent. Learners do not need to guess when to revisit a difficult idea, and teachers or families can understand why a question has returned. Repeating the same item immediately does not create extra mastery evidence, which prevents rapid guessing from looking like durable learning.",
+        ],
+        items: [
+          "Day 1 checks whether the correction was understood after a short delay.",
+          "Days 3 and 7 strengthen recall across the first week.",
+          "Days 14 and 30 test whether the knowledge lasts over longer gaps.",
+          "A recovered topic can appear as stronger evidence on the Mastery Map.",
+        ],
+      },
+      {
+        id: "assignments-gradebook",
+        heading: "Assignments connect teacher work to student progress",
+        paragraphs: [
+          "Teachers can create assignments, send them to linked students, track submission status and return a grade with feedback. Students receive the assignment in their own workspace and can open the exact task rather than searching through a general quiz list.",
+          "Completed graded work becomes read-only for the learner, preserving the result and teacher feedback. The gradebook gives teachers one place to see who has submitted, who still needs support and how the class is progressing. Multiple-choice questions can also feed Mastery Recovery when a learner needs another attempt later.",
+        ],
+      },
+      {
+        id: "offline-low-data",
+        heading: "What works offline or in low-data mode?",
+        paragraphs: [
+          "Chikoro AI now stores supported learning resources by account on the device. Downloaded course modules, cached student assignments and the review queue can remain available when the connection drops. Supported lesson completion, assignment submissions and review attempts can enter an outbox and synchronise when the device reconnects.",
+          "Each queued submission has an idempotency identifier. This helps the server recognise the same operation if a weak connection causes it to be sent again, reducing duplicate progress records. An offline status control shows whether work is waiting to synchronise or needs attention.",
+        ],
+        table: {
+          caption: "Chikoro AI online and offline capability comparison",
+          headers: [
+            "Activity",
+            "Offline or low-data support",
+            "What synchronises",
+          ],
+          rows: [
+            [
+              "Downloaded courses",
+              "Previously downloaded modules can be opened on the same device and account",
+              "Supported lesson and quiz completion",
+            ],
+            [
+              "Student assignments",
+              "Cached assignment details can be opened and supported responses saved",
+              "Queued submissions when a connection returns",
+            ],
+            [
+              "Mastery Recovery",
+              "Cached due questions can be answered without a live request",
+              "Independent review attempts with duplicate protection",
+            ],
+            [
+              "AI tutor and new diagnostics",
+              "Not available offline",
+              "A live AI service is required; these requests are not queued as completed work",
+            ],
+          ],
+        },
+      },
+      {
+        id: "roles",
+        heading: "How the connected workflow helps each role",
+        table: {
+          caption:
+            "Benefits of the connected Chikoro AI learning workflow by role",
+          headers: ["Role", "What they can do", "What the evidence means"],
+          rows: [
+            [
+              "Students",
+              "Follow Today, complete assigned or downloaded work, and recover weak topics",
+              "Mastery reflects scored evidence, not only activity or lesson completion",
+            ],
+            [
+              "Teachers",
+              "Set work, monitor submissions, return feedback and review question outcomes",
+              "The gradebook supports teaching decisions but does not replace professional judgement",
+            ],
+            [
+              "Parents",
+              "View available reports, subject patterns, weak areas and recent learning activity",
+              "Reports cover activity recorded inside Chikoro AI, not every part of school performance",
+            ],
+            [
+              "Schools",
+              "Use permission-controlled dashboards to examine participation and assessment trends",
+              "Aggregates support intervention planning; they are not official examination or school records",
+            ],
+          ],
+        },
+      },
+      {
+        id: "daily-routine",
+        heading: "A practical daily Chikoro AI routine",
+        ordered: true,
+        items: [
+          "Open Today and complete the first urgent or scheduled action.",
+          "Answer due Mastery Recovery questions without checking notes first.",
+          "Open the Mastery Map and choose one topic that still needs evidence.",
+          "Use a course lesson or tutor explanation to learn the difficult concept.",
+          "Complete scored practice or assigned work to test independent understanding.",
+          "Read the feedback and let incorrect supported questions return through recovery practice.",
+          "Before going offline, download the needed course content and open current assignments once so supported data is available on the device.",
+        ],
+      },
+      {
+        id: "limits",
+        heading: "Current limits users should understand",
+        items: [
+          "AI chat, content generation and new AI-generated diagnostics require a working internet connection and model provider.",
+          "Offline support covers selected downloaded or cached learning workflows, not every screen in the application.",
+          "AI explanations, generated questions and suggested marks may contain errors and should be checked against trusted materials or by a teacher.",
+          "Mastery is an evidence-based guide inside Chikoro AI, not an official ZIMSEC or Cambridge grade prediction.",
+          "Parent and school reports represent activity recorded in Chikoro AI and do not replace a complete school information system.",
+          "Offline work should be allowed to synchronise before a shared or public device is cleared or changed.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        question: "What is the Chikoro AI Today dashboard?",
+        answer:
+          "Today is a personalised student home screen that combines assignments, study plans, weak areas, mastery gaps, lessons, due reviews and notifications, then provides direct links to useful next actions.",
+      },
+      {
+        question: "How does Mastery Recovery work?",
+        answer:
+          "Supported incorrect questions enter a review queue. Correct answers move through 1, 3, 7, 14 and 30-day intervals, while an incorrect answer schedules the question for the next day.",
+      },
+      {
+        question: "Can Chikoro AI work without internet?",
+        answer:
+          "Selected downloaded courses, cached assignments and cached review questions can work offline on the same device and account. Supported progress waits in an outbox and synchronises later. AI tutor chat and new AI-generated diagnostics remain online-only.",
+      },
+      {
+        question: "Does finishing a lesson mean a topic is mastered?",
+        answer:
+          "No. Lesson completion records participation and progress, while mastery uses scored assessment or review evidence. Keeping those measures separate avoids claiming that content exposure proves understanding.",
+      },
+      {
+        question: "Can teachers assign and grade work in Chikoro AI?",
+        answer:
+          "Yes. Teachers can create assignments for linked learners, monitor submissions and return grades and feedback. Available multiple-choice mistakes can also contribute to later recovery practice.",
+      },
+      {
+        question: "Are repeated offline submissions counted twice?",
+        answer:
+          "Supported queued operations use unique idempotency identifiers so the server can recognise a retry of the same submission. This is designed to prevent duplicate progress when a weak connection resends work.",
+      },
+      {
+        question: "Does Chikoro AI replace a teacher?",
+        answer:
+          "No. Chikoro AI organises practice, feedback and progress evidence, but teachers remain responsible for checking generated material, interpreting results and making consequential education decisions.",
+      },
+    ],
+    related: [links.pillar, links.students, links.teachers, links.parents],
+  },
   pillar: {
     ...common,
     shortTitle: "Complete feature guide",

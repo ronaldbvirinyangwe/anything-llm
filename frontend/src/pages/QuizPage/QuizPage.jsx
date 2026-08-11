@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./quiz.css";
 import { API_BASE } from "@/utils/constants";
+import Courses from "@/models/courses";
 
 export default function QuizPage() {
   const [loading, setLoading] = useState(false);
@@ -12,6 +13,7 @@ export default function QuizPage() {
   const [selectedGrade, setSelectedGrade] = useState("");
   const [curriculum, setCurriculum] = useState("");
   const [difficultyLevel] = useState("medium");
+  const [subjects, setSubjects] = useState([]);
 
   const [authToken] = useState(localStorage.getItem("chikoroai_authToken"));
   const navigate = useNavigate();
@@ -22,6 +24,12 @@ export default function QuizPage() {
     if (storedSubject) {
       setSelectedSubject(storedSubject);
     }
+  }, []);
+
+  useEffect(() => {
+    Courses.subjects()
+      .then((result) => setSubjects(result.subjects || []))
+      .catch(() => setSubjects([]));
   }, []);
 
   // 🧠 Fetch grade and curriculum from profile
@@ -61,14 +69,9 @@ export default function QuizPage() {
 
     async function fetchResults() {
       try {
-        const res = await fetch(
-          import.meta.env.MODE === "development"
-            ? `${API_BASE}/quiz/results`
-            : `${API_BASE.replace(/\/api$/, "")}/quiz/results`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
+        const res = await fetch(`${API_BASE}/quiz/results`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const data = await res.json();
         if (data.success) setResults(data.results);
       } catch (err) {
@@ -131,10 +134,27 @@ export default function QuizPage() {
         <section className="ai-quiz-setup">
           <h2>AI Generated Test</h2>
           <p>
-            <b>Subject:</b> {selectedSubject || "—"} <br />
             <b>Grade:</b> {selectedGrade || "—"} <br />
             <b>Curriculum:</b> {curriculum || "—"}
           </p>
+
+          <label className="quiz-subject-field">
+            Subject
+            <select
+              value={selectedSubject}
+              onChange={(event) => {
+                setSelectedSubject(event.target.value);
+                localStorage.setItem("selected_subject", event.target.value);
+              }}
+            >
+              <option value="">Choose a subject</option>
+              {subjects.map((subject) => (
+                <option key={subject.id} value={subject.name}>
+                  {subject.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <input
             type="number"

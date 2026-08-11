@@ -9,6 +9,17 @@ import System from "@/models/system";
 import UserMenu from "../UserMenu";
 import { KeyboardShortcutWrapper } from "@/utils/keyboardShortcuts";
 import EducationHierarchy from "@/models/educationHierarchy";
+import { hasOfflineData } from "@/utils/offline";
+
+const OFFLINE_SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
+
+async function canUseOfflineSession(userId) {
+  const lastValidatedAt = Number(localStorage.getItem(AUTH_TIMESTAMP));
+  const recentlyValidated =
+    lastValidatedAt > 0 &&
+    Date.now() - lastValidatedAt <= OFFLINE_SESSION_MAX_AGE;
+  return recentlyValidated && (await hasOfflineData(userId));
+}
 
 // Used only for Multi-user mode only as we permission specific pages based on auth role.
 // When in single user mode we just bypass any authchecks.
@@ -20,22 +31,34 @@ function useIsAuthenticated() {
 
   useEffect(() => {
     const validateSession = async () => {
-       const {
-    MultiUserMode,
-    RequiresAuth,
-    LLMProvider = null,
-    VectorDB = null,
-  } = await System.keys();
+      const systemKeys = await System.keys();
+      if (!systemKeys) {
+        const localUser = userFromStorage();
+        const localAuthToken = localStorage.getItem(AUTH_TOKEN);
+        const canStudyOffline =
+          Boolean(localUser?.id && localAuthToken) &&
+          (await canUseOfflineSession(localUser.id));
+        setMultiUserMode(Boolean(localUser));
+        setIsAuthed(canStudyOffline);
+        return;
+      }
 
-  // ✅ Auto-select Ollama if none is set
-  if (!LLMProvider || LLMProvider.trim() === "") {
-    try {
-      await System.updateSystem({ LLMProvider: "ollama" });
-      console.log("✅ Ollama automatically set as default LLM provider");
-    } catch (err) {
-      console.error("Error setting default provider:", err);
-    }
-  }
+      const {
+        MultiUserMode,
+        RequiresAuth,
+        LLMProvider = null,
+        VectorDB = null,
+      } = systemKeys;
+
+      // ✅ Auto-select Ollama if none is set
+      if (!LLMProvider || LLMProvider.trim() === "") {
+        try {
+          await System.updateSystem({ LLMProvider: "ollama" });
+          console.log("✅ Ollama automatically set as default LLM provider");
+        } catch (err) {
+          console.error("Error setting default provider:", err);
+        }
+      }
 
       setMultiUserMode(MultiUserMode);
 
@@ -65,7 +88,7 @@ function useIsAuthenticated() {
         }
 
         const isValid = await validateSessionTokenForUser();
-        setIsAuthed(isValid);
+        setIsAuthed(Boolean(isValid));
         return;
       }
 
@@ -77,6 +100,10 @@ function useIsAuthenticated() {
       }
 
       const isValid = await validateSessionTokenForUser();
+      if (isValid === null) {
+        setIsAuthed(await canUseOfflineSession(userFromStorage()?.id));
+        return;
+      }
       if (!isValid) {
         localStorage.removeItem(AUTH_USER);
         localStorage.removeItem(AUTH_TOKEN);

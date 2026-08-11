@@ -11,6 +11,12 @@
 
 ## Educational guides
 
+- [Chikoro AI August 2026 Product Update](https://chikoro-ai.com/blog/chikoro-ai-august-2026-update): Current capabilities including Today, curriculum mastery, diagnostics, assignments, offline learning, and Mastery Recovery.
+- [Complete Chikoro AI Feature Guide](https://chikoro-ai.com/blog/chikoro-ai-features-guide)
+- [Chikoro AI for Students in Zimbabwe](https://chikoro-ai.com/blog/chikoro-ai-for-students-zimbabwe)
+- [Chikoro AI for Teachers in Zimbabwe](https://chikoro-ai.com/blog/chikoro-ai-for-teachers-zimbabwe)
+- [Chikoro AI for Parents in Zimbabwe](https://chikoro-ai.com/blog/chikoro-ai-for-parents-zimbabwe)
+- [Chikoro AI for Schools in Zimbabwe](https://chikoro-ai.com/blog/chikoro-ai-for-schools-zimbabwe)
 - [How to Pass ZIMSEC O-Level Maths](https://chikoro-ai.com/blog/how-to-pass-zimsec-o-level-maths)
 - [The Power of Home Language Learning](https://chikoro-ai.com/blog/the-power-of-home-language-learning)
 - [Best AI Tools for Homework Help in Zimbabwe](https://chikoro-ai.com/blog/best-ai-tools-homework-help-zimbabwe-2026)

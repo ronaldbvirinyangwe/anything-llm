@@ -46,25 +46,31 @@ model workspace_documents {
 }
 
 model quiz_results {
-  id                 Int               @id @default(autoincrement())
-  user_id            Int
-  subject            String
-  score              Int
-  total_questions    Int
-  correct_answers    Int
-  submitted_at       DateTime          @default(now())
-  quiz_code          String?
-  shared_quiz_id     Int?
-  detailed_feedback  Json?
-  auto_submitted     Boolean           @default(false)
-  tab_limit_exceeded Boolean           @default(false)
-  tab_violations     Int               @default(0)
-  feedbacks          quiz_feedback[]
-  shared_quiz        shared_quizzes?   @relation(fields: [shared_quiz_id], references: [id])
-  user               users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  teacher_reviews    teacher_reviews[]
+  id                       Int                     @id @default(autoincrement())
+  user_id                  Int
+  subject                  String
+  topic                    String?
+  score                    Int
+  total_questions          Int
+  correct_answers          Int
+  submitted_at             DateTime                @default(now())
+  quiz_code                String?
+  shared_quiz_id           Int?
+  diagnostic_assessment_id String?                 @db.Uuid
+  detailed_feedback        Json?
+  auto_submitted           Boolean                 @default(false)
+  tab_limit_exceeded       Boolean                 @default(false)
+  tab_violations           Int                     @default(0)
+  feedbacks                quiz_feedback[]
+  shared_quiz              shared_quizzes?         @relation(fields: [shared_quiz_id], references: [id])
+  diagnostic_assessment    diagnostic_assessments? @relation(fields: [diagnostic_assessment_id], references: [id], onDelete: SetNull)
+  user                     users                   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  teacher_reviews          teacher_reviews[]
 
   @@unique([user_id, quiz_code])
+  @@unique([diagnostic_assessment_id, topic])
+  @@index([user_id, subject])
+  @@index([diagnostic_assessment_id])
 }
 
 model teacher_reviews {
@@ -134,6 +140,7 @@ model users {
   payment_logs                 payment_logs[]
   prompt_history               prompt_history[]
   quiz_results                 quiz_results[]
+  diagnostic_assessments       diagnostic_assessments[]
   recovery_codes               recovery_codes[]
   slash_command_presets        slash_command_presets[]
   students                     students[]
@@ -148,6 +155,34 @@ model users {
   organization_memberships     organization_memberships[]
   submittedSchoolVerifications school_verification_submissions[] @relation("SchoolVerificationSubmitter")
   reviewedSchoolVerifications  school_verification_submissions[] @relation("SchoolVerificationReviewer")
+  review_items                 review_items[]
+  review_attempts              review_attempts[]
+}
+
+model diagnostic_assessments {
+  id            String    @id @default(uuid()) @db.Uuid
+  user_id       Int
+  subject       String
+  curriculum    String
+  academicLevel String
+  grade         String
+  status        String    @default("generating")
+  questionCount Int
+  questions     Json?
+  responses     Json?
+  report        Json?
+  overallScore  Int?
+  provider      String?
+  model         String?
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  submittedAt   DateTime?
+
+  user         users          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  quiz_results quiz_results[]
+
+  @@index([user_id, status])
+  @@index([user_id, subject, createdAt])
 }
 
 model recovery_codes {
@@ -497,17 +532,18 @@ model students {
 }
 
 model teachers {
-  id               Int                @id @default(autoincrement())
-  name             String
-  school           String
-  user_id          Int                @unique
-  createdAt        DateTime           @default(now())
-  class_links      class_links[]
-  shared_quizzes   shared_quizzes[]
-  teacher_students teacher_students[]
-  class_teachers   class_teachers[]
-  user             users              @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
+  id                Int                              @id @default(autoincrement())
+  name              String
+  school            String
+  user_id           Int                              @unique
+  createdAt         DateTime                         @default(now())
+  class_links       class_links[]
+  shared_quizzes    shared_quizzes[]
+  teacher_students  teacher_students[]
+  class_teachers    class_teachers[]
+  assignments       course_assignments[]
+  gradedSubmissions student_assignment_submissions[] @relation("SubmissionGrader")
+  user              users                            @relation(fields: [user_id], references: [id], onDelete: Cascade)
 }
 
 model parents {
@@ -559,6 +595,8 @@ model student_quiz_assignments {
   completed   Boolean        @default(false)
   quiz        shared_quizzes @relation(fields: [quiz_id], references: [id])
   student     students       @relation(fields: [student_id], references: [id])
+
+  @@unique([quiz_id, student_id])
 }
 
 model student_link_codes {
@@ -647,6 +685,69 @@ model WeakAreaCard {
   lastWrongAt    DateTime @default(now())
 
   @@map("weak_area_cards")
+}
+
+model review_items {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        Int
+  fingerprint   String
+  subject       String
+  topic         String
+  prompt        String
+  options       Json
+  correctOption String
+  explanation   String?
+  status        String    @default("active")
+  step          Int       @default(0)
+  dueOn         DateTime? @db.Date
+  masteredAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user     users             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources  review_sources[]
+  attempts review_attempts[]
+
+  @@unique([userId, fingerprint])
+  @@index([userId, status, dueOn])
+}
+
+model review_sources {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            Int
+  reviewItemId      String   @db.Uuid
+  sourceType        String
+  sourceId          String
+  sourceQuestionKey String
+  occurredAt        DateTime
+  createdAt         DateTime @default(now())
+
+  item review_items @relation(fields: [reviewItemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceType, sourceId, sourceQuestionKey])
+  @@index([reviewItemId, occurredAt])
+}
+
+model review_attempts {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            Int
+  reviewItemId      String    @db.Uuid
+  clientOperationId String    @db.Uuid
+  selectedOption    String
+  correct           Boolean
+  evidenceApplied   Boolean
+  disposition       String
+  stepBefore        Int
+  stepAfter         Int
+  dueOnAfter        DateTime? @db.Date
+  attemptedAt       DateTime
+  receivedAt        DateTime  @default(now())
+
+  user users        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item review_items @relation(fields: [reviewItemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientOperationId])
+  @@index([reviewItemId, attemptedAt])
 }
 
 model study_plans {
@@ -752,17 +853,43 @@ model course_lessons {
 }
 
 model course_assignments {
-  id          Int     @id @default(autoincrement())
-  moduleId    Int
-  title       String
-  description String?
-  stepsJson   Json?
-  etaHours    String?
+  id              Int       @id @default(autoincrement())
+  moduleId        Int?
+  teacherId       Int?
+  title           String
+  description     String?
+  stepsJson       Json?
+  etaHours        String?
+  subject         String?
+  assignmentType  String    @default("homework")
+  status          String    @default("draft")
+  maxPoints       Float?
+  dueAt           DateTime?
+  publishedAt     DateTime?
+  submissionModes Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  module      course_modules                   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  module      course_modules?                  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  teacher     teachers?                        @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  classes     assignment_classes[]
   submissions student_assignment_submissions[]
 
   @@index([moduleId])
+  @@index([teacherId, status, dueAt])
+}
+
+model assignment_classes {
+  id           Int      @id @default(autoincrement())
+  assignmentId Int
+  classId      Int
+  createdAt    DateTime @default(now())
+
+  assignment course_assignments @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  class      education_classes  @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, classId])
+  @@index([classId, assignmentId])
 }
 
 model student_courses {
@@ -793,20 +920,33 @@ model student_lesson_progress {
 }
 
 model student_assignment_submissions {
-  id             Int       @id @default(autoincrement())
-  studentId      Int
-  assignmentId   Int
-  submissionLink String?
-  status         String    @default("not_started") // not_started | submitted | needs_revision | complete
-  feedback       String?
-  submittedAt    DateTime?
-  createdAt      DateTime  @default(now())
+  id                    Int       @id @default(autoincrement())
+  studentId             Int
+  assignmentId          Int
+  sourceClassId         Int?
+  submissionText        String?
+  submissionLink        String?
+  status                String    @default("assigned")
+  feedback              String?
+  assignedAt            DateTime  @default(now())
+  firstSubmittedAt      DateTime?
+  submittedAt           DateTime?
+  scorePoints           Float?
+  gradedAt              DateTime?
+  gradedByTeacherId     Int?
+  lastClientOperationId String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  student    students           @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  assignment course_assignments @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student     students           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  assignment  course_assignments @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  sourceClass education_classes? @relation(fields: [sourceClassId], references: [id], onDelete: SetNull)
+  gradedBy    teachers?          @relation("SubmissionGrader", fields: [gradedByTeacherId], references: [id], onDelete: SetNull)
 
+  @@unique([assignmentId, studentId])
   @@index([studentId])
   @@index([assignmentId])
+  @@index([sourceClassId, assignmentId])
 }
 
 model organizations {
@@ -862,23 +1002,25 @@ model academic_periods {
 }
 
 model education_classes {
-  id               Int              @id @default(autoincrement())
-  code             String           @unique
-  schoolId         Int
-  departmentId     Int?
-  academicPeriodId Int
-  name             String
-  grade            String?
-  curriculum       String?
-  subject          String?
-  active           Boolean          @default(true)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  school           organizations    @relation("SchoolClasses", fields: [schoolId], references: [id], onDelete: Restrict)
-  department       organizations?   @relation("ClassDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
-  academicPeriod   academic_periods @relation(fields: [academicPeriodId], references: [id], onDelete: Restrict)
-  students         class_students[]
-  teachers         class_teachers[]
+  id                    Int                              @id @default(autoincrement())
+  code                  String                           @unique
+  schoolId              Int
+  departmentId          Int?
+  academicPeriodId      Int
+  name                  String
+  grade                 String?
+  curriculum            String?
+  subject               String?
+  active                Boolean                          @default(true)
+  createdAt             DateTime                         @default(now())
+  updatedAt             DateTime                         @updatedAt
+  school                organizations                    @relation("SchoolClasses", fields: [schoolId], references: [id], onDelete: Restrict)
+  department            organizations?                   @relation("ClassDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  academicPeriod        academic_periods                 @relation(fields: [academicPeriodId], references: [id], onDelete: Restrict)
+  students              class_students[]
+  teachers              class_teachers[]
+  assignments           assignment_classes[]
+  assignmentSubmissions student_assignment_submissions[]
 
   @@index([schoolId])
   @@index([departmentId])

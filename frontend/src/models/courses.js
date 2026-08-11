@@ -1,5 +1,12 @@
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
+import {
+  cacheResource,
+  cachedRequest,
+  coursePackDownloaded,
+  downloadCoursePack,
+  sendOrQueue,
+} from "@/utils/offline";
 
 const ROOT = "/system/courses";
 
@@ -25,11 +32,13 @@ async function request(path = "", options = {}) {
 
 const Courses = {
   subjects(options) {
-    return request("/subjects", options);
+    return cachedRequest("course-subjects", "all", () =>
+      request("/subjects", options)
+    );
   },
 
   list(options) {
-    return request("", options);
+    return cachedRequest("course-list", "all", () => request("", options));
   },
 
   generate(subject) {
@@ -45,24 +54,82 @@ const Courses = {
   },
 
   lesson(lessonId, options) {
-    return request(`/lessons/${encodeURIComponent(lessonId)}`, options);
+    return cachedRequest("lesson", lessonId, () =>
+      request(`/lessons/${encodeURIComponent(lessonId)}`, options)
+    );
   },
 
-  completeLesson(lessonId) {
-    return request(`/lessons/${encodeURIComponent(lessonId)}/complete`, {
+  async completeLesson(lessonId) {
+    const path = `${ROOT}/lessons/${encodeURIComponent(lessonId)}/complete`;
+    const result = await sendOrQueue({
+      kind: "lesson-completion",
+      resourceId: lessonId,
+      path,
       method: "POST",
+      payload: {},
+      send: (operationId) =>
+        request(`/lessons/${encodeURIComponent(lessonId)}/complete`, {
+          method: "POST",
+          headers: { "Idempotency-Key": operationId },
+        }),
     });
+    const cached = await cachedRequest("lesson", lessonId, () =>
+      Promise.reject(new Error("Use cached lesson"))
+    ).catch(() => null);
+    if (cached?.lesson) {
+      await cacheResource("lesson", lessonId, {
+        ...cached,
+        lesson: { ...cached.lesson, done: true, pendingSync: result.queued },
+      });
+    }
+    return result;
   },
 
   assignment(assignmentId, options) {
-    return request(`/assignments/${encodeURIComponent(assignmentId)}`, options);
+    return cachedRequest("course-assignment", assignmentId, () =>
+      request(`/assignments/${encodeURIComponent(assignmentId)}`, options)
+    );
   },
 
-  submitAssignment(assignmentId, submissionLink) {
-    return request(`/assignments/${encodeURIComponent(assignmentId)}/submit`, {
+  async submitAssignment(assignmentId, submissionLink) {
+    const path = `${ROOT}/assignments/${encodeURIComponent(assignmentId)}/submit`;
+    const payload = { submissionLink };
+    const result = await sendOrQueue({
+      kind: "course-assignment-submission",
+      resourceId: assignmentId,
+      path,
       method: "POST",
-      body: JSON.stringify({ submissionLink }),
+      payload,
+      send: (operationId) =>
+        request(`/assignments/${encodeURIComponent(assignmentId)}/submit`, {
+          method: "POST",
+          headers: { "Idempotency-Key": operationId },
+          body: JSON.stringify(payload),
+        }),
     });
+    const cached = await cachedRequest("course-assignment", assignmentId, () =>
+      Promise.reject(new Error("Use cached assignment"))
+    ).catch(() => null);
+    if (cached?.assignment) {
+      await cacheResource("course-assignment", assignmentId, {
+        ...cached,
+        assignment: {
+          ...cached.assignment,
+          status: "submitted",
+          submissionLink,
+          pendingSync: result.queued,
+        },
+      });
+    }
+    return result;
+  },
+
+  download(course) {
+    return downloadCoursePack(course);
+  },
+
+  isDownloaded(courseId) {
+    return coursePackDownloaded(courseId);
   },
 
   generateModule(moduleId) {

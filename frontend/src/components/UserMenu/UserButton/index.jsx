@@ -8,7 +8,15 @@ import EducationHierarchy, {
 } from "@/models/educationHierarchy";
 import paths from "@/utils/paths";
 import { userFromStorage } from "@/utils/request";
-import { BookOpen, Buildings, ChartLine, Person } from "@phosphor-icons/react";
+import {
+  BookOpen,
+  Buildings,
+  ChartLine,
+  MapTrifold,
+  Person,
+  Target,
+  ClipboardText,
+} from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import AccountModal from "../AccountModal";
 import {
@@ -142,8 +150,35 @@ export default function UserButton() {
                   }}
                 >
                   <BookOpen size={16} /> My Courses
-                </button>
-                <button
+                 </button>
+                 <button
+                   className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-4 py-1.5 text-left text-theme-text-primary hover:bg-theme-action-menu-item-hover"
+                   onClick={() => {
+                     setShowMenu(false);
+                     navigate("/student/assignments");
+                   }}
+                 >
+                   <ClipboardText size={16} /> My Assignments
+                 </button>
+                 <button
+                   className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-4 py-1.5 text-left text-theme-text-primary hover:bg-theme-action-menu-item-hover"
+                   onClick={() => {
+                     setShowMenu(false);
+                     navigate("/student/diagnostic");
+                   }}
+                 >
+                   <Target size={16} /> Diagnostic Assessment
+                 </button>
+                 <button
+                   className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-4 py-1.5 text-left text-theme-text-primary hover:bg-theme-action-menu-item-hover"
+                   onClick={() => {
+                     setShowMenu(false);
+                     navigate("/student/mastery");
+                   }}
+                 >
+                   <MapTrifold size={16} /> Syllabus Mastery
+                 </button>
+                 <button
                   className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-4 py-1.5 text-left text-theme-text-primary hover:bg-theme-action-menu-item-hover"
                   onClick={() => {
                     setShowMenu(false);

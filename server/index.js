@@ -131,6 +131,10 @@ app.ws("/ws/notifications", async (ws, req) => {
 
 app.use("/api/system/parent", require("./utils/parentNotificationSettings"));
 app.use("/api/system/courses", require("./endpoints/courses"));
+app.use("/api/system/diagnostics", require("./endpoints/diagnostics"));
+app.use("/api/system/assignments", require("./endpoints/assignments"));
+app.use("/api/system/student", require("./endpoints/studentToday"));
+app.use("/api/system/review", require("./endpoints/review"));
 
 app.use("/api", apiRouter);
 
@@ -168,6 +172,7 @@ if (process.env.NODE_ENV !== "development") {
     "/about",
     "/pricing",
     "/blog",
+    "/blog/chikoro-ai-august-2026-update",
     "/blog/chikoro-ai-features-guide",
     "/blog/chikoro-ai-for-students-zimbabwe",
     "/blog/chikoro-ai-for-teachers-zimbabwe",
@@ -227,7 +232,14 @@ if (process.env.NODE_ENV !== "development") {
           relativePath.startsWith(`assets${path.sep}`) &&
           /-[A-Za-z0-9_-]{8,}\.[^.]+$/.test(relativePath);
 
-        if (isHashedAsset) {
+        if (relativePath === "service-worker.js") {
+          response.setHeader(
+            "Cache-Control",
+            "no-cache, no-store, must-revalidate"
+          );
+        } else if (relativePath === "manifest.webmanifest") {
+          response.setHeader("Cache-Control", "public, max-age=3600");
+        } else if (isHashedAsset) {
           response.setHeader(
             "Cache-Control",
             "public, max-age=31536000, immutable"

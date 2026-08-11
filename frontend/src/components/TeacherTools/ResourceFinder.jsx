@@ -6,15 +6,24 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import "./lessonplanner.css"; // Reuse your elegant theme
-import { useThemeContext } from "@/ThemeContext";
+import {
+  FiAlertCircle,
+  FiArrowLeft,
+  FiBookOpen,
+  FiDownload,
+  FiSearch,
+} from "react-icons/fi";
+import "./resourcefinder.css";
 import { API_BASE } from "@/utils/constants";
 
 const cleanMarkdown = (text) => {
   if (!text) return "";
   return text
     .replace(/```markdown\s*([\s\S]*?)```/, "$1")
-    .replace(/^(Okay,?|Sure,?|Alright,?|Here('s| is)|Here you go)[^.!?\n]*[.!?]\s*/i, "")
+    .replace(
+      /^(Okay,?|Sure,?|Alright,?|Here('s| is)|Here you go)[^.!?\n]*[.!?]\s*/i,
+      ""
+    )
     .trim();
 };
 
@@ -61,7 +70,8 @@ const useResourceFinderStore = create((set, get) => ({
     } catch (err) {
       console.error("Error fetching resources:", err);
       const errorMessage =
-        err.response?.data?.error || "An error occurred while fetching resources.";
+        err.response?.data?.error ||
+        "An error occurred while fetching resources.";
       set({ error: errorMessage, isLoading: false });
     }
   },
@@ -81,7 +91,6 @@ const useResourceFinderStore = create((set, get) => ({
 }));
 
 export default function ResourceFinder() {
-  const { theme } = useThemeContext();
   const {
     formData,
     resources,
@@ -104,139 +113,204 @@ export default function ResourceFinder() {
   const saveAsPdf = async () => {
     if (!resourceRef.current) return;
     const element = resourceRef.current;
-    const canvas = await html2canvas(element, { scale: 2 });
-    const imgData = canvas.toDataURL("image/png");
-    const pdf = new jsPDF("p", "mm", "a4");
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-    pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
-    pdf.save(
-      `${formData.subject}_${formData.topic}_resources_${new Date()
-        .toISOString()
-        .slice(0, 10)}.pdf`
-    );
+    element.dataset.pdfMode = "true";
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      pdf.save(
+        `${formData.subject}_${formData.topic}_resources_${new Date()
+          .toISOString()
+          .slice(0, 10)}.pdf`
+      );
+    } finally {
+      delete element.dataset.pdfMode;
+    }
   };
 
   return (
-    <div className={`tool-container ${theme}`}>
-      <nav className="tool-nav">
-        <Link to="/teacher-dashboard">&larr; Back to Dashboard</Link>
-      </nav>
+    <div className="rf-page">
+      <main className="rf-shell">
+        <nav className="rf-nav" aria-label="Breadcrumb">
+          <Link to="/teacher-dashboard" className="rf-back">
+            <FiArrowLeft aria-hidden="true" /> Back to dashboard
+          </Link>
+        </nav>
 
-      <header className="tool-header">
-        <h1>📚 AI Resource Finder</h1>
-        <p>
-          Enter your subject and topic, and let Chikoro AI find the most relevant
-          learning materials for your class.
-        </p>
-      </header>
+        <header className="rf-hero">
+          <div className="rf-hero-icon" aria-hidden="true">
+            <FiSearch size={25} />
+          </div>
+          <div>
+            <p className="rf-eyebrow">AI teaching tool</p>
+            <h1>Resource Finder</h1>
+            <p className="rf-hero-description">
+              Build a focused list of teaching materials for your subject,
+              curriculum and class level.
+            </p>
+          </div>
+        </header>
 
-      <div className="lesson-planner-content">
-        {/* 🧾 Form Section */}
-        <div className="planner-form-section">
-          <form onSubmit={handleSubmit}>
-            <div className="form-grid">
-              <div className="form-group">
-                <label>Subject</label>
+        <div className="rf-workspace">
+          <section
+            className="rf-panel rf-form-panel"
+            aria-labelledby="rf-brief"
+          >
+            <div className="rf-panel-heading">
+              <h2 id="rf-brief">Search brief</h2>
+              <p>Give the AI enough context to make useful recommendations.</p>
+            </div>
+
+            <form className="rf-form" onSubmit={handleSubmit}>
+              <div className="rf-form-row">
+                <div className="rf-field">
+                  <label htmlFor="rf-subject">Subject</label>
+                  <input
+                    id="rf-subject"
+                    type="text"
+                    value={formData.subject}
+                    onChange={(e) => setFormField("subject", e.target.value)}
+                    placeholder="Geography"
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+
+                <div className="rf-field">
+                  <label htmlFor="rf-grade">
+                    Grade <span className="rf-optional">(optional)</span>
+                  </label>
+                  <input
+                    id="rf-grade"
+                    type="text"
+                    value={formData.grade}
+                    onChange={(e) => setFormField("grade", e.target.value)}
+                    placeholder="Form 3"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+
+              <div className="rf-field">
+                <label htmlFor="rf-topic">Topic or keyword</label>
                 <input
+                  id="rf-topic"
                   type="text"
-                  value={formData.subject}
-                  onChange={(e) => setFormField("subject", e.target.value)}
-                  placeholder="e.g. Geography"
+                  value={formData.topic}
+                  onChange={(e) => setFormField("topic", e.target.value)}
+                  placeholder="Rivers of Africa"
+                  autoComplete="off"
                   required
                 />
               </div>
 
-              <div className="form-group">
-                <label>Grade / Level</label>
-                <input
-                  type="text"
-                  value={formData.grade}
-                  onChange={(e) => setFormField("grade", e.target.value)}
-                  placeholder="e.g. Form 3"
+              <div className="rf-field">
+                <label htmlFor="rf-curriculum">Curriculum</label>
+                <select
+                  id="rf-curriculum"
+                  value={formData.curriculum}
+                  onChange={(e) => setFormField("curriculum", e.target.value)}
+                >
+                  <option value="ZIMSEC">ZIMSEC</option>
+                  <option value="Cambridge">Cambridge</option>
+                  <option value="General">General</option>
+                </select>
+              </div>
+
+              <div className="rf-field">
+                <label htmlFor="rf-notes">
+                  Teaching notes <span className="rf-optional">(optional)</span>
+                </label>
+                <textarea
+                  id="rf-notes"
+                  value={formData.notes}
+                  onChange={(e) => setFormField("notes", e.target.value)}
+                  rows="4"
+                  placeholder="Use Zimbabwean examples and include video resources."
                 />
               </div>
-            </div>
 
-            <div className="form-group">
-              <label>Topic / Keyword</label>
-              <input
-                type="text"
-                value={formData.topic}
-                onChange={(e) => setFormField("topic", e.target.value)}
-                placeholder="e.g. Rivers of Africa"
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Curriculum</label>
-              <select
-                value={formData.curriculum}
-                onChange={(e) => setFormField("curriculum", e.target.value)}
-              >
-                <option value="ZIMSEC">ZIMSEC</option>
-                <option value="Cambridge">Cambridge</option>
-                <option value="General">General</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label>Notes (Optional)</label>
-              <textarea
-                value={formData.notes}
-                onChange={(e) => setFormField("notes", e.target.value)}
-                rows="3"
-                placeholder="e.g. Focus on local Zimbabwean context, include YouTube videos"
-              ></textarea>
-            </div>
-
-            <div className="button-group">
               <button
                 type="submit"
                 disabled={isLoading}
-                className="generate-btn"
+                className="rf-button rf-button-primary"
               >
-                {isLoading ? "Searching..." : "Find Resources"}
+                <FiSearch aria-hidden="true" />
+                {isLoading ? "Searching..." : "Find resources"}
               </button>
+            </form>
+          </section>
 
+          <section
+            className="rf-panel rf-output-panel"
+            aria-labelledby="rf-results"
+          >
+            <div className="rf-output-heading">
+              <div>
+                <h2 id="rf-results">Recommended resources</h2>
+                <p>Check every link and recommendation before sharing it.</p>
+              </div>
               {resources && !isLoading && (
                 <button
                   type="button"
                   onClick={saveAsPdf}
-                  className="generate-btn secondary"
+                  className="rf-button rf-button-secondary"
                 >
-                  Save as PDF
+                  <FiDownload aria-hidden="true" /> Save as PDF
                 </button>
               )}
             </div>
-          </form>
-        </div>
 
-        {/* 🧩 Results Section */}
-        <div className="planner-output-section">
-          {isLoading && (
-            <div className="loading-overlay">
-              <div className="spinner"></div>
-              <p>Finding educational resources...</p>
+            <div aria-live="polite">
+              {isLoading && (
+                <div className="rf-state" role="status">
+                  <div className="rf-spinner" aria-hidden="true" />
+                  <h3>Searching for teaching materials</h3>
+                  <p>
+                    Chikoro AI is matching resources to your topic and
+                    curriculum.
+                  </p>
+                </div>
+              )}
+
+              {error && !isLoading && (
+                <div className="rf-error" role="alert">
+                  <FiAlertCircle size={18} aria-hidden="true" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {resources && !isLoading ? (
+                <div className="rf-results" ref={resourceRef}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {resources}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                !isLoading &&
+                !error && (
+                  <div className="rf-state">
+                    <div className="rf-state-icon" aria-hidden="true">
+                      <FiBookOpen size={24} />
+                    </div>
+                    <h3>Start with a subject and topic</h3>
+                    <p>
+                      Your curated list will appear here, ready to review and
+                      export.
+                    </p>
+                  </div>
+                )
+              )}
             </div>
-          )}
-          {error && <div className="error-message">{error}</div>}
-          {resources && !isLoading ? (
-            <div className="generated-plan markdown-body" ref={resourceRef}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {resources}
-              </ReactMarkdown>
-            </div>
-          ) : (
-            !isLoading && (
-              <div className="placeholder-text">
-                Your AI-curated teaching resources will appear here.
-              </div>
-            )
-          )}
+          </section>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
